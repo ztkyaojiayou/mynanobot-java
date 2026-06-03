@@ -1,0 +1,96 @@
+# Nanobot-Java 配置文件
+# =====================
+#
+# 复制到 ~/.nanobot/config.yaml 并修改相应值
+
+# Agent 配置
+agents:
+  defaults:
+    # 工作空间目录
+    workspace: "~/.nanobot/workspace"
+    
+    # 默认模型（支持格式：provider/model）
+    # 可用模型：
+    # - anthropic/claude-sonnet-4-20250514
+    # - anthropic/claude-opus-4-20250514
+    # - gpt-4-turbo-preview
+    # - gpt-4o
+    # - o1-preview
+    model: "anthropic/claude-sonnet-4-20250514"
+    
+    # 提供商（设为 "auto" 自动检测）
+    provider: "auto"
+    
+    # 最大输出 token 数
+    maxTokens: 8192
+    
+    # 上下文窗口大小
+    contextWindowTokens: 200000
+    
+    # 温度参数（0.0 - 2.0）
+    temperature: 0.7
+    
+    # 最大工具迭代次数
+    maxToolIterations: 100
+    
+    # 时区
+    timezone: "UTC"
+    
+    # 是否统一会话
+    unifiedSession: false
+
+# LLM 提供商配置
+providers:
+  anthropic:
+    # Anthropic API 密钥
+    apiKey: ""
+    # 可选：自定义 API 端点
+    # apiBase: "https://api.anthropic.com"
+  
+  openai:
+    # OpenAI API 密钥
+    apiKey: ""
+    apiBase: ""
+  
+  openrouter:
+    apiKey: ""
+    apiBase: "https://openrouter.ai/api/v1"
+  
+  deepseek:
+    apiKey: ""
+    apiBase: "https://api.deepseek.com"
+
+# 工具配置
+tools:
+  # 是否限制工具只能访问工作空间
+  restrictToWorkspace: false
+  
+  exec:
+    # 是否启用命令执行
+    enable: true
+    # 执行超时（秒）
+    timeout: 60
+  
+  web:
+    enable: true
+    search:
+      provider: "duckduckgo"
+      maxResults: 5
+      timeout: 30
+
+# 通道配置
+channels:
+  # 是否发送进度消息
+  sendProgress: true
+  # 是否发送工具提示
+  sendToolHints: false
+  # 最大发送重试次数
+  sendMaxRetries: 3
+
+# 内存配置
+memory:
+  dream:
+    # Dream 执行间隔（小时）
+    intervalHours: 2
+    # 每批最大条目数
+    maxBatchSize: 20

@@ -1,0 +1,109 @@
+package com.nanobot.tools.impl;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nanobot.tools.Tool;
+
+import java.io.IOException;
+import java.nio.file.*;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * 写入文件工具
+ * =================
+ * 
+ * 将内容写入指定文件。如果文件存在会覆盖。
+ * 
+ * 参数：
+ * - path: 文件路径（必填）
+ * - content: 文件内容（必填）
+ * - append: 是否追加（可选）
+ */
+public class WriteFileTool implements Tool {
+    
+    private static final ObjectMapper mapper = new ObjectMapper();
+    private final Path basePath;
+    
+    public WriteFileTool(String basePath) {
+        this.basePath = Paths.get(basePath);
+    }
+    
+    @Override
+    public String getName() {
+        return "write_file";
+    }
+    
+    @Override
+    public String getDescription() {
+        return "Write content to a file. Creates new file or overwrites existing.";
+    }
+    
+    @Override
+    public JsonNode getParameters() {
+        ObjectNode props = mapper.createObjectNode()
+            .put("type", "object")
+            .putObject("properties");
+        
+        props.putObject("path")
+            .put("type", "string")
+            .put("description", "File path to write");
+        
+        props.putObject("content")
+            .put("type", "string")
+            .put("description", "Content to write");
+        
+        props.putObject("append")
+            .put("type", "boolean")
+            .put("description", "Append to file instead of overwriting");
+        
+        return props.putArray("required").add("path").add("content");
+    }
+    
+    @Override
+    public CompletableFuture<Object> execute(Map<String, Object> params) {
+        return CompletableFuture.supplyAsync(() -> {
+            String pathStr = (String) params.get("path");
+            String content = (String) params.get("content");
+            Boolean append = (Boolean) params.getOrDefault("append", false);
+            
+            if (pathStr == null || content == null) {
+                return "Error: path and content are required";
+            }
+            
+            try {
+                Path filePath = resolvePath(pathStr);
+                
+                Path parent = filePath.getParent();
+                if (parent != null && !Files.exists(parent)) {
+                    Files.createDirectories(parent);
+                }
+                
+                if (Boolean.TRUE.equals(append)) {
+                    Files.writeString(filePath, content, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                } else {
+                    Files.writeString(filePath, content);
+                }
+                
+                return "File written successfully: " + pathStr;
+                
+            } catch (IOException e) {
+                return "Error writing file: " + e.getMessage();
+            }
+        });
+    }
+    
+    @Override
+    public boolean isReadOnly() {
+        return false;
+    }
+    
+    private Path resolvePath(String path) {
+        Path p = Paths.get(path);
+        if (p.isAbsolute()) {
+            return p.normalize();
+        }
+        return basePath.resolve(p).normalize();
+    }
+}

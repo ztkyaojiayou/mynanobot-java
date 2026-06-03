@@ -1,0 +1,269 @@
+package com.nanobot.core.hook;
+
+import com.nanobot.core.TurnContext;
+import com.nanobot.providers.LLMResponse;
+
+import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/**
+ * 钩子上下文 - 传递钩子需要的信息
+ * ===================================
+ * 
+ * AgentHookContext 保存钩子执行时需要的所有信息。
+ * 它是只读的快照，不应该被修改。
+ * 
+ * **包含的信息**：
+ * 
+ * 1. **会话信息**：
+ *    - 会话键
+ *    - 当前状态
+ *    - 迭代次数
+ * 
+ * 2. **消息历史**：
+ *    - 消息列表
+ *    - 最新响应
+ * 
+ * 3. **工具调用**：
+ *    - 待执行的工具调用
+ *    - 已执行的结果
+ * 
+ * 4. **内容**：
+ *    - 最终内容
+ *    - 流式片段
+ * 
+ * 5. **统计**：
+ *    - Token 使用
+ *    - 耗时
+ */
+public class AgentHookContext {
+    
+    // ==================== 只读字段 ====================
+    
+    /** 会话键 */
+    private final String sessionKey;
+    
+    /** 迭代次数 */
+    private final int iteration;
+    
+    /** 当前状态 */
+    private final String state;
+    
+    /** 消息列表 */
+    private final List<Map<String, Object>> messages;
+    
+    /** 最新 LLM 响应 */
+    private final LLMResponse response;
+    
+    /** 待执行的工具调用 */
+    private final List<LLMResponse.ToolCallRequest> toolCalls;
+    
+    /** 工具结果 */
+    private final List<Map<String, Object>> toolResults;
+    
+    /** Token 使用 */
+    private final Map<String, Integer> usage;
+    
+    // ==================== 可变字段 ====================
+    
+    /** 最终内容 */
+    private volatile String finalContent;
+    
+    /** 停止原因 */
+    private volatile String stopReason;
+    
+    /** 是否流式输出 */
+    private volatile boolean streamedContent;
+    
+    /** 流式片段数 */
+    private volatile int streamDeltaCount;
+    
+    /** 错误信息 */
+    private volatile String error;
+    
+    /** 是否已处理（用于取消） */
+    private final AtomicBoolean handled = new AtomicBoolean(false);
+    
+    // ==================== 构造函数 ====================
+    
+    /**
+     * 从 TurnContext 创建
+     */
+    public static AgentHookContext from(TurnContext context) {
+        return new Builder()
+            .sessionKey(context.getSessionKey())
+            .iteration(context.getIteration())
+            .state(context.getState().name())
+            .messages(context.getMessages())
+            .response(context.getResponse())
+            .toolCalls(context.getToolCalls())
+            .toolResults(context.getToolResults())
+            .usage(context.getUsage())
+            .finalContent(context.getFinalContent())
+            .stopReason(context.getStopReason())
+            .error(context.getError())
+            .build();
+    }
+    
+    /**
+     * 私有构造函数
+     */
+    private AgentHookContext(Builder builder) {
+        this.sessionKey = builder.sessionKey;
+        this.iteration = builder.iteration;
+        this.state = builder.state;
+        this.messages = builder.messages != null ? List.copyOf(builder.messages) : List.of();
+        this.response = builder.response;
+        this.toolCalls = builder.toolCalls != null ? List.copyOf(builder.toolCalls) : List.of();
+        this.toolResults = builder.toolResults != null ? List.copyOf(builder.toolResults) : List.of();
+        this.usage = builder.usage != null ? Map.copyOf(builder.usage) : Map.of();
+        this.finalContent = builder.finalContent;
+        this.stopReason = builder.stopReason;
+        this.error = builder.error;
+    }
+    
+    // ==================== Getter ====================
+    
+    public String getSessionKey() { return sessionKey; }
+    public int getIteration() { return iteration; }
+    public String getState() { return state; }
+    public List<Map<String, Object>> getMessages() { return messages; }
+    public Optional<LLMResponse> getResponse() { return Optional.ofNullable(response); }
+    public List<LLMResponse.ToolCallRequest> getToolCalls() { return toolCalls; }
+    public List<Map<String, Object>> getToolResults() { return toolResults; }
+    public Map<String, Integer> getUsage() { return usage; }
+    public String getFinalContent() { return finalContent; }
+    public Optional<String> getStopReason() { return Optional.ofNullable(stopReason); }
+    public Optional<String> getError() { return Optional.ofNullable(error); }
+    public int getStreamDeltaCount() { return streamDeltaCount; }
+    public boolean isStreamedContent() { return streamedContent; }
+    
+    // ==================== Mutator ====================
+    
+    public void setFinalContent(String content) {
+        this.finalContent = content;
+    }
+    
+    public void incrementStreamDelta() {
+        this.streamDeltaCount++;
+        this.streamedContent = true;
+    }
+    
+    public void setStopReason(String reason) {
+        this.stopReason = reason;
+    }
+    
+    public void setError(String error) {
+        this.error = error;
+    }
+    
+    public boolean markHandled() {
+        return handled.compareAndSet(false, true);
+    }
+    
+    // ==================== 便捷方法 ====================
+    
+    public boolean hasError() {
+        return error != null;
+    }
+    
+    public boolean hasToolCalls() {
+        return !toolCalls.isEmpty();
+    }
+    
+    public int getTotalTokens() {
+        return usage.getOrDefault("totalTokens", 0);
+    }
+    
+    public String getSummary() {
+        return String.format(
+            "HookContext{session=%s, iter=%d, state=%s, tokens=%d, toolCalls=%d}",
+            sessionKey, iteration, state, getTotalTokens(), toolCalls.size()
+        );
+    }
+    
+    @Override
+    public String toString() {
+        return "AgentHookContext{" +
+            "sessionKey='" + sessionKey + '\'' +
+            ", iteration=" + iteration +
+            ", state='" + state + '\'' +
+            ", finalContent='" + (finalContent != null ? finalContent.substring(0, Math.min(50, finalContent.length())) + "..." : "null") + '\'' +
+            '}';
+    }
+    
+    // ==================== Builder ====================
+    
+    public static class Builder {
+        private String sessionKey;
+        private int iteration;
+        private String state;
+        private List<Map<String, Object>> messages;
+        private LLMResponse response;
+        private List<LLMResponse.ToolCallRequest> toolCalls;
+        private List<Map<String, Object>> toolResults;
+        private Map<String, Integer> usage;
+        private String finalContent;
+        private String stopReason;
+        private String error;
+        
+        public Builder sessionKey(String sessionKey) {
+            this.sessionKey = sessionKey;
+            return this;
+        }
+        
+        public Builder iteration(int iteration) {
+            this.iteration = iteration;
+            return this;
+        }
+        
+        public Builder state(String state) {
+            this.state = state;
+            return this;
+        }
+        
+        public Builder messages(List<Map<String, Object>> messages) {
+            this.messages = messages;
+            return this;
+        }
+        
+        public Builder response(LLMResponse response) {
+            this.response = response;
+            return this;
+        }
+        
+        public Builder toolCalls(List<LLMResponse.ToolCallRequest> toolCalls) {
+            this.toolCalls = toolCalls;
+            return this;
+        }
+        
+        public Builder toolResults(List<Map<String, Object>> toolResults) {
+            this.toolResults = toolResults;
+            return this;
+        }
+        
+        public Builder usage(Map<String, Integer> usage) {
+            this.usage = usage;
+            return this;
+        }
+        
+        public Builder finalContent(String finalContent) {
+            this.finalContent = finalContent;
+            return this;
+        }
+        
+        public Builder stopReason(String stopReason) {
+            this.stopReason = stopReason;
+            return this;
+        }
+        
+        public Builder error(String error) {
+            this.error = error;
+            return this;
+        }
+        
+        public AgentHookContext build() {
+            return new AgentHookContext(this);
+        }
+    }
+}
