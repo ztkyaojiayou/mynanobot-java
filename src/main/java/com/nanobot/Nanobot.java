@@ -1,6 +1,7 @@
 package com.nanobot;
 
 import com.nanobot.bus.MessageBus;
+import com.nanobot.channels.ChannelServer;
 import com.nanobot.config.Config;
 import com.nanobot.config.ConfigLoader;
 import com.nanobot.core.AgentLoop;
@@ -55,6 +56,7 @@ public class Nanobot {
     private MemoryStore memoryStore;
     private AgentLoop agentLoop;
     private MCPManager mcpManager;
+    private ChannelServer channelServer;
     
     // ==================== 状态 ====================
     
@@ -244,8 +246,22 @@ public class Nanobot {
             config
         );
         
-        // 启动
+        // 启动 Agent Loop
         agentLoop.start();
+        
+        // 启动 HTTP/WebSocket 服务器
+        Config.ServerConfig serverConfig = config.getChannels().getServer();
+        if (serverConfig.isEnable()) {
+            try {
+                channelServer = new ChannelServer(messageBus, serverConfig.getPort());
+                channelServer.start();
+                logger.info("ChannelServer started on http://{}:{}", 
+                           serverConfig.getHost(), serverConfig.getPort());
+            } catch (java.io.IOException e) {
+                logger.error("Failed to start ChannelServer: {}", e.getMessage());
+            }
+        }
+        
         running = true;
         
         logger.info("Nanobot started successfully");
@@ -266,6 +282,10 @@ public class Nanobot {
         running = false;
         
         // 停止组件
+        if (channelServer != null) {
+            channelServer.stop();
+        }
+        
         if (agentLoop != null) {
             agentLoop.stop();
         }

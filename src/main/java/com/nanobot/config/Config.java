@@ -387,6 +387,9 @@ public class Config {
         /** Discord 通道配置 */
         private JsonNode discord;
         
+        /** HTTP/WebSocket 服务器配置 */
+        private ServerConfig server = new ServerConfig();
+        
         public boolean isSendProgress() { return sendProgress; }
         public void setSendProgress(boolean sendProgress) { this.sendProgress = sendProgress; }
         
@@ -407,6 +410,33 @@ public class Config {
         
         public JsonNode getDiscord() { return discord; }
         public void setDiscord(JsonNode discord) { this.discord = discord; }
+        
+        public ServerConfig getServer() { return server; }
+        public void setServer(ServerConfig server) { this.server = server; }
+    }
+    
+    /**
+     * HTTP/WebSocket 服务器配置
+     */
+    public static class ServerConfig {
+        
+        /** 是否启用服务器 */
+        private boolean enable = true;
+        
+        /** 监听端口 */
+        private int port = 8080;
+        
+        /** 绑定地址 */
+        private String host = "0.0.0.0";
+        
+        public boolean isEnable() { return enable; }
+        public void setEnable(boolean enable) { this.enable = enable; }
+        
+        public int getPort() { return port; }
+        public void setPort(int port) { this.port = port; }
+        
+        public String getHost() { return host; }
+        public void setHost(String host) { this.host = host; }
     }
     
     // ==================== 工具配置类 ====================

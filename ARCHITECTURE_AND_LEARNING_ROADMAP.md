@@ -64,8 +64,133 @@ Nanobot-Java 是基于香港大学开源的 Nanobot（mini 版 OpenClaw）项目
 | **MCPManager** | MCP 服务器管理和工具注册 | `mcp/MCPManager.java` |
 | **MCPClient / StdioMCPClient / HttpMCPClient** | MCP 客户端实现 | `mcp/` |
 | **MCPToolWrapper** | MCP 工具包装器 | `mcp/MCPToolWrapper.java` |
+| **CronScheduler** | 定时任务调度器 | `cron/CronScheduler.java` |
+| **Consolidator** | 记忆压缩器 | `memory/Consolidator.java` |
+| **Dream** | 长期记忆系统 | `memory/Dream.java` |
+| **ChannelServer** | 多通道接入服务器 | `channels/ChannelServer.java` |
 
-### 2.3 状态机流程
+### 2.3 定时任务系统 (CronScheduler)
+
+**功能说明**：基于 cron 表达式的定时任务调度器，支持在指定时间执行任务。
+
+**支持的 cron 表达式格式**：
+```
+┌───────────── 分钟 (0 - 59)
+│ ┌───────────── 小时 (0 - 23)
+│ │ ┌───────────── 日期 (1 - 31)
+│ │ │ ┌───────────── 月份 (1 - 12)
+│ │ │ │ ┌───────────── 星期 (0 - 6) (周日=0)
+│ │ │ │ │
+* * * * *
+```
+
+**使用示例**：
+```java
+CronScheduler scheduler = new CronScheduler(messageBus);
+scheduler.schedule("0 * * * *", () -> {
+    messageBus.publish(OutboundMessage.builder()
+        .channel("system")
+        .content("每分钟执行一次")
+        .build());
+});
+```
+
+**支持的特殊字符**：
+- `*` : 匹配任何值
+- `?` : 不指定值（用于日期和星期）
+- `,` : 列出多个值
+- `-` : 指定范围
+- `/` : 步长
+
+### 2.4 记忆压缩系统 (Consolidator)
+
+**功能说明**：当对话历史超过 token 预算时，自动压缩历史消息，保留关键信息。
+
+**压缩策略**：
+1. 计算当前对话的 token 使用量
+2. 如果超过预算，选择最不重要的消息进行压缩
+3. 使用 LLM 对选中的消息进行总结
+4. 用总结替换原始消息
+
+**优先级规则**：
+- 系统消息：最高优先级，不压缩
+- 工具调用结果：高优先级，保留关键结果
+- 用户消息：中等优先级，可适当压缩
+- 助手消息：低优先级，优先压缩
+
+**核心方法**：
+```java
+// 压缩消息列表
+CompletableFuture<List<Map<String, Object>>> consolidate(List<Map<String, Object>> messages)
+
+// 检查是否需要压缩
+boolean needsConsolidation(List<Map<String, Object>> messages)
+
+// 获取当前 token 使用量
+int getCurrentUsage(List<Map<String, Object>> messages)
+```
+
+### 2.5 长期记忆系统 (Dream)
+
+**功能说明**：实现 AI Agent 的长期记忆功能，允许 Agent 存储和检索长期信息。
+
+**核心功能**：
+1. **记忆存储** - 将对话中的关键信息保存到长期记忆
+2. **记忆检索** - 根据当前上下文检索相关记忆
+3. **记忆整合** - 将新信息与现有记忆融合
+4. **记忆清理** - 移除过时或重复的记忆
+
+**记忆结构**：
+| 字段 | 说明 |
+|------|------|
+| id | 唯一标识 |
+| content | 记忆内容 |
+| keywords | 关键词标签 |
+| timestamp | 创建时间 |
+| importance | 重要性分数 (0-1) |
+| source | 来源会话 ID |
+
+**核心方法**：
+```java
+// 从对话中提取并存储记忆
+CompletableFuture<List<MemoryEntry>> extractAndStore(String sessionId, List<Map<String, Object>> messages)
+
+// 检索相关记忆
+CompletableFuture<List<MemoryEntry>> retrieve(String query, int limit)
+
+// 整合新信息到现有记忆
+CompletableFuture<MemoryEntry> consolidate(MemoryEntry newMemory)
+
+// 清理过时记忆
+void cleanup()
+```
+
+### 2.6 多通道接入系统 (ChannelServer)
+
+**功能说明**：提供 HTTP 和 WebSocket 通道的统一管理，允许客户端通过多种方式与 Agent 交互。
+
+**支持的通道类型**：
+
+| 通道类型 | 说明 | 端点 |
+|---------|------|------|
+| HTTP REST | 同步请求/响应模式 | `/api/chat` |
+| WebSocket | 异步双向通信 | `/ws` |
+
+**HTTP API 端点**：
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/chat` | POST | 发送消息 |
+| `/api/sessions` | GET | 获取会话列表 |
+| `/api/sessions/{id}` | DELETE | 删除会话 |
+
+**使用示例**：
+```java
+ChannelServer server = new ChannelServer(messageBus, 8080);
+server.start();
+```
+
+### 2.7 状态机流程
 
 `AgentLoop` 采用状态机模式管理消息处理：
 
@@ -111,8 +236,14 @@ nanobot-java/
 │   │       ├── AgentHook.java
 │   │       ├── AgentHookContext.java
 │   │       └── CompositeHook.java
+│   ├── channels/              # 多通道接入
+│   │   └── ChannelServer.java
+│   ├── cron/                   # 定时任务系统
+│   │   └── CronScheduler.java
 │   ├── memory/                # 内存存储
-│   │   └── MemoryStore.java
+│   │   ├── MemoryStore.java
+│   │   ├── Consolidator.java   # 记忆压缩器
+│   │   └── Dream.java          # 长期记忆系统
 │   ├── mcp/                   # MCP (Model Context Protocol)
 │   │   ├── MCPClient.java
 │   │   ├── StdioMCPClient.java
@@ -138,9 +269,11 @@ nanobot-java/
 │           ├── WriteFileTool.java
 │           ├── EditFileTool.java
 │           ├── ListDirTool.java
-│           ├── GlobTool.java
-│           ├── GrepTool.java
-│           └── ExecTool.java
+│       │   │   ├── GlobTool.java
+│   │   ├── GrepTool.java
+│   │   ├── ExecTool.java
+│   │   ├── WebSearchTool.java    # 网页搜索工具
+│   │   └── WebFetchTool.java     # 网页内容抓取工具
 ├── src/main/resources/
 │   ├── config/
 │   │   └── config.yaml

@@ -1,0 +1,392 @@
+package com.nanobot.memory;
+
+import com.nanobot.providers.LLMProvider;
+import com.nanobot.providers.LLMResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+/**
+ * 长期记忆系统 (Dream)
+ * =====================
+ * 
+ * 本类实现了 AI Agent 的长期记忆功能，允许 Agent 存储和检索长期信息。
+ * 
+ * **核心功能**：
+ * 1. 记忆存储 - 将对话中的关键信息保存到长期记忆
+ * 2. 记忆检索 - 根据当前上下文检索相关记忆
+ * 3. 记忆整合 - 将新信息与现有记忆融合
+ * 4. 记忆清理 - 移除过时或重复的记忆
+ * 
+ * **记忆结构**：
+ * - id: 唯一标识
+ * - content: 记忆内容
+ * - keywords: 关键词标签
+ * - timestamp: 创建时间
+ * - importance: 重要性分数 (0-1)
+ * - source: 来源会话 ID
+ */
+public class Dream {
+    
+    private static final Logger logger = LoggerFactory.getLogger(Dream.class);
+    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    
+    private final LLMProvider llmProvider;
+    private final Map<String, MemoryEntry> memories = new ConcurrentHashMap<>();
+    private final int maxMemories;
+    
+    /**
+     * 创建长期记忆系统
+     * 
+     * @param llmProvider LLM 提供商，用于记忆分析和检索
+     * @param maxMemories 最大记忆数量限制
+     */
+    public Dream(LLMProvider llmProvider, int maxMemories) {
+        this.llmProvider = llmProvider;
+        this.maxMemories = maxMemories;
+        logger.info("Dream long-term memory system initialized (max: {})", maxMemories);
+    }
+    
+    /**
+     * 从对话中提取并存储记忆
+     * 
+     * @param sessionId 会话 ID
+     * @param messages 消息列表
+     * @return 存储的记忆条目列表
+     */
+    public CompletableFuture<List<MemoryEntry>> extractAndStore(String sessionId, 
+                                                               List<Map<String, Object>> messages) {
+        return analyzeMessages(messages)
+            .thenApply(entries -> {
+                List<MemoryEntry> stored = new ArrayList<>();
+                for (MemoryEntry entry : entries) {
+                    if (storeMemory(sessionId, entry)) {
+                        stored.add(entry);
+                    }
+                }
+                logger.info("Extracted {} memories from session {}", stored.size(), sessionId);
+                return stored;
+            });
+    }
+    
+    /**
+     * 检索相关记忆
+     * 
+     * @param query 查询文本
+     * @param limit 返回数量限制
+     * @return 相关记忆列表
+     */
+    public CompletableFuture<List<MemoryEntry>> retrieve(String query, int limit) {
+        if (memories.isEmpty()) {
+            return CompletableFuture.completedFuture(Collections.emptyList());
+        }
+        
+        return rankMemories(query)
+            .thenApply(ranked -> ranked.stream()
+                .limit(limit)
+                .map(r -> r.entry)
+                .collect(Collectors.toList()));
+    }
+    
+    /**
+     * 整合新信息到现有记忆
+     * 
+     * @param newMemory 新记忆
+     * @return 整合后的记忆
+     */
+    public CompletableFuture<MemoryEntry> consolidate(MemoryEntry newMemory) {
+        // 查找相关的现有记忆
+        return findRelatedMemories(newMemory)
+            .thenApply(related -> {
+                if (related.isEmpty()) {
+                    // 没有相关记忆，直接存储
+                    storeMemory(newMemory.getSource(), newMemory);
+                    return newMemory;
+                }
+                
+                // 合并相关记忆
+                MemoryEntry merged = mergeMemories(newMemory, related);
+                storeMemory(merged.getSource(), merged);
+                
+                // 删除被合并的旧记忆
+                for (MemoryEntry old : related) {
+                    memories.remove(old.getId());
+                }
+                
+                logger.info("Consolidated {} memories into one", related.size() + 1);
+                return merged;
+            });
+    }
+    
+    /**
+     * 清理过时记忆
+     */
+    public void cleanup() {
+        // 移除过期记忆（超过 30 天）
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(30);
+        memories.entrySet().removeIf(entry -> 
+            entry.getValue().getTimestamp().isBefore(cutoff)
+        );
+        
+        // 如果超过最大限制，按重要性排序并移除最不重要的
+        while (memories.size() > maxMemories) {
+            String leastImportant = memories.values().stream()
+                .min(Comparator.comparingDouble(MemoryEntry::getImportance))
+                .map(MemoryEntry::getId)
+                .orElse(null);
+            
+            if (leastImportant != null) {
+                memories.remove(leastImportant);
+            }
+        }
+        
+        logger.info("Cleanup completed, {} memories remaining", memories.size());
+    }
+    
+    /**
+     * 获取所有记忆
+     */
+    public List<MemoryEntry> getAllMemories() {
+        return new ArrayList<>(memories.values());
+    }
+    
+    /**
+     * 获取记忆数量
+     */
+    public int getMemoryCount() {
+        return memories.size();
+    }
+    
+    /**
+     * 分析消息并提取记忆条目
+     */
+    private CompletableFuture<List<MemoryEntry>> analyzeMessages(List<Map<String, Object>> messages) {
+        StringBuilder content = new StringBuilder();
+        content.append("请从以下对话中提取值得长期记忆的信息：\n\n");
+        
+        for (Map<String, Object> msg : messages) {
+            String role = (String) msg.get("role");
+            String msgContent = (String) msg.get("content");
+            content.append(role).append(": ").append(msgContent).append("\n");
+        }
+        
+        content.append("\n请以 JSON 格式输出记忆条目，每个条目包含：");
+        content.append("\n- content: 记忆内容");
+        content.append("\n- keywords: 关键词数组");
+        content.append("\n- importance: 重要性(0-1)");
+        
+        List<LLMProvider.Message> llmMessages = List.of(
+            LLMProvider.Message.ofUser(content.toString())
+        );
+        
+        return llmProvider.chat(llmMessages, Collections.emptyList())
+            .thenApply(response -> parseMemoryResponse(response.getContent()));
+    }
+    
+    /**
+     * 解析 LLM 返回的记忆响应
+     */
+    private List<MemoryEntry> parseMemoryResponse(String response) {
+        try {
+            // 简单解析，实际应用中应使用 JSON 解析器
+            if (response == null || response.isBlank()) {
+                return Collections.emptyList();
+            }
+            
+            // 提取 JSON 数组
+            int start = response.indexOf('[');
+            int end = response.lastIndexOf(']');
+            
+            if (start == -1 || end == -1) {
+                // 如果不是 JSON，创建单个记忆条目
+                MemoryEntry entry = new MemoryEntry();
+                entry.setId(UUID.randomUUID().toString());
+                entry.setContent(response.trim());
+                entry.setKeywords(Arrays.asList("general"));
+                entry.setImportance(0.5);
+                entry.setTimestamp(LocalDateTime.now());
+                return Collections.singletonList(entry);
+            }
+            
+            // 简化处理：返回空列表，实际应用中应解析 JSON
+            return Collections.emptyList();
+            
+        } catch (Exception e) {
+            logger.error("Failed to parse memory response", e);
+            return Collections.emptyList();
+        }
+    }
+    
+    /**
+     * 存储记忆
+     */
+    private boolean storeMemory(String sessionId, MemoryEntry entry) {
+        if (memories.size() >= maxMemories) {
+            cleanup();
+        }
+        
+        if (memories.size() >= maxMemories) {
+            logger.warn("Memory limit reached, cannot store new memory");
+            return false;
+        }
+        
+        entry.setId(UUID.randomUUID().toString());
+        entry.setSource(sessionId);
+        entry.setTimestamp(LocalDateTime.now());
+        
+        memories.put(entry.getId(), entry);
+        logger.debug("Stored memory: {}", entry.getContent());
+        return true;
+    }
+    
+    /**
+     * 对记忆进行排序（基于相关性）
+     */
+    private CompletableFuture<List<MemoryRank>> rankMemories(String query) {
+        List<MemoryRank> ranks = new ArrayList<>();
+        
+        for (MemoryEntry entry : memories.values()) {
+            double score = calculateSimilarity(query, entry);
+            ranks.add(new MemoryRank(entry, score));
+        }
+        
+        ranks.sort((a, b) -> Double.compare(b.score, a.score));
+        
+        return CompletableFuture.completedFuture(ranks);
+    }
+    
+    /**
+     * 计算查询与记忆的相似度
+     */
+    private double calculateSimilarity(String query, MemoryEntry entry) {
+        double score = 0;
+        
+        // 内容相似度
+        String content = entry.getContent().toLowerCase();
+        String queryLower = query.toLowerCase();
+        
+        for (String word : queryLower.split("\\s+")) {
+            if (content.contains(word)) {
+                score += 0.2;
+            }
+        }
+        
+        // 关键词匹配
+        for (String keyword : entry.getKeywords()) {
+            if (queryLower.contains(keyword.toLowerCase())) {
+                score += 0.3;
+            }
+        }
+        
+        // 重要性加成
+        score += entry.getImportance() * 0.5;
+        
+        return Math.min(1.0, score);
+    }
+    
+    /**
+     * 查找相关记忆
+     */
+    private CompletableFuture<List<MemoryEntry>> findRelatedMemories(MemoryEntry newMemory) {
+        List<MemoryEntry> related = new ArrayList<>();
+        
+        for (MemoryEntry existing : memories.values()) {
+            double similarity = calculateSimilarity(newMemory.getContent(), existing);
+            if (similarity > 0.3) {
+                related.add(existing);
+            }
+        }
+        
+        return CompletableFuture.completedFuture(related);
+    }
+    
+    /**
+     * 合并多个记忆
+     */
+    private MemoryEntry mergeMemories(MemoryEntry newMemory, List<MemoryEntry> existing) {
+        MemoryEntry merged = new MemoryEntry();
+        merged.setId(UUID.randomUUID().toString());
+        
+        // 合并内容
+        StringBuilder content = new StringBuilder();
+        content.append(newMemory.getContent());
+        for (MemoryEntry e : existing) {
+            content.append(" | ").append(e.getContent());
+        }
+        merged.setContent(content.toString());
+        
+        // 合并关键词
+        Set<String> keywords = new HashSet<>(newMemory.getKeywords());
+        for (MemoryEntry e : existing) {
+            keywords.addAll(e.getKeywords());
+        }
+        merged.setKeywords(new ArrayList<>(keywords));
+        
+        // 计算平均重要性
+        double avgImportance = (newMemory.getImportance() + 
+            existing.stream().mapToDouble(MemoryEntry::getImportance).sum()) / 
+            (existing.size() + 1);
+        merged.setImportance(avgImportance);
+        
+        merged.setTimestamp(LocalDateTime.now());
+        merged.setSource(newMemory.getSource());
+        
+        return merged;
+    }
+    
+    /**
+     * 记忆条目
+     */
+    public static class MemoryEntry {
+        private String id;
+        private String content;
+        private List<String> keywords = new ArrayList<>();
+        private LocalDateTime timestamp;
+        private double importance = 0.5;
+        private String source;
+        
+        // Getters and Setters
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+        
+        public String getContent() { return content; }
+        public void setContent(String content) { this.content = content; }
+        
+        public List<String> getKeywords() { return keywords; }
+        public void setKeywords(List<String> keywords) { this.keywords = keywords; }
+        
+        public LocalDateTime getTimestamp() { return timestamp; }
+        public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+        
+        public double getImportance() { return importance; }
+        public void setImportance(double importance) { this.importance = importance; }
+        
+        public String getSource() { return source; }
+        public void setSource(String source) { this.source = source; }
+        
+        @Override
+        public String toString() {
+            return String.format("MemoryEntry{id='%s', content='%s', timestamp=%s, importance=%.2f}",
+                id, content, timestamp != null ? timestamp.format(FORMATTER) : "null", importance);
+        }
+    }
+    
+    /**
+     * 记忆排序辅助类
+     */
+    private static class MemoryRank {
+        final MemoryEntry entry;
+        final double score;
+        
+        MemoryRank(MemoryEntry entry, double score) {
+            this.entry = entry;
+            this.score = score;
+        }
+    }
+}

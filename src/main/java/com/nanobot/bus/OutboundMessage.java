@@ -136,6 +136,20 @@ public class OutboundMessage {
      */
     private final List<List<String>> buttons;
     
+    /**
+     * 连接 ID
+     * 
+     * 用于 WebSocket 连接场景，标识消息应该发送到哪个连接。
+     */
+    private final String connectionId;
+    
+    /**
+     * 会话 ID
+     * 
+     * 关联的会话标识。
+     */
+    private final String sessionId;
+    
     // ==================== 构造函数 ====================
     
     /**
@@ -149,6 +163,8 @@ public class OutboundMessage {
         this.media = builder.media != null ? List.copyOf(builder.media) : List.of();
         this.metadata = builder.metadata != null ? Map.copyOf(builder.metadata) : Map.of();
         this.buttons = builder.buttons != null ? List.copyOf(builder.buttons) : List.of();
+        this.connectionId = builder.connectionId;
+        this.sessionId = builder.sessionId;
     }
     
     // ==================== 获取方法 ====================
@@ -179,6 +195,14 @@ public class OutboundMessage {
     
     public List<List<String>> getButtons() {
         return buttons;
+    }
+    
+    public String getConnectionId() {
+        return connectionId;
+    }
+    
+    public String getSessionId() {
+        return sessionId;
     }
     
     /**
@@ -320,7 +344,9 @@ public class OutboundMessage {
             .replyTo(this.replyTo)
             .media(this.media)
             .metadata(this.metadata)
-            .buttons(this.buttons);
+            .buttons(this.buttons)
+            .connectionId(this.connectionId)
+            .sessionId(this.sessionId);
     }
     
     public static class Builder {
@@ -331,6 +357,8 @@ public class OutboundMessage {
         private List<String> media;
         private Map<String, Object> metadata;
         private List<List<String>> buttons;
+        private String connectionId;
+        private String sessionId;
         
         public Builder channel(String channel) {
             this.channel = channel;
@@ -375,6 +403,16 @@ public class OutboundMessage {
             return this;
         }
         
+        public Builder connectionId(String connectionId) {
+            this.connectionId = connectionId;
+            return this;
+        }
+        
+        public Builder sessionId(String sessionId) {
+            this.sessionId = sessionId;
+            return this;
+        }
+        
         public OutboundMessage build() {
             validate();
             return new OutboundMessage(this);
@@ -384,9 +422,7 @@ public class OutboundMessage {
             if (channel == null || channel.isBlank()) {
                 throw new IllegalStateException("channel is required");
             }
-            if (chatId == null || chatId.isBlank()) {
-                throw new IllegalStateException("chatId is required");
-            }
+            // chatId 不再强制要求，支持系统消息等场景
         }
     }
     

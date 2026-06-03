@@ -92,6 +92,14 @@
             <scope>compile</scope>
         </dependency>
         
+        <!-- ==================== HTML 解析 ==================== -->
+        <!-- Jsoup - HTML 解析库，用于 web_fetch 工具 -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.17.2</version>
+        </dependency>
+        
         <!-- ==================== 日志框架 ==================== -->
         <!-- SLF4J API - 日志门面 -->
         <dependency>
