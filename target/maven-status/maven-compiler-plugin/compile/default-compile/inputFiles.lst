@@ -1,6 +1,7 @@
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\bus\InboundMessage.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\bus\MessageBus.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\bus\OutboundMessage.java
+D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\channels\ChannelServer.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\config\Config.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\config\ConfigLoader.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\core\AgentLoop.java
@@ -10,6 +11,7 @@ D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanob
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\core\hook\CompositeHook.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\core\TurnContext.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\core\TurnState.java
+D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\cron\CronScheduler.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\mcp\HttpMCPClient.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\mcp\MCPClient.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\mcp\MCPManager.java
@@ -18,8 +20,11 @@ D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanob
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\mcp\MCPToolInfo.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\mcp\MCPToolWrapper.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\mcp\StdioMCPClient.java
+D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\memory\Consolidator.java
+D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\memory\Dream.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\memory\MemoryStore.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\Nanobot.java
+D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\providers\impl\DeepSeekProvider.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\providers\impl\OpenAIProvider.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\providers\LLMProvider.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\providers\LLMResponse.java
@@ -30,6 +35,8 @@ D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanob
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\tools\impl\GrepTool.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\tools\impl\ListDirTool.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\tools\impl\ReadFileTool.java
+D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\tools\impl\WebFetchTool.java
+D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\tools\impl\WebSearchTool.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\tools\impl\WriteFileTool.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\tools\Schema.java
 D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\src\main\java\com\nanobot\tools\Tool.java

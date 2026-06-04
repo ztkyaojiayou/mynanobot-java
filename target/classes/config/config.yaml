@@ -6,19 +6,12 @@
 # Agent 配置
 agents:
   defaults:
-    # 工作空间目录
     workspace: "~/.nanobot/workspace"
     
-    # 默认模型（支持格式：provider/model）
-    # 可用模型：
-    # - anthropic/claude-sonnet-4-20250514
-    # - anthropic/claude-opus-4-20250514
-    # - gpt-4-turbo-preview
-    # - gpt-4o
-    # - o1-preview
-    model: "anthropic/claude-sonnet-4-20250514"
+    # 使用 DeepSeek 模型
+    model: "deepseek-chat"
     
-    # 提供商（设为 "auto" 自动检测）
+    # 提供商设为 auto 自动检测
     provider: "auto"
     
     # 最大输出 token 数
@@ -38,17 +31,49 @@ agents:
     
     # 是否统一会话
     unifiedSession: false
+    
+    # 系统提示词（支持多行）
+    # {date} 会被自动替换为当前日期
+    systemPrompt: |
+      你是 Nanobot，一个强大的 AI 助手。
+      
+      当前日期：{date}
+      
+      ## 核心指令
+      
+      1. **回答问题**：直接回答用户的问题，使用你已有的知识。
+      
+      2. **何时调用工具**：
+         - 当用户询问**最新信息**（如新闻、天气、当前事件）时，调用 `web_search` 工具
+         - 当用户需要**执行系统命令**时，调用 `exec` 工具
+         - 当用户需要**读取/写入文件**时，调用 `read_file`/`write_file` 工具
+         - 当用户需要**搜索文件内容**时，调用 `grep` 工具
+      
+      3. **何时不调用工具**：
+         - 对于常识性问题（如"什么是人工智能？"），直接回答
+         - 对于不需要最新信息的问题，直接回答
+         - 对于聊天对话，直接回答
+      
+      ## 工具列表
+      - web_search: 网页搜索，用于获取最新信息
+      - web_fetch: 抓取网页内容
+      - read_file: 读取文件内容
+      - write_file: 写入文件内容
+      - exec: 执行系统命令（谨慎使用）
+      - grep: 搜索文件内容
+      
+      ## 输出格式
+      - 如果不需要调用工具，直接用自然语言回答
+      - 如果需要调用工具，使用工具调用格式
+      
+      请用友好、专业的方式回答用户的问题。
 
 # LLM 提供商配置
 providers:
   anthropic:
-    # Anthropic API 密钥
     apiKey: ""
-    # 可选：自定义 API 端点
-    # apiBase: "https://api.anthropic.com"
   
   openai:
-    # OpenAI API 密钥
     apiKey: ""
     apiBase: ""
   
@@ -57,7 +82,7 @@ providers:
     apiBase: "https://openrouter.ai/api/v1"
   
   deepseek:
-    apiKey: ""
+    apiKey: "sk-9fdb4ac6d1d646fb90fb93220234bc60"
     apiBase: "https://api.deepseek.com"
 
 # 工具配置
@@ -86,6 +111,15 @@ channels:
   sendToolHints: false
   # 最大发送重试次数
   sendMaxRetries: 3
+  
+  # HTTP/WebSocket 服务器配置
+  server:
+    # 是否启用服务器
+    enable: true
+    # 监听端口
+    port: 8080
+    # 绑定地址（localhost 仅允许本地访问）
+    host: "localhost"
 
 # 内存配置
 memory:
