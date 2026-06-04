@@ -10,8 +10,15 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.X509Certificate;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509ExtendedTrustManager;
 
 /**
  * 网页搜索工具
@@ -53,6 +60,9 @@ public class WebSearchTool implements Tool {
     // 百度搜索 API
     private static final String BAIDU_API_URL = "https://aip.baidubce.com/rpc/2.0/solution/v1/search";
     
+    // 百度搜索公开接口（国内可访问，无需 API Key）
+    private static final String BAIDU_WEB_URL = "https://www.baidu.com/s";
+    
     // Brave Search API
     private static final String BRAVE_API_URL = "https://api.search.brave.com/res/v1/web/search";
     
@@ -63,36 +73,85 @@ public class WebSearchTool implements Tool {
     private final HttpClient httpClient;
     
     // 搜索引擎配置
-    private String provider = "baidu"; // baidu, brave 或 bing
+    private String provider = "baidu"; // baidu, baidu_web, brave 或 bing
     private String apiKey;
     
     public WebSearchTool() {
+        this(null, null);
+    }
+    
+    /**
+     * 使用指定的 provider 和 apiKey 创建 WebSearchTool
+     */
+    public WebSearchTool(String provider, String apiKey) {
         this.objectMapper = new ObjectMapper();
-        this.httpClient = HttpClient.newHttpClient();
+        this.httpClient = createInsecureHttpClient();
         
-        // 尝试从环境变量获取配置
-        this.provider = System.getenv("SEARCH_PROVIDER");
-        if (this.provider == null || this.provider.isBlank()) {
-            this.provider = "baidu";
+        // 优先级：构造函数参数 > 环境变量 > 默认值
+        if (provider != null && !provider.isBlank()) {
+            this.provider = provider;
+        } else {
+            this.provider = System.getenv("SEARCH_PROVIDER");
+            if (this.provider == null || this.provider.isBlank()) {
+                this.provider = "baidu";
+            }
         }
         
-        // 尝试从环境变量获取 API Key
-        this.apiKey = System.getenv("SEARCH_API_KEY");
-        if (this.apiKey == null || this.apiKey.isBlank()) {
-            // 如果没有设置环境变量，尝试获取特定 provider 的 key
-            if ("baidu".equalsIgnoreCase(provider)) {
-                this.apiKey = System.getenv("BAIDU_API_KEY");
-            } else if ("brave".equalsIgnoreCase(provider)) {
-                this.apiKey = System.getenv("BRAVE_API_KEY");
-            } else {
-                this.apiKey = System.getenv("BING_API_KEY");
+        if (apiKey != null && !apiKey.isBlank()) {
+            this.apiKey = apiKey;
+        } else {
+            this.apiKey = System.getenv("SEARCH_API_KEY");
+            if (this.apiKey == null || this.apiKey.isBlank()) {
+                if ("baidu".equalsIgnoreCase(this.provider)) {
+                    this.apiKey = System.getenv("BAIDU_API_KEY");
+                } else if ("brave".equalsIgnoreCase(this.provider)) {
+                    this.apiKey = System.getenv("BRAVE_API_KEY");
+                } else {
+                    this.apiKey = System.getenv("BING_API_KEY");
+                }
             }
         }
         
         if (this.apiKey == null || this.apiKey.isBlank()) {
-            logger.warn("SEARCH_API_KEY environment variable not set, web search will be disabled");
+            logger.warn("SEARCH_API_KEY not configured, web search will be disabled");
         }
-        logger.info("WebSearchTool initialized with {} provider", provider);
+        logger.info("WebSearchTool initialized with {} provider", this.provider);
+    }
+    
+    /**
+     * 创建一个不验证 SSL 证书的 HttpClient（仅用于开发/测试环境）
+     */
+    private HttpClient createInsecureHttpClient() {
+        try {
+            TrustManager[] trustAllCerts = new TrustManager[]{
+                new X509ExtendedTrustManager() {
+                    @Override
+                    public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+                    @Override
+                    public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+                    @Override
+                    public void checkClientTrusted(X509Certificate[] chain, String authType, SSLEngine engine) {}
+                    @Override
+                    public void checkServerTrusted(X509Certificate[] chain, String authType, SSLEngine engine) {}
+                    @Override
+                    public void checkClientTrusted(X509Certificate[] chain, String authType, java.net.Socket socket) {}
+                    @Override
+                    public void checkServerTrusted(X509Certificate[] chain, String authType, java.net.Socket socket) {}
+                    @Override
+                    public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+                }
+            };
+            
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+            
+            return HttpClient.newBuilder()
+                .sslContext(sslContext)
+                .build();
+        } catch (NoSuchAlgorithmException | KeyManagementException e) {
+            logger.warn("Failed to create insecure HTTP client, falling back to default: {}", e.getMessage());
+            return HttpClient.newHttpClient();
+        }
     }
     
     /**
@@ -161,19 +220,6 @@ public class WebSearchTool implements Tool {
         
         logger.info("Performing web search with {}: {}", provider, query);
         
-        // 如果没有配置 API Key，返回提示信息
-        if (apiKey == null || apiKey.isBlank()) {
-            return CompletableFuture.completedFuture(
-                "搜索服务未配置：\n" +
-                "1. 设置环境变量 SEARCH_API_KEY=您的API密钥\n" +
-                "2. 或设置 SEARCH_PROVIDER 和对应的 API Key\n" +
-                "\n获取 API Key：\n" +
-                "- 百度搜索: https://ai.baidu.com/tech/search\n" +
-                "- Brave Search: https://brave.com/search/api/ （免费）\n" +
-                "- Bing Search: https://azure.microsoft.com/zh-cn/products/cognitive-services/bing-search-api"
-            );
-        }
-        
         return CompletableFuture.supplyAsync(() -> {
             try {
                 String encodedQuery = java.net.URLEncoder.encode(query, "UTF-8");
@@ -182,6 +228,9 @@ public class WebSearchTool implements Tool {
                 
                 if ("bing".equalsIgnoreCase(provider)) {
                     // 使用 Bing Search API
+                    if (apiKey == null || apiKey.isBlank()) {
+                        return "Bing 搜索需要配置 API Key\n获取方式: https://azure.microsoft.com/zh-cn/products/cognitive-services/bing-search-api";
+                    }
                     url = BING_API_URL + "?q=" + encodedQuery + "&count=" + limit;
                     request = HttpRequest.newBuilder()
                         .uri(URI.create(url))
@@ -192,6 +241,9 @@ public class WebSearchTool implements Tool {
                         .build();
                 } else if ("baidu".equalsIgnoreCase(provider)) {
                     // 使用百度搜索 API（POST 请求）
+                    if (apiKey == null || apiKey.isBlank()) {
+                        return "百度 API 搜索需要配置 API Key\n获取方式: https://ai.baidu.com/tech/search\n或者使用 baidu_web 模式（无需 API Key）";
+                    }
                     url = BAIDU_API_URL + "?access_token=" + apiKey;
                     Map<String, Object> body = Map.of(
                         "query", query,
@@ -206,8 +258,23 @@ public class WebSearchTool implements Tool {
                         .timeout(java.time.Duration.ofSeconds(30))
                         .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
                         .build();
+                } else if ("baidu_web".equalsIgnoreCase(provider)) {
+                    // 使用百度搜索公开接口（国内可访问，无需 API Key）
+                    url = BAIDU_WEB_URL + "?wd=" + encodedQuery + "&pn=0";
+                    request = HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+                        .header("Accept-Encoding", "gzip, deflate")
+                        .timeout(java.time.Duration.ofSeconds(30))
+                        .GET()
+                        .build();
                 } else {
                     // 使用 Brave Search API（默认）
+                    if (apiKey == null || apiKey.isBlank()) {
+                        return "Brave 搜索需要配置 API Key\n获取方式: https://brave.com/search/api/ （免费）\n或者使用 baidu_web 模式（无需 API Key）";
+                    }
                     url = BRAVE_API_URL + "?q=" + encodedQuery + "&count=" + limit;
                     request = HttpRequest.newBuilder()
                         .uri(URI.create(url))
@@ -229,6 +296,8 @@ public class WebSearchTool implements Tool {
                         return parseBingResults(response.body(), limit, query);
                     } else if ("baidu".equalsIgnoreCase(provider)) {
                         return parseBaiduResults(response.body(), limit, query);
+                    } else if ("baidu_web".equalsIgnoreCase(provider)) {
+                        return parseBaiduWebResults(response.body(), limit, query);
                     } else {
                         return parseBraveResults(response.body(), limit, query);
                     }
@@ -342,21 +411,152 @@ public class WebSearchTool implements Tool {
     }
     
     /**
+     * 解析百度搜索网页结果（HTML格式）
+     */
+    private String parseBaiduWebResults(String responseBody, int limit, String query) {
+        try {
+            StringBuilder result = new StringBuilder();
+            result.append("搜索结果（").append(query).append("）：\n\n");
+            
+            // 使用简单的正则表达式提取搜索结果
+            // 匹配百度搜索结果的 HTML 结构
+            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                "<div class=\"result-op c-container xpath-log[^>]*>(.*?)</div>",
+                java.util.regex.Pattern.DOTALL
+            );
+            java.util.regex.Matcher matcher = pattern.matcher(responseBody);
+            
+            int count = 0;
+            while (matcher.find() && count < limit) {
+                String resultBlock = matcher.group(1);
+                
+                // 提取标题
+                java.util.regex.Pattern titlePattern = java.util.regex.Pattern.compile(
+                    "<h3[^>]*><a[^>]*>(.*?)</a></h3>",
+                    java.util.regex.Pattern.DOTALL
+                );
+                java.util.regex.Matcher titleMatcher = titlePattern.matcher(resultBlock);
+                String title = titleMatcher.find() ? cleanHtml(titleMatcher.group(1)) : "无标题";
+                
+                // 提取链接
+                java.util.regex.Pattern urlPattern = java.util.regex.Pattern.compile(
+                    "<h3[^>]*><a[^>]*href=\"([^\"]*)\"",
+                    java.util.regex.Pattern.DOTALL
+                );
+                java.util.regex.Matcher urlMatcher = urlPattern.matcher(resultBlock);
+                String url = urlMatcher.find() ? urlMatcher.group(1) : "";
+                // 处理百度的跳转链接
+                if (url.startsWith("/link?")) {
+                    url = "https://www.baidu.com" + url;
+                }
+                
+                // 提取摘要
+                java.util.regex.Pattern descPattern = java.util.regex.Pattern.compile(
+                    "<span class=\"content-right_8Zs40\">(.*?)</span>|" +
+                    "<div class=\"c-abstract[^>]*>(.*?)</div>|" +
+                    "<span class=\"c-showurl\">(.*?)</span>",
+                    java.util.regex.Pattern.DOTALL
+                );
+                java.util.regex.Matcher descMatcher = descPattern.matcher(resultBlock);
+                String description = "";
+                while (descMatcher.find()) {
+                    if (descMatcher.group(1) != null) {
+                        description = cleanHtml(descMatcher.group(1));
+                    } else if (descMatcher.group(2) != null) {
+                        description = cleanHtml(descMatcher.group(2));
+                    } else if (descMatcher.group(3) != null) {
+                        // 这是URL展示，跳过
+                    }
+                }
+                
+                result.append((count + 1)).append(". ").append(title).append("\n");
+                if (!url.isBlank()) {
+                    result.append("   链接: ").append(url).append("\n");
+                }
+                if (!description.isBlank()) {
+                    result.append("   摘要: ").append(description).append("\n");
+                }
+                result.append("\n");
+                
+                count++;
+            }
+            
+            if (count == 0) {
+                return "未找到相关搜索结果";
+            }
+            
+            // 添加实时日期标记
+            String currentDate = java.time.LocalDate.now().format(
+                java.time.format.DateTimeFormatter.ofPattern("yyyy年MM月dd日"));
+            result.append("---\n");
+            result.append("搜索时间：").append(currentDate).append("\n");
+            
+            return result.toString();
+            
+        } catch (Exception e) {
+            logger.error("Failed to parse Baidu web results", e);
+            return "解析搜索结果失败：" + e.getMessage();
+        }
+    }
+    
+    /**
+     * 清理 HTML 标签
+     */
+    private String cleanHtml(String html) {
+        if (html == null) return "";
+        // 移除 HTML 标签
+        String text = html.replaceAll("<[^>]*>", "");
+        // 移除 HTML 实体
+        text = text.replace("&nbsp;", " ")
+                   .replace("&amp;", "&")
+                   .replace("&lt;", "<")
+                   .replace("&gt;", ">")
+                   .replace("&quot;", "\"")
+                   .replace("&apos;", "'")
+                   .trim();
+        return text;
+    }
+    
+    /**
      * 解析百度搜索 API 搜索结果
      */
-    private String parseBaiduResults(String responseBody, int limit, String query) {
+    private String parseBaiduResults(String responseBody, int limit, String query) throws Exception {
         try {
             JsonNode root = objectMapper.readTree(responseBody);
             
-            // 检查是否有错误
+            // 检查是否有错误（多种错误格式）
             if (root.has("error_code")) {
                 String errorMsg = root.has("error_msg") ? root.get("error_msg").asText() : "未知错误";
                 logger.error("Baidu API error: {}", errorMsg);
-                return "搜索失败：" + errorMsg;
+                // 抛出异常让重试机制生效
+                throw new Exception("API错误: " + errorMsg);
+            }
+            
+            // 检查是否有错误信息字段
+            if (root.has("error")) {
+                String errorMsg = root.get("error").asText();
+                logger.error("Baidu API error: {}", errorMsg);
+                throw new Exception("API错误: " + errorMsg);
+            }
+            
+            // 检查是否返回了错误描述
+            if (root.has("message")) {
+                String errorMsg = root.get("message").asText();
+                if (errorMsg.contains("error") || errorMsg.contains("Error") || 
+                    errorMsg.contains("unsupported") || errorMsg.contains("Unsupported")) {
+                    logger.error("Baidu API error: {}", errorMsg);
+                    throw new Exception("API错误: " + errorMsg);
+                }
             }
             
             JsonNode result = root.get("result");
             if (result == null || !result.has("items")) {
+                // 检查是否有其他错误信息
+                if (root.has("result") && root.get("result").has("error")) {
+                    String errorMsg = root.get("result").get("error").asText();
+                    logger.error("Baidu API error: {}", errorMsg);
+                    throw new Exception("API错误: " + errorMsg);
+                }
                 return "未找到相关搜索结果";
             }
             
@@ -384,6 +584,14 @@ public class WebSearchTool implements Tool {
                 count++;
             }
             
+            // 添加实时日期标记
+            String currentDate = java.time.LocalDate.now().format(
+                java.time.format.DateTimeFormatter.ofPattern("yyyy年MM月dd日"));
+            logger.info("当前实时日期：{}", currentDate);
+            resultStr.append("---\n");
+            resultStr.append("搜索时间：").append(currentDate).append("\n");
+            
+            logger.info("最终搜索结果：{}", resultStr.toString());
             return resultStr.toString();
             
         } catch (Exception e) {

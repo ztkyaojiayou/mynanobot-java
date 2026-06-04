@@ -107,6 +107,12 @@ public class AgentRunner {
     /** 工具执行超时时间（秒） */
     private int toolTimeoutSeconds = 30;
     
+    /** 工具执行最大重试次数 */
+    private int maxToolRetries = 3;
+    
+    /** 重试间隔时间（毫秒） */
+    private int retryDelayMs = 1000;
+    
     /** 工具执行线程池 */
     private final ExecutorService toolExecutor;
     
@@ -174,8 +180,31 @@ public class AgentRunner {
         // 调用 LLM
         List<LLMProvider.Message> llmMessages = convertToLLMMessages(finalMessages);
         
-        logger.debug("Calling LLM with {} messages (iteration {})", 
-                    llmMessages.size(), iteration);
+        // 输出完整的 LLM 提示词（DEBUG 级别）
+        logger.debug("===== LLM 调用开始 (迭代 {}) =====", iteration);
+        logger.debug("会话ID: {}", context.getSessionKey());
+        logger.debug("消息数量: {}", llmMessages.size());
+        for (int i = 0; i < llmMessages.size(); i++) {
+            LLMProvider.Message msg = llmMessages.get(i);
+            logger.debug("[{}] role={}, content_length={}", 
+                        i, msg.getRole(), 
+                        msg.getContent() != null ? msg.getContent().length() : 0);
+        }
+        
+        // 输出完整的系统提示词（INFO 级别，方便调试）
+        Optional<LLMProvider.Message> systemMsg = llmMessages.stream()
+            .filter(m -> "system".equals(m.getRole()))
+            .findFirst();
+        if (systemMsg.isPresent()) {
+            String systemContent = systemMsg.get().getContent();
+            // 限制长度，避免日志过长
+            if (systemContent.length() > 2000) {
+                systemContent = systemContent.substring(0, 2000) + "...(截断)";
+            }
+            logger.info("LLM 系统提示词:\n{}", systemContent);
+        }
+        
+        logger.debug("===== LLM 提示词结束 =====");
         
         // 决定是否使用流式
         final boolean finalUseStreaming = onDelta != null && provider.supportsStreaming();
@@ -193,6 +222,39 @@ public class AgentRunner {
             // 更新统计
             context.addUsage(response.getPromptTokens(), response.getCompletionTokens());
             
+            // 输出 LLM 原始响应（DEBUG 级别）
+            logger.debug("===== LLM 响应开始 =====");
+            logger.debug("会话ID: {}", context.getSessionKey());
+            logger.debug("PromptTokens: {}, CompletionTokens: {}", 
+                        response.getPromptTokens(), response.getCompletionTokens());
+            
+            if (response.isError()) {
+                logger.debug("响应类型: ERROR");
+                logger.debug("错误信息: {}", response.getError());
+            } else {
+                logger.debug("响应类型: {}", response.shouldExecuteTools() ? "工具调用" : "直接响应");
+                String content = response.getContent();
+                logger.debug("响应内容长度: {}", content != null ? content.length() : 0);
+                
+                // 输出完整响应内容（INFO 级别，方便调试）
+                if (content != null && !content.isBlank()) {
+                    // 限制长度，避免日志过长
+                    if (content.length() > 2000) {
+                        content = content.substring(0, 2000) + "...(截断)";
+                    }
+                    logger.info("LLM 原始响应:\n{}", content);
+                }
+                
+                // 输出工具调用信息
+                if (response.shouldExecuteTools() && response.getToolCalls() != null) {
+                    logger.info("LLM 工具调用: {}", 
+                              response.getToolCalls().stream()
+                                  .map(t -> t.getName() + "(" + t.getArguments() + ")")
+                                  .collect(Collectors.joining(", ")));
+                }
+            }
+            logger.debug("===== LLM 响应结束 =====");
+            
             // 检查错误
             if (response.isError()) {
                 logger.error("LLM error for session {}: {}", 
@@ -206,11 +268,67 @@ public class AgentRunner {
             // 检查工具调用
             if (response.shouldExecuteTools()) {
                 List<LLMResponse.ToolCallRequest> toolCalls = response.getToolCalls();
-                logger.info("LLM requested {} tool calls: {}", 
+                boolean webSearchDisabled = false;
+                
+                // 检查是否禁用了联网搜索
+                Boolean useSearch = (Boolean) context.getMessage().getMetadata().get("useSearch");
+                if (useSearch != null && !useSearch) {
+                    webSearchDisabled = true;
+                    // 过滤掉所有非 ask_user 的工具调用
+                    List<LLMResponse.ToolCallRequest> filteredCalls = toolCalls.stream()
+                        .filter(tc -> "ask_user".equals(tc.getName()))
+                        .collect(Collectors.toList());
+                    
+                    if (!filteredCalls.isEmpty() || filteredCalls.size() != toolCalls.size()) {
+                        logger.info("Web search disabled, filtering out tool calls: {}", 
+                                  toolCalls.stream()
+                                      .filter(tc -> !"ask_user".equals(tc.getName()))
+                                      .map(LLMResponse.ToolCallRequest::getName)
+                                      .collect(Collectors.joining(", ")));
+                    }
+                    toolCalls = filteredCalls;
+                }
+                
+                logger.info("LLM requested {} tool calls (after filtering): {}", 
                           toolCalls.size(),
                           toolCalls.stream()
                               .map(LLMResponse.ToolCallRequest::getName)
                               .collect(Collectors.joining(", ")));
+                
+                // 如果没有工具调用了且禁用了联网搜索，重新调用LLM（不提供工具定义）让它直接回答
+                if (toolCalls.isEmpty() && webSearchDisabled) {
+                    logger.info("Web search disabled and no tool calls allowed, calling LLM without tools");
+                    List<LLMProvider.Message> messagesWithoutTools = convertToLLMMessages(workingMessages);
+                    CompletableFuture<LLMResponse> directResponseFuture;
+                    if (onDelta != null && provider.supportsStreaming()) {
+                        directResponseFuture = provider.chatStream(messagesWithoutTools, Collections.emptyList(), onDelta);
+                    } else {
+                        directResponseFuture = provider.chat(messagesWithoutTools, Collections.emptyList());
+                    }
+                    
+                    return directResponseFuture.thenCompose(directResponse -> {
+                        context.addUsage(directResponse.getPromptTokens(), directResponse.getCompletionTokens());
+                        String content = directResponse.getContent();
+                        if (content == null || content.isBlank()) {
+                            content = "(无内容)";
+                        }
+                        workingMessages.add(Map.of("role", "assistant", "content", content));
+                        return CompletableFuture.completedFuture(content);
+                    }).exceptionally(error -> {
+                        logger.error("Exception when calling LLM without tools: {}", error.getMessage(), error);
+                        return "发生异常：" + error.getMessage();
+                    });
+                }
+                
+                // 如果没有工具调用但不是因为禁用联网搜索，直接返回响应
+                if (toolCalls.isEmpty()) {
+                    String content = response.getContent();
+                    if (content == null || content.isBlank()) {
+                        content = "(无内容)";
+                    }
+                    workingMessages.add(Map.of("role", "assistant", "content", content));
+                    return CompletableFuture.completedFuture(content);
+                }
                 
                 // 添加助手消息（带工具调用）
             Map<String, Object> assistantMsg = createAssistantMessage(response.getContent(), toolCalls);
@@ -268,49 +386,27 @@ public class AgentRunner {
         
         for (LLMResponse.ToolCallRequest call : toolCalls) {
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                try {
-                    // 执行工具（带超时）
-                    String toolName = call.getName();
-                    Map<String, Object> params = call.getArguments();
-                    
-                    logger.debug("Executing tool: {} with params: {}", toolName, params);
-                    
-                    // 执行工具并设置超时
-                    CompletableFuture<Object> toolFuture = registry.executeAsync(toolName, params);
-                    Object result = toolFuture.get(toolTimeoutSeconds, java.util.concurrent.TimeUnit.SECONDS);
-                    
-                    // 处理结果
-                    String resultStr = result != null ? result.toString() : "";
-                    
-                    // 截断过长的结果
-                    if (resultStr.length() > maxToolResultChars) {
-                        resultStr = resultStr.substring(0, maxToolResultChars) + 
-                                 "\n\n[结果已截断，超出最大长度限制]";
-                    }
-                    
-                    // 添加结果消息（DeepSeek 格式：工具结果不需要 name 字段）
-                    messages.add(Map.of(
-                        "role", "tool",
-                        "tool_call_id", call.getId(),
-                        "content", resultStr
-                    ));
-                    
-                } catch (java.util.concurrent.TimeoutException e) {
-                    logger.error("Tool execution timeout: {}", call.getName());
-                    messages.add(Map.of(
-                        "role", "tool",
-                        "tool_call_id", call.getId(),
-                        "content", "Error: 工具执行超时（超过 " + toolTimeoutSeconds + " 秒）"
-                    ));
-                } catch (Exception e) {
-                    logger.error("Tool execution failed: {}", e.getMessage(), e);
-                    // 添加结果消息（DeepSeek 格式：工具结果不需要 name 字段）
-                    messages.add(Map.of(
-                        "role", "tool",
-                        "tool_call_id", call.getId(),
-                        "content", "Error: " + e.getMessage()
-                    ));
+                String toolName = call.getName();
+                Map<String, Object> params = call.getArguments();
+                
+                // 执行工具（带重试机制）
+                Object result = executeToolWithRetry(toolName, params, call.getId());
+                
+                // 处理结果
+                String resultStr = result != null ? result.toString() : "";
+                
+                // 截断过长的结果
+                if (resultStr.length() > maxToolResultChars) {
+                    resultStr = resultStr.substring(0, maxToolResultChars) + 
+                             "\n\n[结果已截断，超出最大长度限制]";
                 }
+                
+                // 添加结果消息（DeepSeek 格式：工具结果不需要 name 字段）
+                messages.add(Map.of(
+                    "role", "tool",
+                    "tool_call_id", call.getId(),
+                    "content", resultStr
+                ));
             }, toolExecutor);
             
             futures.add(future);
@@ -322,6 +418,87 @@ public class AgentRunner {
                 logger.error("Tool execution failed: {}", error.getMessage());
                 return null;
             });
+    }
+    
+    /**
+     * 执行工具调用（带重试机制）
+     * 
+     * @param toolName 工具名称
+     * @param params 工具参数
+     * @param callId 工具调用ID
+     * @return 工具执行结果
+     */
+    private Object executeToolWithRetry(String toolName, Map<String, Object> params, String callId) {
+        int attempts = 0;
+        Exception lastException = null;
+        
+        while (attempts < maxToolRetries) {
+            attempts++;
+            
+            try {
+                logger.debug("Executing tool: {} (attempt {}/{}) with params: {}", 
+                           toolName, attempts, maxToolRetries, params);
+                
+                // 执行工具并设置超时
+                CompletableFuture<Object> toolFuture = registry.executeAsync(toolName, params);
+                Object result = toolFuture.get(toolTimeoutSeconds, java.util.concurrent.TimeUnit.SECONDS);
+                
+                logger.info("Tool {} executed successfully (attempt {})", toolName, attempts);
+                return result;
+                
+            } catch (java.util.concurrent.TimeoutException e) {
+                lastException = e;
+                logger.warn("Tool {} timeout on attempt {}: {}", toolName, attempts, e.getMessage());
+            } catch (java.util.concurrent.ExecutionException e) {
+                // 检查底层异常是否是网络相关的
+                Throwable cause = e.getCause();
+                lastException = e;
+                
+                if (cause instanceof java.net.ConnectException) {
+                    logger.warn("Tool {} connection error on attempt {}: {}", toolName, attempts, cause.getMessage());
+                } else if (cause instanceof java.io.IOException) {
+                    logger.warn("Tool {} IO error on attempt {}: {}", toolName, attempts, cause.getMessage());
+                } else {
+                    // 其他 ExecutionException 不重试
+                    logger.error("Tool {} failed on attempt {}: {}", toolName, attempts, e.getMessage());
+                    return "Error: " + (cause != null ? cause.getMessage() : e.getMessage());
+                }
+            } catch (java.lang.InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("Tool {} interrupted on attempt {}", toolName, attempts);
+                lastException = e;
+            } catch (Exception e) {
+                // 其他异常不重试，直接返回错误信息
+                logger.error("Tool {} failed on attempt {}: {}", toolName, attempts, e.getMessage());
+                return "Error: " + e.getMessage();
+            }
+            
+            // 如果还有重试机会，等待一段时间后重试
+            if (attempts < maxToolRetries) {
+                try {
+                    logger.debug("Waiting {}ms before retry for tool {}", retryDelayMs, toolName);
+                    Thread.sleep(retryDelayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        
+        // 所有重试都失败了，返回友好的错误信息
+        logger.error("Tool {} failed after {} attempts", toolName, maxToolRetries);
+        
+        // 根据失败原因返回不同的错误信息
+        String errorMsg;
+        if (lastException instanceof java.net.ConnectException) {
+            errorMsg = "网络连接失败，无法访问外部服务。我将基于我的知识库为您回答。";
+        } else if (lastException instanceof java.util.concurrent.TimeoutException) {
+            errorMsg = "请求超时，无法获取最新信息。我将基于我的知识库为您回答。";
+        } else {
+            errorMsg = "工具调用失败（已重试 " + maxToolRetries + " 次）。我将基于我的知识库为您回答。";
+        }
+        
+        return errorMsg;
     }
     
     // ==================== 消息处理 ====================

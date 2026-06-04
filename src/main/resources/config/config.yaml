@@ -54,9 +54,13 @@ agents:
          - 对于不需要最新信息的问题，直接回答
          - 对于聊天对话，直接回答
       
+      4. **重要限制**：
+         - **禁止调用 `web_fetch` 工具**：不要抓取外部网页内容
+         - 所有搜索结果都应来自 `web_search` 工具返回的摘要信息
+         - 如果搜索结果中的信息足够回答问题，就直接总结回答，不需要进一步获取网页内容
+      
       ## 工具列表
-      - web_search: 网页搜索，用于获取最新信息
-      - web_fetch: 抓取网页内容
+      - web_search: 网页搜索，用于获取最新信息（推荐使用）
       - read_file: 读取文件内容
       - write_file: 写入文件内容
       - exec: 执行系统命令（谨慎使用）
@@ -99,7 +103,14 @@ tools:
   web:
     enable: true
     search:
-      provider: "duckduckgo"
+      # 搜索引擎提供商：baidu, baidu_web, brave, bing
+      # baidu_web: 使用百度搜索公开接口（国内可访问，无需 API Key）
+      # baidu: 使用百度搜索 API（需要 API Key）
+      # brave: 使用 Brave Search API（需要 API Key）
+      # bing: 使用 Bing Search API（需要 API Key）
+      provider: "baidu_web"
+      # 搜索 API Key（当使用 baidu/brave/bing 时需要配置）
+      apiKey: ""
       maxResults: 5
       timeout: 30
 

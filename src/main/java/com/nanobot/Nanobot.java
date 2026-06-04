@@ -10,7 +10,10 @@ import com.nanobot.memory.MemoryStore;
 import com.nanobot.providers.LLMProvider;
 import com.nanobot.providers.impl.DeepSeekProvider;
 import com.nanobot.providers.impl.OpenAIProvider;
+import com.nanobot.identity.IdentityManager;
+import com.nanobot.rules.RuleManager;
 import com.nanobot.session.SessionManager;
+import com.nanobot.skill.SkillManager;
 import com.nanobot.tools.ToolRegistry;
 import com.nanobot.tools.impl.*;
 import org.slf4j.Logger;
@@ -58,6 +61,10 @@ public class Nanobot {
     private AgentLoop agentLoop;
     private MCPManager mcpManager;
     private ChannelServer channelServer;
+    private SkillManager skillManager;
+    private RuleManager ruleManager;
+    private IdentityManager identityManager;
+    private com.nanobot.memory.Dream dream;
     
     // ==================== 状态 ====================
     
@@ -137,8 +144,31 @@ public class Nanobot {
         // 5. 初始化内存存储
         memoryStore = new MemoryStore(config);
         
-        // 6. 初始化 LLM 提供商
+        // 6. 初始化身份管理器（SOUL, IDENTITY, USER）
+        identityManager = new IdentityManager(config);
+        identityManager.load();
+        logger.info("Identity files loaded");
+        
+        // 7. 初始化规则管理器（Rules）
+        ruleManager = new RuleManager(config);
+        ruleManager.loadRules();
+        logger.info("Loaded {} rules", ruleManager.getRegistry().size());
+        
+        // 8. 初始化技能管理器（Skills）
+        skillManager = new SkillManager(config);
+        skillManager.loadSkills();
+        logger.info("Loaded {} skills", skillManager.getRegistry().size());
+        
+        // 9. 初始化 LLM 提供商
         provider = createProvider();
+        
+        // 10. 初始化长期记忆系统（Dream）
+        int maxMemories = config.getMemory().getDream().getMaxMemories();
+        dream = new com.nanobot.memory.Dream(provider, maxMemories);
+        // 从 MEMORY.md 文件加载长期记忆
+        java.nio.file.Path baseDir = java.nio.file.Paths.get(".nanobot").toAbsolutePath().normalize();
+        dream.loadFromMemoryFile(baseDir);
+        logger.info("Dream long-term memory initialized");
         
         logger.info("Initialization complete");
     }
@@ -166,8 +196,13 @@ public class Nanobot {
         
         // Web 工具（联网查询）
         if (config.getTools().getWeb().isEnable()) {
-            toolRegistry.register(new WebSearchTool());
-            toolRegistry.register(new WebFetchTool());
+            // 从配置文件读取搜索配置
+            String searchProvider = config.getTools().getWeb().getSearch().getProvider();
+            String searchApiKey = config.getTools().getWeb().getSearch().getApiKey();
+            
+            toolRegistry.register(new WebSearchTool(searchProvider, searchApiKey));
+            // 禁用 web_fetch 工具，避免抓取外部网页（如维基百科）
+            // toolRegistry.register(new WebFetchTool());
         }
         
         // MCP 工具
@@ -266,13 +301,16 @@ public class Nanobot {
         
         logger.info("Starting Nanobot...");
         
-        // 创建 Agent Loop
+        // 创建 Agent Loop（集成 Identity、Skills 和 Rules）
         agentLoop = new AgentLoop(
             messageBus,
             provider,
             toolRegistry,
             sessionManager,
-            config
+            config,
+            ruleManager,
+            skillManager,
+            identityManager
         );
         
         // 启动 Agent Loop
