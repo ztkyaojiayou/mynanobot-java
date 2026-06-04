@@ -235,6 +235,21 @@ public class Config {
         @JsonProperty("unifiedSession")
         private boolean unifiedSession = false;
         
+        /** 系统提示词 */
+        @JsonProperty("systemPrompt")
+        private String systemPrompt = """
+            你是 Nanobot，一个强大的 AI 助手。
+            
+            你的任务是帮助用户解决问题，回答问题，执行任务。
+            
+            你具有以下能力：
+            1. 可以调用工具来完成各种任务
+            2. 可以进行自然语言对话
+            3. 可以访问和操作文件系统
+            
+            请用友好、专业的方式回答用户的问题。
+            """;
+        
         /** 禁用技能列表 */
         @JsonProperty("disabledSkills")
         private java.util.List<String> disabledSkills = new java.util.ArrayList<>();
@@ -275,6 +290,9 @@ public class Config {
         
         public boolean isUnifiedSession() { return unifiedSession; }
         public void setUnifiedSession(boolean unifiedSession) { this.unifiedSession = unifiedSession; }
+        
+        public String getSystemPrompt() { return systemPrompt; }
+        public void setSystemPrompt(String systemPrompt) { this.systemPrompt = systemPrompt; }
         
         public java.util.List<String> getDisabledSkills() { return disabledSkills; }
         public void setDisabledSkills(java.util.List<String> disabledSkills) { this.disabledSkills = disabledSkills; }

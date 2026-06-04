@@ -42,23 +42,26 @@ public class WriteFileTool implements Tool {
     
     @Override
     public JsonNode getParameters() {
-        ObjectNode props = mapper.createObjectNode()
-            .put("type", "object")
-            .putObject("properties");
+        ObjectNode props = mapper.createObjectNode();
+        props.put("type", "object");
         
-        props.putObject("path")
+        ObjectNode properties = mapper.createObjectNode();
+        properties.putObject("path")
             .put("type", "string")
             .put("description", "File path to write");
         
-        props.putObject("content")
+        properties.putObject("content")
             .put("type", "string")
             .put("description", "Content to write");
         
-        props.putObject("append")
+        properties.putObject("append")
             .put("type", "boolean")
             .put("description", "Append to file instead of overwriting");
         
-        return props.putArray("required").add("path").add("content");
+        props.set("properties", properties);
+        props.putArray("required").add("path").add("content");
+        
+        return props;
     }
     
     @Override

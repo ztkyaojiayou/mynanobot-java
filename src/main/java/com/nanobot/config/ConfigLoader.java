@@ -94,6 +94,9 @@ public class ConfigLoader {
     /** 类路径中的默认配置 */
     private static final String CLASSPATH_DEFAULT_CONFIG = "config/default.yaml";
     
+    /** 类路径中的主配置 */
+    private static final String CLASSPATH_CONFIG = "config/config.yaml";
+    
     // ==================== 配置缓存 ====================
     
     /** 已加载的配置缓存 */
@@ -130,7 +133,8 @@ public class ConfigLoader {
      * 搜索顺序：
      * 1. 用户目录 ~/.nanobot/config.yaml
      * 2. 当前目录 config.yaml
-     * 3. 类路径中的默认配置
+     * 3. 类路径中的 config/config.yaml
+     * 4. 类路径中的默认配置
      * 
      * @return 加载的配置
      */
@@ -146,10 +150,22 @@ public class ConfigLoader {
             return load(localConfig);
         }
         
-        // 尝试从类路径加载
+        // 尝试从类路径加载主配置
+        try (InputStream is = ConfigLoader.class.getClassLoader()
+                .getResourceAsStream(CLASSPATH_CONFIG)) {
+            if (is != null) {
+                logger.info("Loading configuration from classpath: {}", CLASSPATH_CONFIG);
+                return load(is);
+            }
+        } catch (IOException e) {
+            logger.warn("Failed to load classpath config", e);
+        }
+        
+        // 尝试从类路径加载默认配置
         try (InputStream is = ConfigLoader.class.getClassLoader()
                 .getResourceAsStream(CLASSPATH_DEFAULT_CONFIG)) {
             if (is != null) {
+                logger.info("Loading configuration from classpath: {}", CLASSPATH_DEFAULT_CONFIG);
                 return load(is);
             }
         } catch (IOException e) {

@@ -6,6 +6,8 @@ import com.nanobot.tools.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -92,6 +94,7 @@ public class AgentRunner {
     
     private final LLMProvider provider;
     private final ToolRegistry registry;
+    private final ObjectMapper objectMapper;
     
     // ==================== 配置 ====================
     
@@ -101,6 +104,9 @@ public class AgentRunner {
     /** 工具提示最大长度 */
     private int toolHintMaxLength = 40;
     
+    /** 工具执行超时时间（秒） */
+    private int toolTimeoutSeconds = 30;
+    
     /** 工具执行线程池 */
     private final ExecutorService toolExecutor;
     
@@ -109,6 +115,7 @@ public class AgentRunner {
     public AgentRunner(LLMProvider provider, ToolRegistry registry) {
         this.provider = Objects.requireNonNull(provider, "provider cannot be null");
         this.registry = Objects.requireNonNull(registry, "registry cannot be null");
+        this.objectMapper = new ObjectMapper();
         this.toolExecutor = Executors.newFixedThreadPool(
             Runtime.getRuntime().availableProcessors(),
             r -> {
@@ -206,11 +213,22 @@ public class AgentRunner {
                               .collect(Collectors.joining(", ")));
                 
                 // 添加助手消息（带工具调用）
-                workingMessages.add(createAssistantMessage(response.getContent(), toolCalls));
-                
-                // 执行工具
-                return executeTools(context, workingMessages, toolCalls)
-                    .thenCompose(v -> runInternal(context, workingMessages, onDelta, iteration + 1));
+            Map<String, Object> assistantMsg = createAssistantMessage(response.getContent(), toolCalls);
+            workingMessages.add(assistantMsg);
+            
+            // 执行工具（确保工具结果紧跟在助手消息之后）
+            return executeTools(context, workingMessages, toolCalls)
+                .thenCompose(v -> {
+                    // 验证消息顺序：工具结果应该紧跟在带 tool_calls 的助手消息之后
+                    logger.debug("Messages after tool execution: {}", workingMessages.size());
+                    for (int i = 0; i < workingMessages.size(); i++) {
+                        Map<String, Object> m = workingMessages.get(i);
+                        String r = (String) m.get("role");
+                        logger.debug("  [{}] role={}, hasToolCalls={}, hasToolCallId={}", 
+                                   i, r, m.containsKey("tool_calls"), m.containsKey("tool_call_id"));
+                    }
+                    return runInternal(context, workingMessages, onDelta, iteration + 1);
+                });
             }
             
             // 最终响应
@@ -251,13 +269,15 @@ public class AgentRunner {
         for (LLMResponse.ToolCallRequest call : toolCalls) {
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                 try {
-                    // 执行工具
+                    // 执行工具（带超时）
                     String toolName = call.getName();
                     Map<String, Object> params = call.getArguments();
                     
                     logger.debug("Executing tool: {} with params: {}", toolName, params);
                     
-                    Object result = registry.execute(toolName, params);
+                    // 执行工具并设置超时
+                    CompletableFuture<Object> toolFuture = registry.executeAsync(toolName, params);
+                    Object result = toolFuture.get(toolTimeoutSeconds, java.util.concurrent.TimeUnit.SECONDS);
                     
                     // 处理结果
                     String resultStr = result != null ? result.toString() : "";
@@ -268,20 +288,26 @@ public class AgentRunner {
                                  "\n\n[结果已截断，超出最大长度限制]";
                     }
                     
-                    // 添加结果消息
+                    // 添加结果消息（DeepSeek 格式：工具结果不需要 name 字段）
                     messages.add(Map.of(
                         "role", "tool",
                         "tool_call_id", call.getId(),
-                        "name", toolName,
                         "content", resultStr
                     ));
                     
-                } catch (Exception e) {
-                    logger.error("Tool execution failed: {}", e.getMessage(), e);
+                } catch (java.util.concurrent.TimeoutException e) {
+                    logger.error("Tool execution timeout: {}", call.getName());
                     messages.add(Map.of(
                         "role", "tool",
                         "tool_call_id", call.getId(),
-                        "name", call.getName(),
+                        "content", "Error: 工具执行超时（超过 " + toolTimeoutSeconds + " 秒）"
+                    ));
+                } catch (Exception e) {
+                    logger.error("Tool execution failed: {}", e.getMessage(), e);
+                    // 添加结果消息（DeepSeek 格式：工具结果不需要 name 字段）
+                    messages.add(Map.of(
+                        "role", "tool",
+                        "tool_call_id", call.getId(),
                         "content", "Error: " + e.getMessage()
                     ));
                 }
@@ -312,38 +338,50 @@ public class AgentRunner {
         }
         
         // 检查最后一条消息是否是工具结果
-        // 如果是，保留最近的连续工具结果块
-        List<Map<String, Object>> result = new ArrayList<>();
-        boolean hasRecentToolResult = false;
+        // 如果是，保留最近的连续工具结果块（必须紧跟在带 tool_calls 的助手消息之后）
+        List<Map<String, Object>> result = new ArrayList<>(messages);
         
-        for (int i = messages.size() - 1; i >= 0; i--) {
+        // 从后往前查找孤立的工具结果
+        int lastIndex = messages.size() - 1;
+        String lastRole = (String) messages.get(lastIndex).get("role");
+        
+        // 只有最后一条消息是 tool 角色时才需要检查
+        if (!"tool".equals(lastRole)) {
+            return result;
+        }
+        
+        // 查找前面的助手消息是否有 tool_calls
+        boolean hasValidPredecessor = false;
+        for (int i = lastIndex - 1; i >= 0; i--) {
             Map<String, Object> msg = messages.get(i);
             String role = (String) msg.get("role");
             
-            if ("tool".equals(role)) {
-                hasRecentToolResult = true;
-            } else if ("assistant".equals(role)) {
-                // 如果助手消息有 tool_calls，之前是工具结果是正常的
+            if ("assistant".equals(role)) {
                 if (msg.containsKey("tool_calls")) {
-                    // 保留工具结果
-                    break;
-                } else if (hasRecentToolResult) {
-                    // 没有 tool_calls 但之前有工具结果，说明工具结果孤立了
-                    // 保留之前的消息，跳过孤立结果
-                    break;
+                    // 找到带 tool_calls 的助手消息，工具结果是有效的
+                    hasValidPredecessor = true;
+                }
+                break;
+            } else if ("tool".equals(role)) {
+                // 继续向前找
+                continue;
+            } else {
+                // 遇到其他角色，工具结果是孤立的
+                break;
+            }
+        }
+        
+        // 如果工具结果没有有效的前置助手消息（带 tool_calls），则移除它们
+        if (!hasValidPredecessor) {
+            // 移除末尾所有连续的 tool 消息
+            while (!result.isEmpty()) {
+                Map<String, Object> lastMsg = result.get(result.size() - 1);
+                if ("tool".equals(lastMsg.get("role"))) {
+                    result.remove(result.size() - 1);
                 } else {
                     break;
                 }
-            } else {
-                break;
             }
-            
-            result.add(0, msg);
-        }
-        
-        // 添加之前的消息
-        for (int i = 0; i < messages.size() - result.size(); i++) {
-            result.add(messages.get(i));
         }
         
         return result;
@@ -359,25 +397,36 @@ public class AgentRunner {
         Map<String, Object> message = new HashMap<>();
         message.put("role", "assistant");
         
-        if (content != null && !content.isBlank()) {
-            message.put("content", content);
-        }
-        
         if (toolCalls != null && !toolCalls.isEmpty()) {
+            // DeepSeek 要求：带工具调用的助手消息需要设置 content 为空字符串
+            message.put("content", "");
             List<Map<String, Object>> tcList = toolCalls.stream()
                 .map(tc -> {
                     Map<String, Object> tcMap = new HashMap<>();
                     tcMap.put("id", tc.getId());
                     tcMap.put("type", "function");
-                    Map<String, Object> func = Map.of(
-                        "name", tc.getName(),
-                        "arguments", tc.getArguments()
-                    );
+                    Map<String, Object> func = new HashMap<>();
+                    func.put("name", tc.getName());
+                    // DeepSeek 要求 arguments 必须是字符串格式（JSON 字符串）
+                    Object args = tc.getArguments();
+                    if (args instanceof String) {
+                        func.put("arguments", args);
+                    } else {
+                        try {
+                            String argsJson = objectMapper.writeValueAsString(args);
+                            func.put("arguments", argsJson);
+                        } catch (Exception e) {
+                            func.put("arguments", "{}");
+                        }
+                    }
                     tcMap.put("function", func);
                     return tcMap;
                 })
                 .toList();
             message.put("tool_calls", tcList);
+        } else {
+            // 没有工具调用时设置 content
+            message.put("content", content != null ? content : "");
         }
         
         return message;
@@ -409,9 +458,22 @@ public class AgentRunner {
                 .map(tc -> {
                     String id = (String) tc.get("id");
                     String name = (String) ((Map<String, Object>) tc.get("function")).get("name");
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> args = (Map<String, Object>) 
-                        ((Map<String, Object>) tc.get("function")).get("arguments");
+                    Object argsObj = ((Map<String, Object>) tc.get("function")).get("arguments");
+                    // arguments 可能是字符串（JSON）或 Map
+                    Map<String, Object> args;
+                    if (argsObj instanceof String) {
+                        // 如果是字符串格式，需要解析
+                        try {
+                            args = objectMapper.readValue((String) argsObj, new TypeReference<Map<String, Object>>() {});
+                        } catch (Exception e) {
+                            logger.warn("Failed to parse arguments string: {}", argsObj);
+                            args = new HashMap<>();
+                        }
+                    } else {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> argsMap = (Map<String, Object>) argsObj;
+                        args = argsMap != null ? argsMap : new HashMap<>();
+                    }
                     return new LLMProvider.Message.ToolCallInfo(id, name, args);
                 })
                 .collect(Collectors.toList());

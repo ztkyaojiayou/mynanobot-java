@@ -39,19 +39,22 @@ public class ExecTool implements Tool {
     
     @Override
     public JsonNode getParameters() {
-        ObjectNode props = mapper.createObjectNode()
-            .put("type", "object")
-            .putObject("properties");
+        ObjectNode props = mapper.createObjectNode();
+        props.put("type", "object");
         
-        props.putObject("command")
+        ObjectNode properties = mapper.createObjectNode();
+        properties.putObject("command")
             .put("type", "string")
             .put("description", "Command to execute");
         
-        props.putObject("timeout")
+        properties.putObject("timeout")
             .put("type", "integer")
             .put("description", "Timeout in seconds");
         
-        return props.putArray("required").add("command");
+        props.set("properties", properties);
+        props.putArray("required").add("command");
+        
+        return props;
     }
     
     @Override

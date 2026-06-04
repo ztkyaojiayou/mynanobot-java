@@ -8,6 +8,7 @@ import com.nanobot.core.AgentLoop;
 import com.nanobot.mcp.MCPManager;
 import com.nanobot.memory.MemoryStore;
 import com.nanobot.providers.LLMProvider;
+import com.nanobot.providers.impl.DeepSeekProvider;
 import com.nanobot.providers.impl.OpenAIProvider;
 import com.nanobot.session.SessionManager;
 import com.nanobot.tools.ToolRegistry;
@@ -160,6 +161,12 @@ public class Nanobot {
             toolRegistry.register(new ExecTool());
         }
         
+        // Web 工具（联网查询）
+        if (config.getTools().getWeb().isEnable()) {
+            toolRegistry.register(new WebSearchTool());
+            toolRegistry.register(new WebFetchTool());
+        }
+        
         // MCP 工具
         registerMCPTools();
         
@@ -199,7 +206,6 @@ public class Nanobot {
             // OpenAI
             Config.ProviderConfig openaiConfig = config.getProviders().getOpenai();
             if (!openaiConfig.isConfigured()) {
-                // 尝试使用环境变量
                 String apiKey = System.getenv("OPENAI_API_KEY");
                 if (apiKey != null) {
                     openaiConfig.setApiKey(apiKey);
@@ -208,12 +214,32 @@ public class Nanobot {
             return new OpenAIProvider(openaiConfig.getApiKey(), model);
         }
         
+        // DeepSeek 模型
+        if (model.startsWith("deepseek")) {
+            Config.ProviderConfig deepseekConfig = config.getProviders().getDeepseek();
+            if (!deepseekConfig.isConfigured()) {
+                String apiKey = System.getenv("DEEPSEEK_API_KEY");
+                if (apiKey != null) {
+                    deepseekConfig.setApiKey(apiKey);
+                }
+            }
+            
+            if (!deepseekConfig.isConfigured()) {
+                throw new IllegalStateException("DeepSeek API key not configured");
+            }
+            
+            return new DeepSeekProvider(
+                deepseekConfig.getApiKey(),
+                model,
+                deepseekConfig.getApiBase()
+            );
+        }
+        
         // 默认使用 OpenAI
         Config.ProviderConfig providerConfig = config.getProviders().getOpenai();
         String apiKey = providerConfig.getApiKey();
         
         if (apiKey == null || apiKey.isBlank()) {
-            // 尝试环境变量
             apiKey = System.getenv("OPENAI_API_KEY");
         }
         

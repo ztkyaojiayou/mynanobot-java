@@ -42,23 +42,26 @@ public class EditFileTool implements Tool {
     
     @Override
     public JsonNode getParameters() {
-        ObjectNode props = mapper.createObjectNode()
-            .put("type", "object")
-            .putObject("properties");
+        ObjectNode props = mapper.createObjectNode();
+        props.put("type", "object");
         
-        props.putObject("path")
+        ObjectNode properties = mapper.createObjectNode();
+        properties.putObject("path")
             .put("type", "string")
             .put("description", "File path to edit");
         
-        props.putObject("oldText")
+        properties.putObject("oldText")
             .put("type", "string")
             .put("description", "Text to find and replace");
         
-        props.putObject("newText")
+        properties.putObject("newText")
             .put("type", "string")
             .put("description", "Replacement text");
         
-        return props.putArray("required").add("path").add("oldText").add("newText");
+        props.set("properties", properties);
+        props.putArray("required").add("path").add("oldText").add("newText");
+        
+        return props;
     }
     
     @Override

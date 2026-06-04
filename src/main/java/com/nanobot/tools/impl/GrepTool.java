@@ -44,27 +44,30 @@ public class GrepTool implements Tool {
     
     @Override
     public JsonNode getParameters() {
-        ObjectNode props = mapper.createObjectNode()
-            .put("type", "object")
-            .putObject("properties");
+        ObjectNode props = mapper.createObjectNode();
+        props.put("type", "object");
         
-        props.putObject("pattern")
+        ObjectNode properties = mapper.createObjectNode();
+        properties.putObject("pattern")
             .put("type", "string")
             .put("description", "Search pattern (regex supported)");
         
-        props.putObject("path")
+        properties.putObject("path")
             .put("type", "string")
             .put("description", "File or directory to search");
         
-        props.putObject("recursive")
+        properties.putObject("recursive")
             .put("type", "boolean")
             .put("description", "Search recursively in directories");
         
-        props.putObject("caseSensitive")
+        properties.putObject("caseSensitive")
             .put("type", "boolean")
             .put("description", "Case sensitive search");
         
-        return props.putArray("required").add("pattern").add("path");
+        props.set("properties", properties);
+        props.putArray("required").add("pattern").add("path");
+        
+        return props;
     }
     
     @Override

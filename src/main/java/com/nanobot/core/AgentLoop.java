@@ -384,8 +384,45 @@ public class AgentLoop {
      * BUILD: 构建上下文
      */
     private TurnState doBuild(TurnContext context) {
-        // TODO: 添加系统提示、记忆内容等
-        // 目前只使用用户消息
+        // 获取当前日期（实时）
+        java.time.LocalDate today = java.time.LocalDate.now();
+        String currentDate = today.format(java.time.format.DateTimeFormatter.ofPattern("yyyy年MM月dd日"));
+        
+        // 从配置获取系统提示词模板
+        String systemPrompt = config.getAgents().getDefaults().getSystemPrompt();
+        
+        // 如果没有配置，使用默认提示词
+        if (systemPrompt == null || systemPrompt.isBlank()) {
+            systemPrompt = """
+                你是 Nanobot，一个强大的 AI 助手。
+                
+                你的任务是帮助用户解决问题，回答问题，执行任务。
+                
+                当前日期：{date}
+                
+                你具有以下能力：
+                1. 可以调用工具来完成各种任务（包括网页搜索）
+                2. 可以进行自然语言对话
+                3. 可以访问和操作文件系统
+                
+                请用友好、专业的方式回答用户的问题。
+                """;
+        }
+        
+        // 替换日期占位符
+        systemPrompt = systemPrompt.replace("{date}", currentDate);
+        
+        // 在消息列表开头添加系统提示
+        List<Map<String, Object>> messages = context.getMessages();
+        if (!messages.isEmpty()) {
+            Map<String, Object> firstMsg = messages.get(0);
+            if (!"system".equals(firstMsg.get("role"))) {
+                messages.add(0, Map.of("role", "system", "content", systemPrompt));
+            }
+        } else {
+            messages.add(Map.of("role", "system", "content", systemPrompt));
+        }
+        
         return TurnState.RUN;
     }
     

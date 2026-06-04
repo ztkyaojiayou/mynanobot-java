@@ -40,19 +40,22 @@ public class GlobTool implements Tool {
     
     @Override
     public JsonNode getParameters() {
-        ObjectNode props = mapper.createObjectNode()
-            .put("type", "object")
-            .putObject("properties");
+        ObjectNode props = mapper.createObjectNode();
+        props.put("type", "object");
         
-        props.putObject("pattern")
+        ObjectNode properties = mapper.createObjectNode();
+        properties.putObject("pattern")
             .put("type", "string")
             .put("description", "Glob pattern (e.g., ** / *.java)");
         
-        props.putObject("basePath")
+        properties.putObject("basePath")
             .put("type", "string")
             .put("description", "Base path to search from");
         
-        return props.putArray("required").add("pattern");
+        props.set("properties", properties);
+        props.putArray("required").add("pattern");
+        
+        return props;
     }
     
     @Override

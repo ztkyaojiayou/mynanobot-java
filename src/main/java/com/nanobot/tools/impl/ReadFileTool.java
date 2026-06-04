@@ -42,19 +42,22 @@ public class ReadFileTool implements Tool {
     
     @Override
     public JsonNode getParameters() {
-        ObjectNode props = mapper.createObjectNode()
-            .put("type", "object")
-            .putObject("properties");
+        ObjectNode props = mapper.createObjectNode();
+        props.put("type", "object");
         
-        props.putObject("path")
+        ObjectNode properties = mapper.createObjectNode();
+        properties.putObject("path")
             .put("type", "string")
             .put("description", "File path to read");
         
-        props.putObject("maxLines")
+        properties.putObject("maxLines")
             .put("type", "integer")
             .put("description", "Maximum number of lines to read");
         
-        return props.putArray("required").add("path");
+        props.set("properties", properties);
+        props.putArray("required").add("path");
+        
+        return props;
     }
     
     @Override

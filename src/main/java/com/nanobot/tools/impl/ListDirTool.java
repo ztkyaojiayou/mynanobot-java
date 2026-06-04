@@ -41,19 +41,22 @@ public class ListDirTool implements Tool {
     
     @Override
     public JsonNode getParameters() {
-        ObjectNode props = mapper.createObjectNode()
-            .put("type", "object")
-            .putObject("properties");
+        ObjectNode props = mapper.createObjectNode();
+        props.put("type", "object");
         
-        props.putObject("path")
+        ObjectNode properties = mapper.createObjectNode();
+        properties.putObject("path")
             .put("type", "string")
             .put("description", "Directory path to list");
         
-        props.putObject("recursive")
+        properties.putObject("recursive")
             .put("type", "boolean")
             .put("description", "List recursively");
         
-        return props.putArray("required").add("path");
+        props.set("properties", properties);
+        props.putArray("required").add("path");
+        
+        return props;
     }
     
     @Override

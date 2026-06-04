@@ -9,11 +9,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpHandler;
@@ -62,15 +65,17 @@ public class ChannelServer {
         httpServer = HttpServer.create(new InetSocketAddress(port), 0);
         
         // 注册 HTTP 处理器
+        httpServer.createContext("/", new RootHandler());
         httpServer.createContext("/api/chat", new ChatHandler());
         httpServer.createContext("/api/sessions", new SessionsHandler());
         httpServer.createContext("/ws", new WebSocketHandler());
+        httpServer.createContext("/static/", new StaticHandler());
         
         // 设置执行器
         httpServer.setExecutor(java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor());
         
         httpServer.start();
-        logger.info("ChannelServer started on port {}", port);
+        logger.info("ChannelServer started on http://0.0.0.0:{}", port);
     }
     
     /**
@@ -135,22 +140,29 @@ public class ChannelServer {
                     .build();
                 
                 // 发布到消息总线
-                try {
-                    messageBus.publishInbound(message);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException("Interrupted while publishing message", e);
+                messageBus.publishInbound(message);
+                
+                // 等待并获取响应（最多60秒）
+                String responseContent = waitForResponse(sessionId, 60);
+                
+                if (responseContent != null) {
+                    // 返回实际响应内容
+                    String response = objectMapper.writeValueAsString(Map.of(
+                        "status", "ok",
+                        "sessionId", sessionId,
+                        "content", responseContent
+                    ));
+                    exchange.getResponseHeaders().set("Content-Type", "application/json");
+                    exchange.sendResponseHeaders(200, response.getBytes().length);
+                    exchange.getResponseBody().write(response.getBytes());
+                } else {
+                    String error = objectMapper.writeValueAsString(Map.of(
+                        "status", "error",
+                        "message", "Request timed out"
+                    ));
+                    exchange.sendResponseHeaders(504, error.getBytes().length);
+                    exchange.getResponseBody().write(error.getBytes());
                 }
-                
-                // 返回响应
-                String response = objectMapper.writeValueAsString(Map.of(
-                    "status", "ok",
-                    "sessionId", sessionId
-                ));
-                
-                exchange.getResponseHeaders().set("Content-Type", "application/json");
-                exchange.sendResponseHeaders(200, response.getBytes().length);
-                exchange.getResponseBody().write(response.getBytes());
                 
             } catch (Exception e) {
                 logger.error("Error handling chat request", e);
@@ -163,6 +175,34 @@ public class ChannelServer {
             } finally {
                 exchange.close();
             }
+        }
+        
+        /**
+         * 等待指定会话的响应
+         */
+        private String waitForResponse(String sessionId, long timeoutSeconds) {
+            long endTime = System.currentTimeMillis() + (timeoutSeconds * 1000);
+            
+            while (System.currentTimeMillis() < endTime) {
+                try {
+                    // 尝试获取出站消息（超时1秒）
+                    OutboundMessage msg = messageBus.consumeOutbound(1, TimeUnit.SECONDS);
+                    
+                    if (msg != null) {
+                        // 检查是否是当前会话的响应
+                        if (sessionId.equals(msg.getChatId())) {
+                            return msg.getContent();
+                        }
+                        // 如果不是当前会话的消息，需要处理或重新放入队列
+                        logger.debug("Received message for different session: {}", msg.getChatId());
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+            }
+            
+            return null;
         }
     }
     
@@ -293,6 +333,81 @@ public class ChannelServer {
         
         String getConnectionId() {
             return connectionId;
+        }
+    }
+    
+    /**
+     * 根路径处理器 - 返回首页
+     */
+    private class RootHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, -1);
+                return;
+            }
+            
+            // 读取首页 HTML
+            try (InputStream is = getClass().getResourceAsStream("/static/index.html")) {
+                if (is != null) {
+                    byte[] content = is.readAllBytes();
+                    exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
+                    exchange.sendResponseHeaders(200, content.length);
+                    exchange.getResponseBody().write(content);
+                } else {
+                    String error = "<h1>首页未找到</h1>";
+                    exchange.sendResponseHeaders(404, error.getBytes().length);
+                    exchange.getResponseBody().write(error.getBytes());
+                }
+            } finally {
+                exchange.close();
+            }
+        }
+    }
+    
+    /**
+     * 静态资源处理器
+     */
+    private class StaticHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, -1);
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            String resourcePath = path; // 路径已经包含 /static/
+            
+            try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
+                if (is != null) {
+                    byte[] content = is.readAllBytes();
+                    
+                    // 设置正确的 Content-Type
+                    String contentType = getContentType(path);
+                    exchange.getResponseHeaders().set("Content-Type", contentType);
+                    exchange.sendResponseHeaders(200, content.length);
+                    exchange.getResponseBody().write(content);
+                } else {
+                    String error = "Resource not found: " + path;
+                    exchange.sendResponseHeaders(404, error.getBytes().length);
+                    exchange.getResponseBody().write(error.getBytes());
+                }
+            } finally {
+                exchange.close();
+            }
+        }
+        
+        private String getContentType(String path) {
+            if (path.endsWith(".html")) return "text/html; charset=UTF-8";
+            if (path.endsWith(".css")) return "text/css; charset=UTF-8";
+            if (path.endsWith(".js")) return "application/javascript; charset=UTF-8";
+            if (path.endsWith(".json")) return "application/json; charset=UTF-8";
+            if (path.endsWith(".png")) return "image/png";
+            if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
+            if (path.endsWith(".gif")) return "image/gif";
+            if (path.endsWith(".svg")) return "image/svg+xml";
+            return "application/octet-stream";
         }
     }
 }
