@@ -184,6 +184,27 @@ void cleanup()
 | `/api/sessions` | GET | 获取会话列表 |
 | `/api/sessions/{id}` | DELETE | 删除会话 |
 
+**消息参数**：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `content` | String | 消息内容（必填） |
+| `chat_id` | String | 会话 ID（可选） |
+| `useSearch` | Boolean | 是否启用联网搜索（可选，默认 true） |
+
+**useSearch 参数说明**：
+- `true`（默认）：允许 LLM 调用 web_search 工具进行联网搜索
+- `false`：禁用所有工具调用，LLM 将直接回答问题，不进行联网搜索
+
+**使用示例**：
+```json
+POST /api/chat
+{
+  "content": "今天天气怎么样？",
+  "useSearch": true
+}
+```
+
 **使用示例**：
 ```java
 ChannelServer server = new ChannelServer(messageBus, 8080);
@@ -272,8 +293,8 @@ nanobot-java/
 │       │   │   ├── GlobTool.java
 │   │   ├── GrepTool.java
 │   │   ├── ExecTool.java
-│   │   ├── WebSearchTool.java    # 网页搜索工具
-│   │   └── WebFetchTool.java     # 网页内容抓取工具
+│   │   ├── WebSearchTool.java    # 网页搜索工具（支持百度、Brave、Bing）
+│   │   └── WebFetchTool.java     # 网页内容抓取工具（已禁用）
 ├── src/main/resources/
 │   ├── config/
 │   │   └── config.yaml
@@ -416,6 +437,273 @@ public class MCPToolWrapper implements Tool {
 例如：
 - 服务器名 `git` + 工具名 `status` → `mcp_git_status`
 - 服务器名 `weather` + 工具名 `get` → `mcp_weather_get`
+
+---
+
+### 2.7 Skills 技能系统
+
+**Skills** 是参考 Claude Code 设计的可复用技能系统，允许用户定义可复用的工作流、指令集和领域知识。Skills 可以通过斜杠命令手动调用，也可以根据对话场景自动触发。
+
+#### Skills 架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     技能存储层                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │ 项目级技能   │  │  用户级技能  │  │  内置技能    │      │
+│  │ .nanobot/    │  │ ~/.nanobot/  │  │  (内置)     │      │
+│  │ skills/      │  │ skills/      │  │             │      │
+│  └────┬────────┘  └────┬────────┘  └────┬─────────┘      │
+│       │                 │                │                  │
+└───────┼────────────────┼────────────────┼─────────────────┘
+        │                 │                │
+        ▼                 ▼                ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    SkillLoader                             │
+│        加载 SKILL.md 文件，解析元数据和内容                   │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   SkillRegistry                             │
+│        管理所有已注册的技能，支持按名称查找和场景匹配          │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   SkillManager                              │
+│        技能管理器：加载、匹配、执行技能                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 技能目录结构
+
+```
+.nanobot/skills/my-skill/
+├── SKILL.md          # 必需：技能定义文件
+├── templates/        # 可选：模板文件
+├── scripts/          # 可选：辅助脚本
+└── resources/        # 可选：资源文件
+```
+
+#### SKILL.md 格式
+
+```markdown
+---
+name: code-review
+description: 代码审查：检查代码质量、安全性和最佳实践
+argument-hint: "[file-path]"
+auto-trigger: true
+---
+# 代码审查指南
+
+## 审查要点
+
+1. **代码风格**
+   - 检查命名规范
+   - 检查代码格式
+   - 检查注释完整性
+
+2. **安全性**
+   - SQL 注入风险
+   - 敏感信息泄露
+   - 输入验证
+
+3. **性能**
+   - 不必要的循环
+   - 重复计算
+   - 资源泄漏
+```
+
+#### 技能类型
+
+| 类型 | 说明 | 示例 |
+|------|------|------|
+| **参考型** | API/Library 使用参考 | 内部库使用说明 |
+| **验证型** | 产品验证和测试 | 注册流程验证 |
+| **数据型** | 数据获取和分析 | 指标查询 |
+| **自动化型** | 业务流程自动化 | 部署流程 |
+| **审查型** | 代码审查和安全检查 | 代码审查、安全扫描 |
+
+#### 调用方式
+
+**1. 手动调用（斜杠命令）**
+```
+/code-review src/main/java/
+/doc-generator
+/refactor
+```
+
+**2. 自动触发**
+当对话内容匹配技能描述中的关键词时，技能会自动触发。
+
+**3. 带参数调用**
+```
+/code-review src/main/java/MyClass.java
+```
+
+#### 核心组件
+
+| 组件 | 职责 | 文件位置 |
+|------|------|----------|
+| **Skill** | 技能接口定义 | `skill/Skill.java` |
+| **SkillMetadata** | 技能元数据 | `skill/SkillMetadata.java` |
+| **SkillLoader** | 技能加载器 | `skill/SkillLoader.java` |
+| **SkillRegistry** | 技能注册中心 | `skill/SkillRegistry.java` |
+| **SkillManager** | 技能管理器 | `skill/SkillManager.java` |
+
+#### 使用示例
+
+```java
+// 创建技能管理器
+SkillManager skillManager = new SkillManager(config);
+
+// 加载技能
+skillManager.loadSkills();
+
+// 手动调用技能
+String result = skillManager.executeSkill("code-review", context, "src/main/java/");
+
+// 解析斜杠命令
+SkillManager.SkillCall call = skillManager.parseSlashCommand("/review src/main/");
+if (call != null) {
+    String skillResult = skillManager.executeSkill(call.skillName(), context, call.args());
+}
+
+// 查找匹配的技能（自动触发）
+List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
+```
+
+---
+
+### 2.8 Rules 规则系统
+
+**Rules** 是参考 Claude Code 的设计理念实现的全局规则系统，通过自然语言指令定义 Agent 的行为规范。规则告诉模型"在这个项目中你应该遵循什么规范"。
+
+#### Rules 架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     规则存储层                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │   CLAUDE.md  │  │ .nanobot/    │  │ ~/.nanobot/  │      │
+│  │ (项目根目录)  │  │ rules/*.md   │  │ rules/*.md   │      │
+│  └────┬────────┘  └────┬────────┘  └────┬─────────┘      │
+│       │                 │                │                  │
+└───────┼────────────────┼────────────────┼─────────────────┘
+        │                 │                │
+        ▼                 ▼                ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    RuleLoader                              │
+│        加载规则文件，解析元数据和内容                        │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   RuleRegistry                             │
+│        管理所有已注册的规则，支持按优先级排序和筛选            │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   RuleManager                              │
+│        规则管理器：加载、合并、生成提示词                     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 规则文件位置
+
+| 级别 | 路径 | 优先级 | 说明 |
+|------|------|--------|------|
+| **项目级** | `CLAUDE.md` | 高 | 项目根目录下的规则文件 |
+| **项目级** | `.nanobot/rules/*.md` | 中 | 项目专属规则目录 |
+| **用户级** | `~/.nanobot/rules/*.md` | 低 | 当前用户全局规则 |
+| **内置** | Built-in | 最低 | 系统默认规则 |
+
+#### 规则文件格式
+
+```markdown
+---
+name: coding-style
+description: Java 代码风格规范
+priority: 10
+enabled: true
+tags: [java, coding]
+---
+# Java 代码风格规范
+
+## 命名规范
+- 类名：使用 PascalCase
+- 方法名：使用 camelCase
+- 变量名：使用 camelCase
+
+## 格式规范
+- 每行代码不超过 120 字符
+- 使用 4 空格缩进
+```
+
+#### 规则类型
+
+| 类型 | 说明 | 示例 |
+|------|------|------|
+| **代码风格** | 代码命名和格式规范 | 命名规范、缩进规则 |
+| **安全规则** | 安全编码规范 | 输入验证、敏感信息保护 |
+| **响应规则** | 回复格式规范 | 语言要求、输出格式 |
+| **业务规则** | 特定业务规则 | 项目特定规范 |
+
+#### 优先级机制
+
+规则按优先级排序后合并到系统提示词中：
+- 数字越小，优先级越高
+- 高优先级规则会在提示词中靠前显示
+- 内置规则默认优先级为 100-150
+
+#### 核心组件
+
+| 组件 | 职责 | 文件位置 |
+|------|------|----------|
+| **Rule** | 规则接口定义 | `rules/Rule.java` |
+| **RuleLoader** | 规则加载器 | `rules/RuleLoader.java` |
+| **RuleRegistry** | 规则注册中心 | `rules/RuleRegistry.java` |
+| **RuleManager** | 规则管理器 | `rules/RuleManager.java` |
+
+#### 使用示例
+
+**1. 创建项目级规则文件 CLAUDE.md**：
+```markdown
+---
+name: project-guide
+description: 项目指南
+priority: 5
+---
+# 项目指南
+
+## 关于此项目
+这是一个 Nanobot-Java AI Agent 项目。
+
+## 开发规范
+- 使用 Java 21
+- 遵循 Spring Boot 代码风格
+- 编写单元测试
+```
+
+**2. 创建规则目录**：
+```bash
+mkdir -p .nanobot/rules
+touch .nanobot/rules/coding-style.md
+```
+
+**3. 代码中使用**：
+```java
+RuleManager ruleManager = new RuleManager(config);
+ruleManager.loadRules();
+
+// 获取合并后的规则提示词
+String rulesPrompt = ruleManager.getRulesPrompt();
+
+// 将规则注入到系统提示词中
+String systemPrompt = "你是一个 AI Agent。\n\n" + rulesPrompt;
+```
 
 ---
 
@@ -595,6 +883,17 @@ providers:
 tools:
   exec:
     enable: false
+  
+  web:
+    enable: true
+    search:
+      provider: "baidu_web"  # baidu_web: 百度公开接口（国内可访问，无需API Key）
+                            # baidu: 百度API（需要API Key）
+                            # brave: Brave Search（需要API Key）
+                            # bing: Bing Search（需要API Key）
+      apiKey: ""            # API Key（当使用 baidu/brave/bing 时需要配置）
+      maxResults: 5
+      timeout: 30
 
 # MCP 服务器配置
 mcp_servers:
