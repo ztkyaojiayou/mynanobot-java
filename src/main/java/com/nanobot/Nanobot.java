@@ -69,6 +69,9 @@ public class Nanobot {
      * 主入口
      */
     public static void main(String[] args) {
+        // 打印启动 Banner
+        printBanner();
+        
         Nanobot nanobot = new Nanobot();
         
         try {
@@ -435,5 +438,35 @@ public class Nanobot {
      */
     public ToolRegistry getToolRegistry() {
         return toolRegistry;
+    }
+    
+    // ==================== Banner ====================
+    
+    /**
+     * 打印启动 Banner
+     */
+    private static void printBanner() {
+        String banner = """
+            ╔══════════════════════════════════════════════════════════════════════════════╗
+            ║                                                                              ║
+            ║   ██████╗  █████╗  ███╗   ██╗ ███████╗ ██████╗  █████╗  ███╗   ██╗         ║
+            ║   ██╔══██╗██╔══██╗████╗  ██║ ██╔════╝ ██╔══██╗██╔══██╗████╗  ██║         ║
+            ║   ██████╔╝███████║██╔██╗ ██║ █████╗   ██████╔╝███████║██╔██╗ ██║         ║
+            ║   ██╔═══╝ ██╔══██║██║╚██╗██║ ██╔══╝   ██╔═══╝ ██╔══██║██║╚██╗██║         ║
+            ║   ██║     ██║  ██║██║ ╚████║ ███████╗ ██║     ██║  ██║██║ ╚████║         ║
+            ║   ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝ ╚══════╝ ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝         ║
+            ║                                                                              ║
+            ║                          Nanobot-Java v1.0.0                                 ║
+            ║              A lightweight AI Agent Framework for Java                        ║
+            ║                                                                              ║
+            ║    Features:  • Agent Loop    • Memory Management    • Tool System           ║
+            ║               • Multi-Channel  • MCP Support         • Web Search            ║
+            ║                                                                              ║
+            ╚══════════════════════════════════════════════════════════════════════════════╝
+            """;
+        
+        System.out.println();
+        System.out.println(banner);
+        System.out.println();
     }
 }
