@@ -254,9 +254,22 @@ nanobot-java/
 │   │   ├── TurnContext.java
 │   │   ├── TurnState.java
 │   │   └── hook/              # 钩子系统
-│   │       ├── AgentHook.java
-│   │       ├── AgentHookContext.java
-│   │       └── CompositeHook.java
+│   ├── hook/
+│   │   │   ├── AgentHook.java
+│   │   │   ├── AgentHookContext.java
+│   │   │   ├── CompositeHook.java
+│   │   │   ├── HookLoader.java
+│   │   │   └── impl/
+│   │   │       ├── MetricsHook.java    # 指标收集钩子
+│   │   │       ├── TracingHook.java    # 链路追踪钩子
+│   │   │       └── ValidationHook.java # 内容验证钩子
+│   │   └── subagent/
+│   │       ├── Subagent.java                    # 子 Agent 接口
+│   │       ├── SubagentContext.java             # 子 Agent 上下文
+│   │       ├── SubagentCommunication.java       # 子 Agent 通信管理器
+│   │       ├── AgentCoordinator.java            # Agent 协调器
+│   │       └── impl/
+│   │           └── SimpleSubagent.java          # 简单子 Agent 实现
 │   ├── channels/              # 多通道接入
 │   │   └── ChannelServer.java
 │   ├── cron/                   # 定时任务系统

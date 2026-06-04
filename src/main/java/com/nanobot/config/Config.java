@@ -108,6 +108,11 @@ public class Config {
      */
     private SkillsConfig skills = new SkillsConfig();
     
+    /**
+     * 钩子配置
+     */
+    private HooksConfig hooks = new HooksConfig();
+    
     // ==================== 构造函数 ====================
     
     public Config() {
@@ -179,6 +184,14 @@ public class Config {
     
     public void setSkills(SkillsConfig skills) {
         this.skills = skills;
+    }
+    
+    public HooksConfig getHooks() {
+        return hooks;
+    }
+    
+    public void setHooks(HooksConfig hooks) {
+        this.hooks = hooks;
     }
     
     // ==================== Agent 配置类 ====================
@@ -833,6 +846,36 @@ public class Config {
         
         public void setMatchThreshold(double matchThreshold) {
             this.matchThreshold = matchThreshold;
+        }
+    }
+    
+    // ==================== Hooks 配置类 ====================
+    
+    /**
+     * Hooks 配置
+     */
+    public static class HooksConfig {
+        
+        /** 是否启用钩子系统 */
+        private boolean enabled = true;
+        
+        /** 钩子列表 */
+        private java.util.List<java.util.Map<String, Object>> list = new java.util.ArrayList<>();
+        
+        public boolean isEnabled() {
+            return enabled;
+        }
+        
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+        
+        public java.util.List<java.util.Map<String, Object>> getList() {
+            return list;
+        }
+        
+        public void setList(java.util.List<java.util.Map<String, Object>> list) {
+            this.list = list;
         }
     }
 }

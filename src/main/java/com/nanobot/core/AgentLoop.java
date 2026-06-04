@@ -2,6 +2,9 @@ package com.nanobot.core;
 
 import com.nanobot.bus.*;
 import com.nanobot.config.Config;
+import com.nanobot.core.hook.AgentHookContext;
+import com.nanobot.core.hook.CompositeHook;
+import com.nanobot.core.hook.HookLoader;
 import com.nanobot.identity.IdentityManager;
 import com.nanobot.providers.LLMProvider;
 import com.nanobot.providers.LLMResponse;
@@ -147,6 +150,9 @@ public class AgentLoop {
     /** 进度回调 */
     private Consumer<OutboundMessage> progressCallback;
     
+    /** 钩子管理器 */
+    private CompositeHook hooks;
+    
     // ==================== 构造函数 ====================
     
     public AgentLoop(
@@ -191,6 +197,39 @@ public class AgentLoop {
         this.identityManager = identityManager;
         
         this.runner = new AgentRunner(provider, registry);
+        
+        // 加载钩子配置
+        loadHooks();
+    }
+    
+    // ==================== 钩子加载 ====================
+    
+    /**
+     * 加载钩子配置
+     */
+    private void loadHooks() {
+        try {
+            HookLoader loader = new HookLoader(config.getHooks());
+            this.hooks = loader.loadHooks();
+            logger.info("Loaded {} hooks", hooks.size());
+        } catch (Exception e) {
+            logger.error("Failed to load hooks: {}", e.getMessage());
+            this.hooks = new CompositeHook();
+        }
+    }
+    
+    /**
+     * 获取钩子管理器
+     */
+    public CompositeHook getHooks() {
+        return hooks;
+    }
+    
+    /**
+     * 设置钩子管理器
+     */
+    public void setHooks(CompositeHook hooks) {
+        this.hooks = hooks;
     }
     
     // ==================== 生命周期 ====================
@@ -297,6 +336,13 @@ public class AgentLoop {
             
             // 状态机处理
             String result = processStates(context);
+            
+            // 调用 finalizeContent 钩子
+            if (hooks != null && !hooks.isEmpty()) {
+                AgentHookContext hookContext = AgentHookContext.from(context);
+                result = hooks.finalizeContent(hookContext, result);
+                context.setFinalContent(result);
+            }
             
             // 发送响应
             sendResponse(message, result, context);
