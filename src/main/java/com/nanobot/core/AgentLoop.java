@@ -2,9 +2,12 @@ package com.nanobot.core;
 
 import com.nanobot.bus.*;
 import com.nanobot.config.Config;
+import com.nanobot.identity.IdentityManager;
 import com.nanobot.providers.LLMProvider;
 import com.nanobot.providers.LLMResponse;
+import com.nanobot.rules.RuleManager;
 import com.nanobot.session.SessionManager;
+import com.nanobot.skill.SkillManager;
 import com.nanobot.tools.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -121,6 +124,15 @@ public class AgentLoop {
     /** 配置 */
     private final Config config;
     
+    /** 规则管理器 */
+    private RuleManager ruleManager;
+    
+    /** 技能管理器 */
+    private SkillManager skillManager;
+    
+    /** 身份管理器（SOUL, IDENTITY, USER） */
+    private IdentityManager identityManager;
+    
     // ==================== 运行时 ====================
     
     /** Agent Runner */
@@ -144,11 +156,39 @@ public class AgentLoop {
             SessionManager sessionManager,
             Config config) {
         
+        this(messageBus, provider, registry, sessionManager, config, null, null);
+    }
+    
+    public AgentLoop(
+            MessageBus messageBus,
+            LLMProvider provider,
+            ToolRegistry registry,
+            SessionManager sessionManager,
+            Config config,
+            RuleManager ruleManager,
+            SkillManager skillManager) {
+        
+        this(messageBus, provider, registry, sessionManager, config, ruleManager, skillManager, null);
+    }
+    
+    public AgentLoop(
+            MessageBus messageBus,
+            LLMProvider provider,
+            ToolRegistry registry,
+            SessionManager sessionManager,
+            Config config,
+            RuleManager ruleManager,
+            SkillManager skillManager,
+            IdentityManager identityManager) {
+        
         this.messageBus = Objects.requireNonNull(messageBus, "messageBus cannot be null");
         this.provider = Objects.requireNonNull(provider, "provider cannot be null");
         this.registry = Objects.requireNonNull(registry, "registry cannot be null");
         this.sessionManager = Objects.requireNonNull(sessionManager, "sessionManager cannot be null");
         this.config = Objects.requireNonNull(config, "config cannot be null");
+        this.ruleManager = ruleManager;
+        this.skillManager = skillManager;
+        this.identityManager = identityManager;
         
         this.runner = new AgentRunner(provider, registry);
     }
@@ -361,6 +401,21 @@ public class AgentLoop {
             return TurnState.BUILD;
         }
         
+        // 尝试解析技能调用（Skills）
+        if (skillManager != null) {
+            SkillManager.SkillCall skillCall = skillManager.parseSlashCommand(content);
+            if (skillCall != null) {
+                // 执行技能
+                String result = skillManager.executeSkill(
+                    skillCall.skillName(), 
+                    java.util.Map.of(), 
+                    skillCall.args()
+                );
+                context.setFinalContent(result);
+                return TurnState.DONE;
+            }
+        }
+        
         // 简单命令处理
         String command = content.split("\\s")[0].toLowerCase();
         
@@ -376,6 +431,20 @@ public class AgentLoop {
                 context.setFinalContent("会话已清除。");
                 yield TurnState.DONE;
             }
+            case "/skills" -> {
+                // 显示可用技能列表
+                String skillsHelp = skillManager != null ? 
+                    skillManager.getRegistry().getHelp() : "技能系统未启用。";
+                context.setFinalContent(skillsHelp);
+                yield TurnState.DONE;
+            }
+            case "/rules" -> {
+                // 显示规则摘要
+                String rulesSummary = ruleManager != null ? 
+                    ruleManager.getRulesSummary() : "规则系统未启用。";
+                context.setFinalContent(rulesSummary);
+                yield TurnState.DONE;
+            }
             default -> TurnState.BUILD;
         };
     }
@@ -388,39 +457,69 @@ public class AgentLoop {
         java.time.LocalDate today = java.time.LocalDate.now();
         String currentDate = today.format(java.time.format.DateTimeFormatter.ofPattern("yyyy年MM月dd日"));
         
-        // 从配置获取系统提示词模板
-        String systemPrompt = config.getAgents().getDefaults().getSystemPrompt();
+        // 检查是否启用联网搜索
+        boolean useSearch = false;
+        if (context.getMessage() != null && context.getMessage().getMetadata() != null) {
+            Object useSearchObj = context.getMessage().getMetadata().get("useSearch");
+            if (useSearchObj instanceof Boolean) {
+                useSearch = (Boolean) useSearchObj;
+            } else if (useSearchObj instanceof String) {
+                useSearch = Boolean.parseBoolean((String) useSearchObj);
+            }
+        }
         
-        // 如果没有配置，使用默认提示词
-        if (systemPrompt == null || systemPrompt.isBlank()) {
-            systemPrompt = """
-                你是 Nanobot，一个强大的 AI 助手。
+        logger.info("Building context: useSearch={}", useSearch);
+        
+        StringBuilder systemPrompt = new StringBuilder();
+        
+        // ============ 身份信息注入（SOUL, IDENTITY, USER） ============
+        if (identityManager != null) {
+            systemPrompt.append(identityManager.getSystemPrompt(currentDate));
+        } else {
+            // 默认提示词
+            systemPrompt.append("""
+                你是 my-nanobot，一个强大的 AI 助手。
                 
                 你的任务是帮助用户解决问题，回答问题，执行任务。
                 
-                当前日期：{date}
+                当前日期：""" + currentDate + """
                 
-                你具有以下能力：
-                1. 可以调用工具来完成各种任务（包括网页搜索）
-                2. 可以进行自然语言对话
-                3. 可以访问和操作文件系统
-                
-                请用友好、专业的方式回答用户的问题。
-                """;
+                """);
         }
         
-        // 替换日期占位符
-        systemPrompt = systemPrompt.replace("{date}", currentDate);
+        // 根据 useSearch 参数决定是否启用工具调用
+        if (useSearch) {
+            systemPrompt.append("""
+                你可以调用工具来完成各种任务，包括网页搜索。
+                如果用户的问题需要最新信息，请使用 web_search 工具进行搜索。
+                
+                """);
+        } else {
+            systemPrompt.append("""
+                请直接回答用户的问题，不要调用任何工具。
+                如果用户的问题需要最新信息，你可以告知用户可以使用"联网查"功能获取最新信息。
+                
+                """);
+        }
+        
+        // ============ Rules 自动注入 ============
+        // 如果有规则管理器，将规则合并到系统提示词中
+        if (ruleManager != null) {
+            String rulesPrompt = ruleManager.getRulesPrompt();
+            if (rulesPrompt != null && !rulesPrompt.isBlank()) {
+                systemPrompt.append("\n\n").append(rulesPrompt);
+            }
+        }
         
         // 在消息列表开头添加系统提示
         List<Map<String, Object>> messages = context.getMessages();
         if (!messages.isEmpty()) {
             Map<String, Object> firstMsg = messages.get(0);
             if (!"system".equals(firstMsg.get("role"))) {
-                messages.add(0, Map.of("role", "system", "content", systemPrompt));
+                messages.add(0, Map.of("role", "system", "content", systemPrompt.toString()));
             }
         } else {
-            messages.add(Map.of("role", "system", "content", systemPrompt));
+            messages.add(Map.of("role", "system", "content", systemPrompt.toString()));
         }
         
         return TurnState.RUN;

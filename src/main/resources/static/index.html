@@ -168,6 +168,75 @@
             transform: translateY(0);
         }
 
+        /* 按钮组 */
+        .button-group {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* 搜索按钮 */
+        .search-btn {
+            padding: 14px 24px;
+            border: 2px solid #ddd;
+            border-radius: 30px;
+            background: #fff;
+            color: #888;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .search-btn:hover {
+            background: #fafafa;
+            border-color: #ccc;
+        }
+
+        .search-btn.active {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            border-color: #10b981;
+            color: white;
+            box-shadow: 
+                0 6px 25px rgba(16, 185, 129, 0.4),
+                0 0 0 3px rgba(16, 185, 129, 0.1);
+            transform: scale(1.05);
+        }
+
+        .search-btn.active:hover {
+            transform: scale(1.07);
+            box-shadow: 
+                0 8px 30px rgba(16, 185, 129, 0.5),
+                0 0 0 3px rgba(16, 185, 129, 0.15);
+        }
+
+        .search-btn.active:active {
+            transform: scale(1.03);
+        }
+
+        /* 选中状态的勾选动画 */
+        .search-btn.active::after {
+            content: ' ✓';
+            display: inline-block;
+            animation: checkPulse 0.3s ease;
+        }
+
+        @keyframes checkPulse {
+            0% {
+                transform: scale(0);
+                opacity: 0;
+            }
+            50% {
+                transform: scale(1.5);
+                opacity: 1;
+            }
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
         .status-bar {
             text-align: center;
             margin-top: 15px;
@@ -208,6 +277,130 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #999;
         }
+
+        /* 消息内容样式优化 */
+        .message-content {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.8;
+            font-size: 15px;
+            color: #333;
+        }
+
+        .message-content p {
+            margin: 12px 0;
+            padding: 0;
+        }
+
+        .message-content p:first-child {
+            margin-top: 0;
+        }
+
+        .message-content p:last-child {
+            margin-bottom: 0;
+        }
+
+        .message-content ul,
+        .message-content ol {
+            margin: 12px 0;
+            padding-left: 24px;
+        }
+
+        .message-content li {
+            margin: 6px 0;
+            line-height: 1.8;
+        }
+
+        .message-content strong,
+        .message-content b {
+            font-weight: 600;
+            color: #222;
+        }
+
+        .message-content em,
+        .message-content i {
+            font-style: italic;
+        }
+
+        .message-content h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin: 16px 0 12px;
+            color: #1a1a1a;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 8px;
+        }
+
+        .message-content h2 {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin: 14px 0 10px;
+            color: #222;
+        }
+
+        .message-content h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin: 12px 0 8px;
+            color: #333;
+        }
+
+        .message-content hr {
+            border: none;
+            border-top: 1px solid #eee;
+            margin: 16px 0;
+        }
+
+        .message-content blockquote {
+            border-left: 4px solid #667eea;
+            padding-left: 16px;
+            margin: 12px 0;
+            color: #666;
+            background: #f8f8f8;
+            padding: 12px 16px;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .message-content code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+            color: #c7254e;
+        }
+
+        .message-content pre {
+            background: #1a1a1a;
+            color: #f8f8f2;
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 12px 0;
+        }
+
+        .message-content pre code {
+            background: none;
+            color: inherit;
+            padding: 0;
+        }
+
+        .message-content a {
+            color: #667eea;
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s;
+        }
+
+        .message-content a:hover {
+            border-bottom-color: #667eea;
+        }
+
+        .message-content .highlight {
+            background: #fff3cd;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -230,7 +423,10 @@
 
             <div class="input-area">
                 <input type="text" id="inputMessage" placeholder="输入消息..." autocomplete="off">
-                <button id="sendBtn">发送</button>
+                <div class="button-group">
+                    <button id="sendBtn">发送</button>
+                    <button id="searchBtn" class="search-btn">🔍 联网查</button>
+                </div>
             </div>
         </div>
 
@@ -244,15 +440,28 @@
         const messagesContainer = document.getElementById('messages');
         const inputMessage = document.getElementById('inputMessage');
         const sendBtn = document.getElementById('sendBtn');
+        const searchBtn = document.getElementById('searchBtn');
         let chatId = 'web-' + Date.now();
+        let useSearchMode = false;
+
+        // 切换搜索模式
+        function toggleSearchMode() {
+            useSearchMode = !useSearchMode;
+            if (useSearchMode) {
+                searchBtn.classList.add('active');
+            } else {
+                searchBtn.classList.remove('active');
+            }
+        }
 
         // 发送消息
         async function sendMessage() {
             const content = inputMessage.value.trim();
             if (!content) return;
 
-            // 添加用户消息
-            addMessage('user', content);
+            // 添加用户消息（显示搜索标记）
+            const displayContent = useSearchMode ? '[🔍] ' + content : content;
+            addMessage('user', displayContent);
             inputMessage.value = '';
 
             // 添加打字状态
@@ -267,7 +476,8 @@
                     body: JSON.stringify({
                         channel: 'http',
                         chatId: chatId,
-                        content: content
+                        content: content,
+                        useSearch: useSearchMode
                     })
                 });
 
@@ -299,7 +509,9 @@
             if (type === 'bot') {
                 messageDiv.innerHTML = `
                     <div class="avatar">N</div>
-                    <div class="content">${escapeHtml(content)}</div>
+                    <div class="content">
+                        <div class="message-content">${markdownToHtml(content)}</div>
+                    </div>
                 `;
             } else {
                 messageDiv.textContent = content;
@@ -307,6 +519,61 @@
 
             messagesContainer.appendChild(messageDiv);
             scrollToBottom();
+        }
+
+        // Markdown 转 HTML（简化版，支持常用格式）
+        function markdownToHtml(text) {
+            if (!text) return '';
+            
+            let html = escapeHtml(text);
+            
+            // 处理段落（连续两个换行）
+            html = html.replace(/\n\n/g, '</p><p>');
+            
+            // 处理换行（单个换行）
+            html = html.replace(/\n/g, '<br>');
+            
+            // 处理标题
+            html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+            html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+            html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+            
+            // 处理粗体
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
+            
+            // 处理斜体
+            html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+            html = html.replace(/_(.+?)_/g, '<em>$1</em>');
+            
+            // 处理代码
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            
+            // 处理代码块
+            html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+            
+            // 处理引用
+            html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+            
+            // 处理无序列表
+            html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+            html = html.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
+            
+            // 处理有序列表
+            html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+            
+            // 处理链接
+            html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+            
+            // 处理分割线
+            html = html.replace(/^---$/gm, '<hr>');
+            
+            // 确保包裹在段落标签中
+            if (!html.startsWith('<p>')) {
+                html = '<p>' + html + '</p>';
+            }
+            
+            return html;
         }
 
         // 添加打字指示器
@@ -342,6 +609,7 @@
 
         // 事件监听
         sendBtn.addEventListener('click', sendMessage);
+        searchBtn.addEventListener('click', toggleSearchMode);
         inputMessage.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 sendMessage();

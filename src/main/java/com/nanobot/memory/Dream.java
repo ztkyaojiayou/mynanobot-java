@@ -5,6 +5,8 @@ import com.nanobot.providers.LLMResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -51,6 +53,31 @@ public class Dream {
         this.llmProvider = llmProvider;
         this.maxMemories = maxMemories;
         logger.info("Dream long-term memory system initialized (max: {})", maxMemories);
+    }
+    
+    /**
+     * 从 MEMORY.md 文件加载长期记忆
+     * 
+     * @param baseDir 基础目录路径
+     */
+    public void loadFromMemoryFile(Path baseDir) {
+        List<MemoryEntry> entries = MemoryLoader.loadFromFile(baseDir);
+        for (MemoryEntry entry : entries) {
+            if (memories.size() < maxMemories) {
+                memories.put(entry.getId(), entry);
+            }
+        }
+        logger.info("Loaded {} memories from MEMORY.md", entries.size());
+    }
+    
+    /**
+     * 保存所有记忆到 MEMORY.md 文件
+     * 
+     * @param baseDir 基础目录路径
+     */
+    public void saveToMemoryFile(Path baseDir) {
+        List<MemoryEntry> entries = new ArrayList<>(memories.values());
+        MemoryLoader.saveToFile(baseDir, entries);
     }
     
     /**

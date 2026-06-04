@@ -130,14 +130,19 @@ public class ChannelServer {
                 String sessionId = json.has("sessionId") ? json.get("sessionId").asText() : UUID.randomUUID().toString();
                 String content = json.has("content") ? json.get("content").asText() : "";
                 String channel = json.has("channel") ? json.get("channel").asText() : "http";
+                boolean useSearch = json.has("useSearch") && json.get("useSearch").asBoolean();
                 
-                // 创建入站消息
+                // 创建入站消息（包含 useSearch 元数据）
                 InboundMessage message = InboundMessage.builder()
                     .chatId(sessionId)
                     .senderId(sessionId)
                     .content(content)
                     .channel(channel)
+                    .metadata(Map.of("useSearch", useSearch))
                     .build();
+                
+                logger.info("Received chat request: sessionId={}, contentLength={}, useSearch={}", 
+                           sessionId, content.length(), useSearch);
                 
                 // 发布到消息总线
                 messageBus.publishInbound(message);
@@ -181,6 +186,7 @@ public class ChannelServer {
          * 等待指定会话的响应
          */
         private String waitForResponse(String sessionId, long timeoutSeconds) {
+            logger.info("Waiting for response for session: {}, timeout: {}s", sessionId, timeoutSeconds);
             long endTime = System.currentTimeMillis() + (timeoutSeconds * 1000);
             
             while (System.currentTimeMillis() < endTime) {
@@ -189,19 +195,28 @@ public class ChannelServer {
                     OutboundMessage msg = messageBus.consumeOutbound(1, TimeUnit.SECONDS);
                     
                     if (msg != null) {
+                        logger.debug("Received outbound message for chatId: {}, content length: {}", 
+                                   msg.getChatId(), 
+                                   msg.getContent() != null ? msg.getContent().length() : 0);
                         // 检查是否是当前会话的响应
                         if (sessionId.equals(msg.getChatId())) {
+                            logger.info("Found response for session: {}, content length: {}", 
+                                       sessionId, 
+                                       msg.getContent() != null ? msg.getContent().length() : 0);
                             return msg.getContent();
                         }
                         // 如果不是当前会话的消息，需要处理或重新放入队列
-                        logger.debug("Received message for different session: {}", msg.getChatId());
+                        logger.warn("Received message for different session: expected={}, got={}", 
+                                   sessionId, msg.getChatId());
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                    logger.warn("Wait interrupted for session: {}", sessionId);
                     return null;
                 }
             }
             
+            logger.warn("Timeout waiting for response for session: {}", sessionId);
             return null;
         }
     }

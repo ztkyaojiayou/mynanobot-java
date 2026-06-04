@@ -103,6 +103,11 @@ public class Config {
      */
     private MemoryConfig memory = new MemoryConfig();
     
+    /**
+     * 技能配置
+     */
+    private SkillsConfig skills = new SkillsConfig();
+    
     // ==================== 构造函数 ====================
     
     public Config() {
@@ -166,6 +171,14 @@ public class Config {
     
     public void setMemory(MemoryConfig memory) {
         this.memory = memory;
+    }
+    
+    public SkillsConfig getSkills() {
+        return skills;
+    }
+    
+    public void setSkills(SkillsConfig skills) {
+        this.skills = skills;
     }
     
     // ==================== Agent 配置类 ====================
@@ -612,6 +625,9 @@ public class Config {
         /** 是否启用行年龄注释 */
         private boolean annotateLineAges = true;
         
+        /** 最大记忆数量 */
+        private int maxMemories = 1000;
+        
         public int getIntervalHours() { return intervalHours; }
         public void setIntervalHours(int intervalHours) { this.intervalHours = intervalHours; }
         
@@ -623,6 +639,9 @@ public class Config {
         
         public boolean isAnnotateLineAges() { return annotateLineAges; }
         public void setAnnotateLineAges(boolean annotateLineAges) { this.annotateLineAges = annotateLineAges; }
+        
+        public int getMaxMemories() { return maxMemories; }
+        public void setMaxMemories(int maxMemories) { this.maxMemories = maxMemories; }
     }
     
     // ==================== MCP 配置类 ====================
@@ -774,5 +793,46 @@ public class Config {
      */
     public static Config createDefault() {
         return new Config();
+    }
+    
+    // ==================== Skills 配置类 ====================
+    
+    /**
+     * Skills 配置
+     */
+    public static class SkillsConfig {
+        
+        /** 技能搜索路径列表 */
+        private java.util.List<String> paths = new java.util.ArrayList<>();
+        
+        /** 是否启用自动触发 */
+        private boolean autoTrigger = true;
+        
+        /** 匹配阈值 (0-1) */
+        private double matchThreshold = 0.3;
+        
+        public java.util.List<String> getPaths() {
+            return paths;
+        }
+        
+        public void setPaths(java.util.List<String> paths) {
+            this.paths = paths;
+        }
+        
+        public boolean isAutoTrigger() {
+            return autoTrigger;
+        }
+        
+        public void setAutoTrigger(boolean autoTrigger) {
+            this.autoTrigger = autoTrigger;
+        }
+        
+        public double getMatchThreshold() {
+            return matchThreshold;
+        }
+        
+        public void setMatchThreshold(double matchThreshold) {
+            this.matchThreshold = matchThreshold;
+        }
     }
 }

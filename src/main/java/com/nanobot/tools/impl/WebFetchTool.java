@@ -14,8 +14,15 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.X509Certificate;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509ExtendedTrustManager;
 
 /**
  * 网页内容抓取工具
@@ -42,9 +49,45 @@ public class WebFetchTool implements Tool {
     private static final int DEFAULT_MAX_LENGTH = 3000;
     
     public WebFetchTool() {
-        this.httpClient = HttpClient.newHttpClient();
+        this.httpClient = createInsecureHttpClient();
         this.objectMapper = new ObjectMapper();
         logger.info("WebFetchTool initialized");
+    }
+    
+    /**
+     * 创建一个不验证 SSL 证书的 HttpClient（仅用于开发/测试环境）
+     */
+    private HttpClient createInsecureHttpClient() {
+        try {
+            TrustManager[] trustAllCerts = new TrustManager[]{
+                new X509ExtendedTrustManager() {
+                    @Override
+                    public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+                    @Override
+                    public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+                    @Override
+                    public void checkClientTrusted(X509Certificate[] chain, String authType, SSLEngine engine) {}
+                    @Override
+                    public void checkServerTrusted(X509Certificate[] chain, String authType, SSLEngine engine) {}
+                    @Override
+                    public void checkClientTrusted(X509Certificate[] chain, String authType, java.net.Socket socket) {}
+                    @Override
+                    public void checkServerTrusted(X509Certificate[] chain, String authType, java.net.Socket socket) {}
+                    @Override
+                    public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+                }
+            };
+            
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+            
+            return HttpClient.newBuilder()
+                .sslContext(sslContext)
+                .build();
+        } catch (NoSuchAlgorithmException | KeyManagementException e) {
+            logger.warn("Failed to create insecure HTTP client, falling back to default: {}", e.getMessage());
+            return HttpClient.newHttpClient();
+        }
     }
     
     @Override
