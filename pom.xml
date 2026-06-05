@@ -47,6 +47,7 @@
         <logback.version>1.4.11</logback.version>
         <junit.version>5.10.1</junit.version>
         <spring-boot.version>3.2.5</spring-boot.version>
+        <lombok.version>1.18.30</lombok.version>
     </properties>
 
     <!-- 项目依赖 -->
@@ -99,6 +100,15 @@
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
             <version>1.17.2</version>
+        </dependency>
+        
+        <!-- ==================== Lombok - 减少样板代码 ==================== -->
+        <!-- Lombok - 自动生成 getter/setter/builder 等 -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
+            <scope>provided</scope>
         </dependency>
         
         <!-- ==================== 日志框架 ==================== -->
@@ -173,6 +183,14 @@
                     <compilerArgs>
                         <arg>--enable-preview</arg>
                     </compilerArgs>
+                    <!-- Lombok 注解处理器路径 -->
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
                 </configuration>
             </plugin>
 

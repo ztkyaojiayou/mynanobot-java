@@ -4,6 +4,10 @@ import com.nanobot.NanobotRunner;
 import com.nanobot.bus.MessageBus;
 import com.nanobot.bus.InboundMessage;
 import com.nanobot.core.AgentLoop;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -193,6 +197,10 @@ public class ChatController {
     /**
      * 聊天请求 DTO
      */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class ChatRequest {
         private String sessionId;
         private String content;
@@ -200,23 +208,5 @@ public class ChatController {
         private boolean useSearch;
         private boolean streamMode;
         private String requestId;
-        
-        public String getSessionId() { return sessionId; }
-        public void setSessionId(String sessionId) { this.sessionId = sessionId; }
-        
-        public String getContent() { return content; }
-        public void setContent(String content) { this.content = content; }
-        
-        public String getChannel() { return channel; }
-        public void setChannel(String channel) { this.channel = channel; }
-        
-        public boolean isUseSearch() { return useSearch; }
-        public void setUseSearch(boolean useSearch) { this.useSearch = useSearch; }
-        
-        public boolean isStreamMode() { return streamMode; }
-        public void setStreamMode(boolean streamMode) { this.streamMode = streamMode; }
-        
-        public String getRequestId() { return requestId; }
-        public void setRequestId(String requestId) { this.requestId = requestId; }
     }
 }
