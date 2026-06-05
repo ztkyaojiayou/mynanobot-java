@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -138,6 +139,13 @@ public class MessageBus {
      */
     private final BlockingQueue<OutboundMessage> outboundQueue;
     
+    /**
+     * 按会话ID存储的响应映射
+     * 
+     * 用于确保每个请求收到正确的响应。
+     */
+    private final ConcurrentHashMap<String, java.util.Queue<OutboundMessage>> sessionResponses;
+    
     // ==================== 线程池 ====================
     
     /**
@@ -184,6 +192,9 @@ public class MessageBus {
         // - 队列空时阻塞消费者
         this.inboundQueue = new ArrayBlockingQueue<>(queueCapacity);
         this.outboundQueue = new ArrayBlockingQueue<>(queueCapacity);
+        
+        // 初始化会话响应映射
+        this.sessionResponses = new ConcurrentHashMap<>();
         
         // 创建单线程池用于异步操作
         // 注意：这里只用少量线程处理异步发布，不是主要的消息处理线程
@@ -353,6 +364,7 @@ public class MessageBus {
      * 发布出站消息（同步）
      * 
      * 将响应消息放入出站队列，等待被 ChannelManager 发送。
+     * 同时也将消息添加到会话响应映射中，用于按会话ID匹配。
      * 
      * @param message 要发布的出站消息
      * @throws InterruptedException 如果阻塞时被中断
@@ -363,7 +375,14 @@ public class MessageBus {
             return;
         }
         
+        // 添加到出站队列
         outboundQueue.put(message);
+        
+        // 添加到会话响应映射
+        if (message.getChatId() != null) {
+            sessionResponses.computeIfAbsent(message.getChatId(), k -> new java.util.LinkedList<>())
+                           .offer(message);
+        }
         
         logger.debug("Published outbound message: channel={}, chatId={}", 
                     message.getChannel(), message.getChatId());
@@ -472,5 +491,68 @@ public class MessageBus {
      */
     public int getInboundRemainingCapacity() {
         return inboundQueue.remainingCapacity();
+    }
+    
+    /**
+     * 从会话响应映射中获取响应（使用 requestId 精确匹配）
+     * 
+     * @param sessionId 会话ID
+     * @param requestId 请求ID
+     * @param timeout 超时时间
+     * @param unit 时间单位
+     * @return 响应消息，如果超时返回 null
+     * @throws InterruptedException 如果等待时被中断
+     */
+    public OutboundMessage waitForSessionResponse(String sessionId, String requestId, long timeout, TimeUnit unit) 
+            throws InterruptedException {
+        
+        long endTime = System.currentTimeMillis() + unit.toMillis(timeout);
+        
+        while (System.currentTimeMillis() < endTime) {
+            // 尝试从会话响应映射中获取响应
+            java.util.Queue<OutboundMessage> queue = sessionResponses.get(sessionId);
+            if (queue != null) {
+                // 查找匹配 requestId 的响应
+                OutboundMessage matchedMsg = null;
+                java.util.Iterator<OutboundMessage> iterator = queue.iterator();
+                while (iterator.hasNext()) {
+                    OutboundMessage msg = iterator.next();
+                    if (requestId != null && requestId.equals(msg.getRequestId())) {
+                        matchedMsg = msg;
+                        iterator.remove();
+                        break;
+                    }
+                }
+                
+                if (matchedMsg != null) {
+                    logger.info("Found response for request: {}", requestId);
+                    return matchedMsg;
+                }
+            }
+            
+            // 短暂等待，避免忙等待
+            Thread.sleep(50);
+        }
+        
+        logger.warn("Timeout waiting for response for session: {}, requestId: {}", sessionId, requestId);
+        return null;
+    }
+    
+    /**
+     * 从会话响应映射中获取响应（兼容旧版本，使用 sessionId 匹配）
+     */
+    public OutboundMessage waitForSessionResponse(String sessionId, long timeout, TimeUnit unit) 
+            throws InterruptedException {
+        return waitForSessionResponse(sessionId, null, timeout, unit);
+    }
+    
+    /**
+     * 清理会话响应
+     * 
+     * @param sessionId 会话ID
+     */
+    public void clearSessionResponse(String sessionId) {
+        sessionResponses.remove(sessionId);
+        logger.debug("Cleared response for session: {}", sessionId);
     }
 }

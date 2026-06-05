@@ -237,6 +237,41 @@
             }
         }
 
+        /* 流式对话选择框样式 */
+        .stream-checkbox {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 12px 16px;
+            border: 2px solid #ddd;
+            border-radius: 25px;
+            background: #fff;
+            color: #888;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-left: 5px;
+            white-space: nowrap;
+        }
+
+        .stream-checkbox:hover {
+            background: #fafafa;
+            border-color: #ccc;
+        }
+
+        .stream-checkbox input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: #3b82f6;
+            margin: 0;
+        }
+
+        .stream-checkbox input[type="checkbox"]:checked + span {
+            color: #3b82f6;
+        }
+
         .status-bar {
             text-align: center;
             margin-top: 15px;
@@ -401,6 +436,45 @@
             padding: 2px 4px;
             border-radius: 4px;
         }
+
+        /* 流式消息样式 */
+        .streaming-indicator {
+            display: flex;
+            padding: 5px 0;
+            margin-bottom: 8px;
+        }
+
+        .streaming-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #667eea;
+            margin: 0 2px;
+            animation: streaming 1s infinite ease-in-out;
+        }
+
+        .streaming-dot:nth-child(1) { animation-delay: 0s; }
+        .streaming-dot:nth-child(2) { animation-delay: 0.2s; }
+        .streaming-dot:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes streaming {
+            0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
+            30% { opacity: 1; transform: scale(1); }
+        }
+
+        .stream-complete .streaming-indicator {
+            display: none;
+        }
+
+        /* 流式消息动画 */
+        .message.streaming {
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
     </style>
 </head>
 <body>
@@ -426,6 +500,10 @@
                 <div class="button-group">
                     <button id="sendBtn">发送</button>
                     <button id="searchBtn" class="search-btn">🔍 联网查</button>
+                    <label class="stream-checkbox">
+                        <input type="checkbox" id="streamMode">
+                        <span>流式对话</span>
+                    </label>
                 </div>
             </div>
         </div>
@@ -441,8 +519,112 @@
         const inputMessage = document.getElementById('inputMessage');
         const sendBtn = document.getElementById('sendBtn');
         const searchBtn = document.getElementById('searchBtn');
+        const streamModeCheckbox = document.getElementById('streamMode');
         let chatId = 'web-' + Date.now();
         let useSearchMode = false;
+        let useStreamMode = false;
+        let ws = null;
+        let currentStreamingMessage = null;
+        let currentStreamingContent = '';
+
+        // 初始化 WebSocket 连接（暂时禁用，改用HTTP）
+    function initWebSocket() {
+        console.log('WebSocket disabled, using HTTP mode');
+        updateStatusBar('使用 HTTP 模式');
+    }
+
+        // 处理 WebSocket 消息
+        function handleWebSocketMessage(data) {
+            try {
+                const message = JSON.parse(data);
+                const type = message.type;
+                
+                switch (type) {
+                    case 'stream_delta':
+                        // 流式消息片段
+                        handleStreamDelta(message.delta);
+                        break;
+                    
+                    case 'stream_end':
+                        // 流式消息结束
+                        handleStreamEnd();
+                        break;
+                    
+                    case 'message':
+                        // 完整消息
+                        if (message.content) {
+                            addMessage('bot', message.content);
+                        }
+                        break;
+                    
+                    default:
+                        console.log('未知消息类型:', type);
+                }
+            } catch (error) {
+                console.error('解析消息失败:', error);
+            }
+        }
+
+        // 处理流式消息片段
+        function handleStreamDelta(delta) {
+            if (!currentStreamingMessage) {
+                // 创建新的流式消息容器
+                currentStreamingMessage = createStreamingMessageElement();
+                currentStreamingContent = '';
+            }
+            
+            // 累积内容
+            currentStreamingContent += delta;
+            
+            // 更新显示
+            const contentDiv = currentStreamingMessage.querySelector('.message-content');
+            contentDiv.innerHTML = markdownToHtml(currentStreamingContent);
+            
+            scrollToBottom();
+        }
+
+        // 处理流式消息结束
+        function handleStreamEnd() {
+            if (currentStreamingMessage) {
+                // 移除流式指示器
+                const indicator = currentStreamingMessage.querySelector('.streaming-indicator');
+                if (indicator) {
+                    indicator.remove();
+                }
+                
+                // 标记为完成
+                currentStreamingMessage.classList.add('stream-complete');
+                currentStreamingMessage = null;
+                currentStreamingContent = '';
+            }
+        }
+
+        // 创建流式消息元素
+        function createStreamingMessageElement() {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot-message streaming';
+            messageDiv.innerHTML = `
+                <div class="avatar">N</div>
+                <div class="content">
+                    <div class="streaming-indicator">
+                        <span class="streaming-dot"></span>
+                        <span class="streaming-dot"></span>
+                        <span class="streaming-dot"></span>
+                    </div>
+                    <div class="message-content"></div>
+                </div>
+            `;
+            messagesContainer.appendChild(messageDiv);
+            return messageDiv;
+        }
+
+        // 更新状态栏
+        function updateStatusBar(text) {
+            const statusBar = document.querySelector('.status-bar span:last-child');
+            if (statusBar) {
+                statusBar.textContent = text;
+            }
+        }
 
         // 切换搜索模式
         function toggleSearchMode() {
@@ -454,57 +636,142 @@
             }
         }
 
-        // 发送消息
-        async function sendMessage() {
-            const content = inputMessage.value.trim();
-            if (!content) return;
+        // 切换流式对话模式
+        function toggleStreamMode() {
+            useStreamMode = streamModeCheckbox.checked;
+        }
 
-            // 添加用户消息（显示搜索标记）
-            const displayContent = useSearchMode ? '[🔍] ' + content : content;
-            addMessage('user', displayContent);
-            inputMessage.value = '';
+        // 请求队列 - 确保请求串行处理
+        let requestQueue = [];
+        let isProcessing = false;
 
-            // 添加打字状态
+        async function processQueue() {
+            if (isProcessing || requestQueue.length === 0) return;
+            
+            isProcessing = true;
+            const task = requestQueue.shift();
+            
+            try {
+                await task();
+            } catch (error) {
+                console.error('Error processing queue:', error);
+            } finally {
+                isProcessing = false;
+                processQueue();
+            }
+        }
+
+        function addToQueue(task) {
+            requestQueue.push(task);
+            processQueue();
+        }
+
+        // 发送消息（WebSocket 流式）
+        function sendMessageWS(content) {
+            // 通过 WebSocket 发送（调用前已确认连接状态）
+            ws.send(JSON.stringify({
+                type: 'message',
+                chat_id: chatId,
+                content: content,
+                useSearch: useSearchMode,
+                streamMode: useStreamMode
+            }));
+        }
+
+        // 发送消息（HTTP）
+        async function sendMessageHTTP(content) {
             const typingIndicator = addTypingIndicator();
+            const requestId = Date.now() + '-' + Math.random().toString(36).substring(7);
+            
+            console.log(`[${requestId}] Sending HTTP request, chatId: ${chatId}, content: ${content}`);
 
             try {
-                const response = await fetch('/api/chat', {
+                // 使用完全随机的URL来确保没有缓存
+                const uniqueId = Date.now() + '-' + Math.random().toString(36).substring(7) + '-' + Math.random().toString(36).substring(7);
+                const response = await fetch('/api/chat?' + uniqueId, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+                        'Pragma': 'no-cache',
+                        'Expires': 'Thu, 01 Jan 1970 00:00:00 GMT'
                     },
                     body: JSON.stringify({
                         channel: 'http',
                         chatId: chatId,
                         content: content,
-                        useSearch: useSearchMode
+                        useSearch: useSearchMode,
+                        streamMode: useStreamMode,
+                        timestamp: Date.now(),
+                        requestId: requestId,
+                        uniqueId: uniqueId
                     })
                 });
 
-                // 移除打字状态
                 typingIndicator.remove();
 
                 if (response.ok) {
                     const data = await response.json();
+                    console.log(`[${requestId}] Received response at ${Date.now()}:`, data);
+                    console.log(`[${requestId}] Response content length:`, data.content ? data.content.length : 0);
+                    console.log(`[${requestId}] Response sessionId:`, data.sessionId);
+                    
+                    // 验证响应是否正确
                     if (data.content) {
+                        // 检查是否是之前的响应
+                        const lastMessage = document.querySelector('.bot-message:last-child .message-content');
+                        if (lastMessage && lastMessage.textContent.trim() === data.content.trim()) {
+                            console.log(`[${requestId}] WARNING: Response is the same as previous message!`);
+                        }
                         addMessage('bot', data.content);
                     } else {
                         addMessage('bot', '抱歉，我无法处理您的请求。');
                     }
                 } else {
+                    console.log(`[${requestId}] Response not ok:`, response.status);
                     addMessage('bot', '请求失败，请稍后重试。');
                 }
             } catch (error) {
                 typingIndicator.remove();
+                console.error(`[${requestId}] Error:`, error);
                 addMessage('bot', '连接失败，请检查网络连接。');
-                console.error('Error:', error);
             }
+        }
+
+        // 发送消息（智能选择 WebSocket 或 HTTP）
+        function sendMessage() {
+            const content = inputMessage.value.trim();
+            if (!content) return;
+            
+            const displayContent = useSearchMode ? '[🔍] ' + content : content;
+            addMessage('user', displayContent);
+            inputMessage.value = '';
+            
+            // 使用请求队列确保串行处理
+            addToQueue(async () => {
+                // 检查 WebSocket 是否可用
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    console.log('Sending via WebSocket');
+                    // WebSocket 不需要等待，直接发送
+                    sendMessageWS(content);
+                } else {
+                    console.log('Sending via HTTP');
+                    await sendMessageHTTP(content);
+                }
+            });
         }
 
         // 添加消息
         function addMessage(type, content) {
+            console.log(`[addMessage] type: ${type}, content: "${content.substring(0, 50)}${content.length > 50 ? '...' : ''}"`);
+            console.log(`[addMessage] Full content:`, content);
+            
             const messageDiv = document.createElement('div');
             messageDiv.className = type === 'user' ? 'message user-message' : 'message bot-message';
+            
+            // 添加data属性用于调试
+            messageDiv.setAttribute('data-content-length', content.length);
+            messageDiv.setAttribute('data-timestamp', Date.now());
 
             if (type === 'bot') {
                 messageDiv.innerHTML = `
@@ -518,6 +785,7 @@
             }
 
             messagesContainer.appendChild(messageDiv);
+            console.log(`[addMessage] Message appended to DOM, total messages: ${messagesContainer.children.length}`);
             scrollToBottom();
         }
 
@@ -607,9 +875,13 @@
             return div.innerHTML;
         }
 
+        // 初始化
+        initWebSocket();
+
         // 事件监听
         sendBtn.addEventListener('click', sendMessage);
         searchBtn.addEventListener('click', toggleSearchMode);
+        streamModeCheckbox.addEventListener('change', toggleStreamMode);
         inputMessage.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 sendMessage();

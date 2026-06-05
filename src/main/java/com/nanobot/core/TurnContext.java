@@ -242,6 +242,15 @@ public class TurnContext {
     }
     
     /**
+     * 添加消息（从Map，用于加载历史）
+     */
+    public void addMessage(Map<String, Object> message) {
+        if (message != null && message.containsKey("role") && message.containsKey("content")) {
+            messages.add(new HashMap<>(message));
+        }
+    }
+    
+    /**
      * 添加用户消息
      */
     public void addUserMessage(String content) {

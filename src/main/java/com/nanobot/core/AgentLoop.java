@@ -411,17 +411,22 @@ public class AgentLoop {
         
         if (history.isPresent()) {
             for (Map<String, Object> msg : history.get()) {
-                context.getMessages().add(msg);
+                context.addMessage(msg);
             }
-            logger.debug("Restored {} messages for session: {}", 
+            logger.info("Restored {} messages for session: {}", 
                         history.get().size(), sessionKey);
+        } else {
+            logger.debug("No history found for session: {}", sessionKey);
         }
         
         // 添加用户消息
         String content = context.getMessage().getContent();
         if (content != null && !content.isBlank()) {
             context.addUserMessage(content);
+            logger.debug("Added user message: {} chars", content.length());
         }
+        
+        logger.info("Total messages in context: {}", context.getMessages().size());
         
         return TurnState.COMPACT;
     }
@@ -575,16 +580,39 @@ public class AgentLoop {
      * RUN: 运行 LLM
      */
     private TurnState doRun(TurnContext context) {
-        // 创建流式回调
+        // 获取连接 ID（用于 WebSocket 流式传输）
+        String connectionId = context.getMessage().getConnectionId();
+        
+        // 检查是否启用流式模式
+        boolean streamMode = false;
+        if (context.getMessage().getMetadata() != null) {
+            Object streamModeObj = context.getMessage().getMetadata().get("streamMode");
+            if (streamModeObj instanceof Boolean) {
+                streamMode = (Boolean) streamModeObj;
+            } else if (streamModeObj instanceof String) {
+                streamMode = Boolean.parseBoolean((String) streamModeObj);
+            }
+        }
+        logger.info("doRun: streamMode={}", streamMode);
+        
+        // 创建流式回调（仅在流式模式启用时）
         Consumer<String> onDelta = null;
-        if (config.getChannels().isSendProgress()) {
+        if (streamMode && config.getChannels().isSendProgress()) {
             onDelta = delta -> {
-                OutboundMessage progress = OutboundMessage.progress(
-                    context.getMessage().getChannel(),
-                    context.getMessage().getChatId(),
-                    delta
-                );
-                publishProgress(progress);
+                // 创建流式消息片段
+                OutboundMessage.Builder builder = OutboundMessage.builder()
+                    .channel(context.getMessage().getChannel())
+                    .chatId(context.getMessage().getChatId())
+                    .content(delta)
+                    .addMetadata("_stream_delta", true)
+                    .addMetadata("_progress", true);
+                
+                // 设置连接 ID（确保发送到正确的 WebSocket）
+                if (connectionId != null) {
+                    builder.connectionId(connectionId);
+                }
+                
+                publishProgress(builder.build());
             };
         }
         
@@ -592,6 +620,18 @@ public class AgentLoop {
         try {
             String result = runner.run(context, context.getMessages(), onDelta).join();
             context.setFinalContent(result);
+            
+            // 发送流式结束标记（仅在流式模式启用时）
+            if (streamMode && onDelta != null && connectionId != null) {
+                OutboundMessage streamEnd = OutboundMessage.builder()
+                    .channel(context.getMessage().getChannel())
+                    .chatId(context.getMessage().getChatId())
+                    .content("")
+                    .connectionId(connectionId)
+                    .addMetadata("_stream_end", true)
+                    .build();
+                publishProgress(streamEnd);
+            }
         } catch (Exception e) {
             logger.error("Runner failed: {}", e.getMessage(), e);
             context.setError(e.getMessage());
@@ -605,6 +645,13 @@ public class AgentLoop {
      * SAVE: 保存状态
      */
     private TurnState doSave(TurnContext context) {
+        // 添加助手响应到消息历史
+        String responseContent = context.getFinalContent();
+        if (responseContent != null && !responseContent.isBlank()) {
+            context.addAssistantMessage(responseContent, null);
+            logger.debug("Added assistant response to history: {}", responseContent.length());
+        }
+        
         // 保存会话历史
         sessionManager.saveHistory(context.getSessionKey(), context.getMessages());
         return TurnState.RESPOND;
@@ -614,8 +661,36 @@ public class AgentLoop {
      * RESPOND: 发送响应
      */
     private TurnState doRespond(TurnContext context) {
-        // 响应已在 doRun 中通过 progress 发送
-        // 这里可以发送最终确认
+        String content = context.getFinalContent();
+        if (content == null) {
+            content = "(无响应)";
+        }
+        
+        // 获取 requestId 用于精确匹配
+        String requestId = null;
+        if (context.getMessage().getMetadata() != null) {
+            Object requestIdObj = context.getMessage().getMetadata().get("requestId");
+            if (requestIdObj != null) {
+                requestId = requestIdObj.toString();
+            }
+        }
+        
+        // 发送最终响应到消息总线
+        OutboundMessage response = OutboundMessage.builder()
+            .channel(context.getMessage().getChannel())
+            .chatId(context.getMessage().getChatId())
+            .content(content)
+            .requestId(requestId)
+            .build();
+        
+        try {
+            messageBus.publishOutbound(response);
+            logger.info("Response sent for chatId: {}, requestId: {}, content length: {}", 
+                       context.getMessage().getChatId(), requestId, content.length());
+        } catch (Exception e) {
+            logger.error("Failed to send response: {}", e.getMessage(), e);
+        }
+        
         return TurnState.DONE;
     }
     

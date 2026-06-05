@@ -130,6 +130,14 @@ public class InboundMessage {
      */
     private final String sessionKeyOverride;
     
+    /**
+     * 连接 ID
+     * 
+     * 用于 WebSocket 连接场景，标识消息来自哪个连接。
+     * 用于流式消息的路由。
+     */
+    private final String connectionId;
+    
     // ==================== 构造函数 ====================
     
     /**
@@ -149,6 +157,7 @@ public class InboundMessage {
         this.media = builder.media != null ? List.copyOf(builder.media) : List.of();
         this.metadata = builder.metadata != null ? Map.copyOf(builder.metadata) : Map.of();
         this.sessionKeyOverride = builder.sessionKeyOverride;
+        this.connectionId = builder.connectionId;
     }
     
     // ==================== 获取方法 ====================
@@ -207,6 +216,13 @@ public class InboundMessage {
      */
     public Optional<String> getSessionKeyOverride() {
         return Optional.ofNullable(sessionKeyOverride);
+    }
+    
+    /**
+     * 获取连接 ID
+     */
+    public String getConnectionId() {
+        return connectionId;
     }
     
     /**
@@ -277,7 +293,8 @@ public class InboundMessage {
             .timestamp(this.timestamp)
             .media(this.media)
             .metadata(this.metadata)
-            .sessionKeyOverride(this.sessionKeyOverride);
+            .sessionKeyOverride(this.sessionKeyOverride)
+            .connectionId(this.connectionId);
     }
     
     /**
@@ -304,6 +321,7 @@ public class InboundMessage {
         private List<String> media;
         private Map<String, Object> metadata;
         private String sessionKeyOverride;
+        private String connectionId;
         
         public Builder channel(String channel) {
             this.channel = channel;
@@ -342,6 +360,11 @@ public class InboundMessage {
         
         public Builder sessionKeyOverride(String sessionKeyOverride) {
             this.sessionKeyOverride = sessionKeyOverride;
+            return this;
+        }
+        
+        public Builder connectionId(String connectionId) {
+            this.connectionId = connectionId;
             return this;
         }
         

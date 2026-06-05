@@ -63,6 +63,9 @@ public class SessionManager {
     /** 会话目录映射 */
     private final Map<String, Path> sessionDirs = new ConcurrentHashMap<>();
     
+    /** 会话锁映射 - 确保同一会话的请求串行处理 */
+    private final Map<String, Object> sessionLocks = new ConcurrentHashMap<>();
+    
     // ==================== 构造函数 ====================
     
     public SessionManager(Config config) {
@@ -115,70 +118,93 @@ public class SessionManager {
     // ==================== 历史管理 ====================
     
     /**
-     * 保存历史
+     * 获取会话锁（确保同一会话的请求串行处理）
+     */
+    private Object getSessionLock(String sessionKey) {
+        return sessionLocks.computeIfAbsent(sessionKey, k -> new Object());
+    }
+    
+    /**
+     * 保存历史（使用会话级别的锁）
      */
     public void saveHistory(String sessionKey, List<Map<String, Object>> messages) {
-        if (messages == null || messages.isEmpty()) {
-            return;
-        }
-        
-        Path historyFile = getSessionDir(sessionKey).resolve("history.jsonl");
-        
-        try {
-            // 追加模式
-            try (BufferedWriter writer = Files.newBufferedWriter(
-                    historyFile, 
-                    StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.APPEND)) {
-                
-                for (Map<String, Object> msg : messages) {
-                    String json = toJson(msg);
-                    writer.write(json);
-                    writer.newLine();
-                }
+        synchronized (getSessionLock(sessionKey)) {
+            if (messages == null || messages.isEmpty()) {
+                return;
             }
             
-            logger.debug("Saved {} messages to session: {}", messages.size(), sessionKey);
+            Path historyFile = getSessionDir(sessionKey).resolve("history.jsonl");
             
-        } catch (IOException e) {
-            logger.error("Failed to save history for session: {}", sessionKey, e);
+            try {
+                // 先加载已存在的历史消息数
+                int existingCount = 0;
+                if (Files.exists(historyFile)) {
+                    try (BufferedReader reader = Files.newBufferedReader(historyFile, StandardCharsets.UTF_8)) {
+                        while (reader.readLine() != null) {
+                            existingCount++;
+                        }
+                    }
+                }
+                
+                // 只保存新增的消息（从已有数量开始）
+                if (messages.size() > existingCount) {
+                    try (BufferedWriter writer = Files.newBufferedWriter(
+                            historyFile, 
+                            StandardCharsets.UTF_8,
+                            StandardOpenOption.CREATE,
+                            StandardOpenOption.APPEND)) {
+                        
+                        for (int i = existingCount; i < messages.size(); i++) {
+                            String json = toJson(messages.get(i));
+                            writer.write(json);
+                            writer.newLine();
+                        }
+                    }
+                    
+                    logger.debug("Saved {} new messages to session: {}", messages.size() - existingCount, sessionKey);
+                }
+                
+            } catch (IOException e) {
+                logger.error("Failed to save history for session: {}", sessionKey, e);
+            }
         }
     }
     
     /**
-     * 加载历史
+     * 加载历史（使用会话级别的锁）
      */
     public Optional<List<Map<String, Object>>> loadHistory(String sessionKey) {
-        Path historyFile = getSessionDir(sessionKey).resolve("history.jsonl");
-        
-        if (!Files.exists(historyFile)) {
-            return Optional.empty();
-        }
-        
-        List<Map<String, Object>> messages = new ArrayList<>();
-        
-        try (BufferedReader reader = Files.newBufferedReader(
-                historyFile, StandardCharsets.UTF_8)) {
+        synchronized (getSessionLock(sessionKey)) {
+            Path historyFile = getSessionDir(sessionKey).resolve("history.jsonl");
             
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (!line.isBlank()) {
-                    Map<String, Object> msg = fromJson(line);
-                    if (msg != null) {
-                        messages.add(msg);
-                    }
-                }
+            if (!Files.exists(historyFile)) {
+                return Optional.empty();
             }
             
-            logger.debug("Loaded {} messages from session: {}", messages.size(), sessionKey);
+            List<Map<String, Object>> messages = new ArrayList<>();
             
-        } catch (IOException e) {
-            logger.error("Failed to load history for session: {}", sessionKey, e);
-            return Optional.empty();
+            try (BufferedReader reader = Files.newBufferedReader(
+                    historyFile, StandardCharsets.UTF_8)) {
+                
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.isBlank()) {
+                        Map<String, Object> msg = fromJson(line);
+                        if (msg != null) {
+                            messages.add(msg);
+                        }
+                    }
+                }
+                
+                logger.debug("Loaded {} messages from session: {}", messages.size(), sessionKey);
+                
+            } catch (IOException e) {
+                logger.error("Failed to load history for session: {}", sessionKey, e);
+                return Optional.empty();
+            }
+            
+            return Optional.of(messages);
         }
-        
-        return Optional.of(messages);
     }
     
     /**

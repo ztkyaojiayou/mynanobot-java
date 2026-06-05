@@ -112,11 +112,29 @@ public class ChannelServer {
     }
     
     /**
+     * 添加 CORS 响应头
+     */
+    private void addCorsHeaders(HttpExchange exchange) {
+        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type, Upgrade, Connection, Sec-WebSocket-Key, Sec-WebSocket-Version, Sec-WebSocket-Protocol, Sec-WebSocket-Extensions");
+        exchange.getResponseHeaders().set("Access-Control-Max-Age", "86400");
+    }
+    
+    /**
      * HTTP 聊天处理器
      */
     private class ChatHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
+            // 添加 CORS 头
+            addCorsHeaders(exchange);
+            
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(200, -1);
+                return;
+            }
+            
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(405, -1);
                 return;
@@ -127,28 +145,39 @@ public class ChannelServer {
                 byte[] body = exchange.getRequestBody().readAllBytes();
                 JsonNode json = objectMapper.readTree(body);
                 
-                String sessionId = json.has("sessionId") ? json.get("sessionId").asText() : UUID.randomUUID().toString();
+                // 优先使用 chatId，兼容 sessionId
+                String sessionId = json.has("chatId") ? json.get("chatId").asText() : 
+                                  (json.has("sessionId") ? json.get("sessionId").asText() : UUID.randomUUID().toString());
                 String content = json.has("content") ? json.get("content").asText() : "";
                 String channel = json.has("channel") ? json.get("channel").asText() : "http";
                 boolean useSearch = json.has("useSearch") && json.get("useSearch").asBoolean();
+                boolean streamMode = json.has("streamMode") && json.get("streamMode").asBoolean();
                 
-                // 创建入站消息（包含 useSearch 元数据）
+                // 获取请求ID（用于追踪）
+                String requestId = json.has("requestId") ? json.get("requestId").asText() : UUID.randomUUID().toString();
+                
+                // 创建入站消息（包含 useSearch 和 streamMode 元数据）
+                Map<String, Object> metadata = new java.util.HashMap<>();
+                metadata.put("useSearch", useSearch);
+                metadata.put("streamMode", streamMode);
+                metadata.put("requestId", requestId);
+                
                 InboundMessage message = InboundMessage.builder()
                     .chatId(sessionId)
                     .senderId(sessionId)
                     .content(content)
                     .channel(channel)
-                    .metadata(Map.of("useSearch", useSearch))
+                    .metadata(metadata)
                     .build();
                 
-                logger.info("Received chat request: sessionId={}, contentLength={}, useSearch={}", 
-                           sessionId, content.length(), useSearch);
+                logger.info("Received chat request: requestId={}, sessionId={}, contentLength={}, useSearch={}, streamMode={}", 
+                           requestId, sessionId, content.length(), useSearch, streamMode);
                 
                 // 发布到消息总线
                 messageBus.publishInbound(message);
                 
-                // 等待并获取响应（最多60秒）
-                String responseContent = waitForResponse(sessionId, 60);
+                // 等待并获取响应（最多60秒），使用requestId精确匹配
+                String responseContent = waitForResponse(sessionId, requestId, 60);
                 
                 if (responseContent != null) {
                     // 返回实际响应内容
@@ -183,42 +212,32 @@ public class ChannelServer {
         }
         
         /**
-         * 等待指定会话的响应
-         */
-        private String waitForResponse(String sessionId, long timeoutSeconds) {
-            logger.info("Waiting for response for session: {}, timeout: {}s", sessionId, timeoutSeconds);
-            long endTime = System.currentTimeMillis() + (timeoutSeconds * 1000);
+     * 等待指定会话的响应（使用 requestId 精确匹配）
+     */
+    private String waitForResponse(String sessionId, String requestId, long timeoutSeconds) {
+        logger.info("Waiting for response for session: {}, requestId: {}, timeout: {}s", 
+                   sessionId, requestId, timeoutSeconds);
+        
+        try {
+            // 使用 requestId 精确匹配响应
+            OutboundMessage msg = messageBus.waitForSessionResponse(sessionId, requestId, timeoutSeconds, TimeUnit.SECONDS);
             
-            while (System.currentTimeMillis() < endTime) {
-                try {
-                    // 尝试获取出站消息（超时1秒）
-                    OutboundMessage msg = messageBus.consumeOutbound(1, TimeUnit.SECONDS);
-                    
-                    if (msg != null) {
-                        logger.debug("Received outbound message for chatId: {}, content length: {}", 
-                                   msg.getChatId(), 
-                                   msg.getContent() != null ? msg.getContent().length() : 0);
-                        // 检查是否是当前会话的响应
-                        if (sessionId.equals(msg.getChatId())) {
-                            logger.info("Found response for session: {}, content length: {}", 
-                                       sessionId, 
-                                       msg.getContent() != null ? msg.getContent().length() : 0);
-                            return msg.getContent();
-                        }
-                        // 如果不是当前会话的消息，需要处理或重新放入队列
-                        logger.warn("Received message for different session: expected={}, got={}", 
-                                   sessionId, msg.getChatId());
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    logger.warn("Wait interrupted for session: {}", sessionId);
-                    return null;
-                }
+            if (msg != null) {
+                logger.info("Found response for session: {}, requestId: {}, content length: {}", 
+                           sessionId, requestId,
+                           msg.getContent() != null ? msg.getContent().length() : 0);
+                logger.info("Response content: {}", 
+                           msg.getContent() != null && msg.getContent().length() > 100 ? 
+                                       msg.getContent().substring(0, 100) + "..." : msg.getContent());
+                return msg.getContent();
             }
-            
-            logger.warn("Timeout waiting for response for session: {}", sessionId);
-            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("Wait interrupted for session: {}, requestId: {}", sessionId, requestId);
         }
+        
+        return null;
+    }
     }
     
     /**
@@ -277,6 +296,9 @@ public class ChannelServer {
     private class WebSocketHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
+            // 添加 CORS 头
+            addCorsHeaders(exchange);
+            
             // 检查是否是 WebSocket 升级请求
             String upgrade = exchange.getRequestHeaders().getFirst("Upgrade");
             if (upgrade == null || !upgrade.equalsIgnoreCase("websocket")) {
@@ -284,7 +306,25 @@ public class ChannelServer {
                 return;
             }
             
-            // 简化实现：使用简单的 WebSocket 协议处理
+            // WebSocket 握手
+            String key = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Key");
+            if (key == null) {
+                exchange.sendResponseHeaders(400, -1);
+                return;
+            }
+            
+            // 计算 Sec-WebSocket-Accept
+            String acceptKey = computeWebSocketAccept(key);
+            
+            // 发送握手响应
+            exchange.getResponseHeaders().set("Upgrade", "websocket");
+            exchange.getResponseHeaders().set("Connection", "Upgrade");
+            exchange.getResponseHeaders().set("Sec-WebSocket-Accept", acceptKey);
+            
+            // 发送 101 响应
+            exchange.sendResponseHeaders(101, 0);  // 101 Switching Protocols
+            
+            // 创建连接
             String connectionId = UUID.randomUUID().toString();
             WebSocketConnection conn = new WebSocketConnection(exchange, connectionId);
             wsConnections.put(connectionId, conn);
@@ -301,6 +341,21 @@ public class ChannelServer {
                 }
             }).start();
         }
+        
+        /**
+         * 计算 WebSocket Accept Key
+         */
+        private String computeWebSocketAccept(String key) {
+            try {
+                String magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+                String combined = key + magic;
+                java.security.MessageDigest sha1 = java.security.MessageDigest.getInstance("SHA-1");
+                byte[] hash = sha1.digest(combined.getBytes(StandardCharsets.UTF_8));
+                return java.util.Base64.getEncoder().encodeToString(hash);
+            } catch (java.security.NoSuchAlgorithmException e) {
+                throw new RuntimeException("SHA-1 algorithm not available", e);
+            }
+        }
     }
     
     /**
@@ -309,6 +364,9 @@ public class ChannelServer {
     private class WebSocketConnection {
         private final HttpExchange exchange;
         private final String connectionId;
+        private volatile boolean closed = false;
+        private java.io.InputStream inputStream;
+        private java.io.OutputStream outputStream;
         
         WebSocketConnection(HttpExchange exchange, String connectionId) {
             this.exchange = exchange;
@@ -316,38 +374,212 @@ public class ChannelServer {
         }
         
         void handle() {
-            // 简化实现：实际应用中应实现完整的 WebSocket 协议
-            // 包括握手、帧解析、心跳等
-        }
-        
-        void send(OutboundMessage message) {
             try {
-                String json = objectMapper.writeValueAsString(Map.of(
-                    "type", "message",
-                    "content", message.getContent(),
-                    "channel", message.getChannel(),
-                    "sessionId", message.getSessionId()
-                ));
+                inputStream = exchange.getRequestBody();
+                outputStream = exchange.getResponseBody();
                 
-                // 简化实现：实际应用中应发送 WebSocket 帧
-                exchange.getResponseBody().write(json.getBytes());
-                exchange.getResponseBody().flush();
+                logger.info("WebSocket connection {} ready for messages", connectionId);
                 
+                // 使用 PushbackInputStream 支持回退已读取的字节
+                java.io.PushbackInputStream pushbackStream = new java.io.PushbackInputStream(inputStream, 1);
+                
+                while (!closed) {
+                    logger.debug("WebSocket connection {} waiting for message", connectionId);
+                    
+                    // 读取第一个字节（阻塞等待）
+                    int firstByte = pushbackStream.read();
+                    
+                    if (firstByte == -1) {
+                        logger.debug("WebSocket input stream closed for connection {}", connectionId);
+                        break;
+                    }
+                    
+                    logger.debug("WebSocket connection {} received first byte: 0x{}", connectionId, Integer.toHexString(firstByte));
+                    
+                    // 将字节放回流中，让 parse() 方法重新读取
+                    pushbackStream.unread(firstByte);
+                    
+                    WebSocketFrame frame = WebSocketFrame.parse(pushbackStream);
+                    
+                    if (frame.isClose()) {
+                        logger.debug("Received close frame for connection {}", connectionId);
+                        try {
+                            WebSocketFrame.close().send(outputStream);
+                        } catch (IOException e) {
+                            logger.debug("Failed to send close frame");
+                        }
+                        close();
+                        break;
+                    }
+                    
+                    if (frame.isPing()) {
+                        logger.debug("Received ping frame for connection {}", connectionId);
+                        WebSocketFrame.pong().send(outputStream);
+                        continue;
+                    }
+                    
+                    if (frame.isText()) {
+                        String text = frame.getText();
+                        logger.debug("Received text message for connection {}: {}", connectionId, text.length() > 50 ? text.substring(0, 50) + "..." : text);
+                        handleIncomingMessage(text);
+                    }
+                }
+            } catch (java.net.SocketTimeoutException e) {
+                logger.debug("WebSocket read timeout for connection {}", connectionId);
             } catch (IOException e) {
-                logger.error("Failed to send message to WebSocket", e);
+                if (!closed) {
+                    logger.debug("WebSocket connection error for {}: {}", connectionId, e.getMessage());
+                    close();
+                }
             }
         }
         
-        void close() {
+        /**
+         * 处理入站消息
+         */
+        private void handleIncomingMessage(String text) {
             try {
+                JsonNode node = objectMapper.readTree(text);
+                String type = node.has("type") ? node.get("type").asText() : "message";
+                
+                switch (type) {
+                    case "message" -> {
+                        // 创建入站消息
+                        String chatId = node.has("chatId") ? node.get("chatId").asText() : 
+                                       (node.has("chat_id") ? node.get("chat_id").asText() : connectionId);
+                        String content = node.has("content") ? node.get("content").asText() : "";
+                        
+                        // 解析 useSearch 和 streamMode 参数
+                        boolean useSearch = node.has("useSearch") && node.get("useSearch").asBoolean();
+                        boolean streamMode = node.has("streamMode") && node.get("streamMode").asBoolean();
+                        
+                        // 构建元数据
+                        Map<String, Object> metadata = new java.util.HashMap<>();
+                        metadata.put("_wants_stream", streamMode);
+                        metadata.put("useSearch", useSearch);
+                        metadata.put("streamMode", streamMode);
+                        
+                        InboundMessage inbound = InboundMessage.builder()
+                            .channel("websocket")
+                            .chatId(chatId)
+                            .content(content)
+                            .connectionId(connectionId)
+                            .metadata(metadata)
+                            .build();
+                        
+                        logger.info("WebSocket message received: chatId={}, useSearch={}, streamMode={}", chatId, useSearch, streamMode);
+                        messageBus.publishInbound(inbound);
+                    }
+                    
+                    case "cancel" -> {
+                        // 取消当前处理
+                        logger.info("Received cancel request from {}", connectionId);
+                        // TODO: 实现取消逻辑
+                    }
+                    
+                    default -> logger.warn("Unknown message type: {}", type);
+                }
+            } catch (Exception e) {
+                logger.error("Failed to parse WebSocket message: {}", e.getMessage(), e);
+            }
+        }
+        
+        /**
+         * 发送消息
+         */
+        void send(OutboundMessage message) {
+            if (closed) {
+                return;
+            }
+            
+            try {
+                Map<String, Object> jsonMap = new java.util.HashMap<>();
+                
+                if (message.isStreamDelta()) {
+                    jsonMap.put("type", "stream_delta");
+                    jsonMap.put("delta", message.getContent());
+                } else if (message.isStreamEnd()) {
+                    jsonMap.put("type", "stream_end");
+                } else {
+                    jsonMap.put("type", "message");
+                    jsonMap.put("content", message.getContent());
+                    jsonMap.put("channel", message.getChannel());
+                    jsonMap.put("chatId", message.getChatId());
+                    jsonMap.put("sessionId", message.getSessionId());
+                    jsonMap.put("isProgress", message.isProgress());
+                    jsonMap.put("metadata", message.getMetadata());
+                }
+                
+                String json = objectMapper.writeValueAsString(jsonMap);
+                logger.debug("Sending WebSocket message: type={}, content={}", 
+                           jsonMap.get("type"), 
+                           message.getContent() != null ? 
+                           (message.getContent().length() > 50 ? 
+                            message.getContent().substring(0, 50) + "..." : 
+                            message.getContent()) : "null");
+                
+                WebSocketFrame.text(json).send(outputStream);
+                
+            } catch (IOException e) {
+                logger.error("Failed to send message to WebSocket", e);
+                close();
+            }
+        }
+        
+        /**
+         * 发送流式消息片段
+         */
+        void sendStreamDelta(String delta, boolean isEnd) {
+            if (closed) {
+                return;
+            }
+            
+            try {
+                String json = objectMapper.writeValueAsString(Map.of(
+                    "type", isEnd ? "stream_end" : "stream_delta",
+                    "delta", delta,
+                    "isEnd", isEnd
+                ));
+                
+                WebSocketFrame.textFragment(json, isEnd).send(outputStream);
+                
+            } catch (IOException e) {
+                logger.error("Failed to send stream delta to WebSocket", e);
+                close();
+            }
+        }
+        
+        /**
+         * 关闭连接
+         */
+        void close() {
+            if (closed) {
+                return;
+            }
+            
+            closed = true;
+            try {
+                // 只在输出流可用时尝试发送关闭帧
+                if (outputStream != null) {
+                    try {
+                        WebSocketFrame.close().send(outputStream);
+                    } catch (IOException e) {
+                        // 流可能已经关闭，忽略这个错误
+                        logger.debug("Failed to send close frame, stream may already be closed");
+                    }
+                }
                 exchange.close();
             } catch (Exception e) {
-                logger.warn("Error closing WebSocket connection", e);
+                logger.debug("Error closing WebSocket connection: {}", e.getMessage());
             }
         }
         
         String getConnectionId() {
             return connectionId;
+        }
+        
+        boolean isClosed() {
+            return closed;
         }
     }
     

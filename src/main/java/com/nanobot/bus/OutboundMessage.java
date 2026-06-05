@@ -150,6 +150,13 @@ public class OutboundMessage {
      */
     private final String sessionId;
     
+    /**
+     * 请求 ID
+     * 
+     * 用于精确匹配请求和响应。
+     */
+    private final String requestId;
+    
     // ==================== 构造函数 ====================
     
     /**
@@ -165,6 +172,7 @@ public class OutboundMessage {
         this.buttons = builder.buttons != null ? List.copyOf(builder.buttons) : List.of();
         this.connectionId = builder.connectionId;
         this.sessionId = builder.sessionId;
+        this.requestId = builder.requestId;
     }
     
     // ==================== 获取方法 ====================
@@ -203,6 +211,10 @@ public class OutboundMessage {
     
     public String getSessionId() {
         return sessionId;
+    }
+    
+    public String getRequestId() {
+        return requestId;
     }
     
     /**
@@ -359,6 +371,7 @@ public class OutboundMessage {
         private List<List<String>> buttons;
         private String connectionId;
         private String sessionId;
+        private String requestId;
         
         public Builder channel(String channel) {
             this.channel = channel;
@@ -410,6 +423,11 @@ public class OutboundMessage {
         
         public Builder sessionId(String sessionId) {
             this.sessionId = sessionId;
+            return this;
+        }
+        
+        public Builder requestId(String requestId) {
+            this.requestId = requestId;
             return this;
         }
         

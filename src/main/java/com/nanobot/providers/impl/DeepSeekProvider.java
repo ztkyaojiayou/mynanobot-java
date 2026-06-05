@@ -116,7 +116,19 @@ public class DeepSeekProvider implements LLMProvider {
                                                      Consumer<String> onDelta) {
         return chat(messages, tools).thenApply(response -> {
             if (response.getContent() != null && onDelta != null) {
-                onDelta.accept(response.getContent());
+                String content = response.getContent();
+                // 模拟流式输出：每次发送一小段内容
+                try {
+                    int chunkSize = Math.max(1, content.length() / 50); // 分成约50块
+                    for (int i = 0; i < content.length(); i += chunkSize) {
+                        int end = Math.min(i + chunkSize, content.length());
+                        String chunk = content.substring(i, end);
+                        onDelta.accept(chunk);
+                        Thread.sleep(10); // 短暂延迟模拟流式效果
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
             return response;
         });
