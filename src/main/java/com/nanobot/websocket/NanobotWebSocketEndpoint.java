@@ -4,9 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nanobot.NanobotRunner;
 import com.nanobot.bus.MessageBus;
+import com.nanobot.bus.InboundMessage;
 import com.nanobot.controller.ChatController;
 import com.nanobot.core.AgentLoop;
-import com.nanobot.core.InboundMessage;
 import jakarta.annotation.PostConstruct;
 import jakarta.websocket.*;
 import jakarta.websocket.server.ServerEndpoint;
@@ -74,7 +74,7 @@ public class NanobotWebSocketEndpoint {
      */
     private static void initStreamCallback() {
         if (agentLoop != null) {
-            agentLoop.setStreamResponseCallback(new ChatController.StreamResponseCallback() {
+            agentLoop.setStreamResponseCallback(new AgentLoop.StreamResponseCallback() {
                 @Override
                 public void onStreamData(String sessionId, String requestId, String content) {
                     Session session = SESSIONS.get(sessionId);
@@ -103,22 +103,6 @@ public class NanobotWebSocketEndpoint {
                             session.getBasicRemote().sendText(objectMapper.writeValueAsString(msg));
                         } catch (IOException e) {
                             logger.warn("Failed to send WebSocket completion to session: {}", sessionId);
-                        }
-                    }
-                }
-                
-                @Override
-                public void onStreamError(String sessionId, String requestId, String error) {
-                    Session session = SESSIONS.get(sessionId);
-                    if (session != null && session.isOpen()) {
-                        try {
-                            Map<String, Object> msg = new ConcurrentHashMap<>();
-                            msg.put("type", "error");
-                            msg.put("requestId", requestId);
-                            msg.put("error", error);
-                            session.getBasicRemote().sendText(objectMapper.writeValueAsString(msg));
-                        } catch (IOException e) {
-                            logger.warn("Failed to send WebSocket error to session: {}", sessionId);
                         }
                     }
                 }
@@ -213,13 +197,23 @@ public class NanobotWebSocketEndpoint {
         
         try {
             // 构建入站消息
-            InboundMessage message = InboundMessage.of(sessionId, content, channel);
+            InboundMessage message = InboundMessage.builder()
+                .chatId(sessionId)
+                .content(content)
+                .channel(channel)
+                .build();
             message.getMetadata().put("requestId", requestId);
             message.getMetadata().put("streamMode", true); // WebSocket 默认流式
             message.getMetadata().put("connectionId", sessionId);
             
             // 发送到 MessageBus
-            messageBus.publishInbound(message);
+            try {
+                messageBus.publishInbound(message);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                sendError(session, "Failed to publish message: " + e.getMessage());
+                return;
+            }
             
             // 发送确认消息
             Map<String, Object> ack = Map.of(

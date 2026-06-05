@@ -201,7 +201,8 @@
                 </configuration>
             </plugin>
 
-            <!-- Maven Shade Plugin - 创建 fat JAR (可选) -->
+            <!-- Maven Shade Plugin - 已禁用，Spring Boot 版本优先 -->
+            <!-- 
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -222,15 +223,25 @@
                     </execution>
                 </executions>
             </plugin>
+            -->
             
             <!-- Spring Boot Maven Plugin -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <version>${spring-boot.version}</version>
-                <configuration>
-                    <mainClass>com.nanobot.NanobotApplication</mainClass>
-                </configuration>
+                <executions>
+                    <!-- Spring Boot 可执行 JAR -->
+                    <execution>
+                        <id>repackage</id>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>com.nanobot.NanobotApplication</mainClass>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
