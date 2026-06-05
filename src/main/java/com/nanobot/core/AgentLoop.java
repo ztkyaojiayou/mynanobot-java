@@ -150,8 +150,20 @@ public class AgentLoop {
     /** 进度回调 */
     private Consumer<OutboundMessage> progressCallback;
     
+    /** 流式响应回调 */
+    private StreamResponseCallback streamResponseCallback;
+    
     /** 钩子管理器 */
     private CompositeHook hooks;
+    
+    /**
+     * 流式响应回调接口
+     */
+    @FunctionalInterface
+    public interface StreamResponseCallback {
+        void onStreamData(String sessionId, String requestId, String content);
+        default void onStreamComplete(String sessionId, String requestId) {}
+    }
     
     // ==================== 构造函数 ====================
     
@@ -581,38 +593,59 @@ public class AgentLoop {
      */
     private TurnState doRun(TurnContext context) {
         // 获取连接 ID（用于 WebSocket 流式传输）
-        String connectionId = context.getMessage().getConnectionId();
+        final String connectionId = context.getMessage().getConnectionId();
+        
+        // 获取 requestId（用于 HTTP SSE 流式传输）
+        final String requestId;
+        if (context.getMessage().getMetadata() != null) {
+            Object requestIdObj = context.getMessage().getMetadata().get("requestId");
+            if (requestIdObj instanceof String) {
+                requestId = (String) requestIdObj;
+            } else {
+                requestId = null;
+            }
+        } else {
+            requestId = null;
+        }
         
         // 检查是否启用流式模式
-        boolean streamMode = false;
+        final boolean streamMode;
         if (context.getMessage().getMetadata() != null) {
             Object streamModeObj = context.getMessage().getMetadata().get("streamMode");
             if (streamModeObj instanceof Boolean) {
                 streamMode = (Boolean) streamModeObj;
             } else if (streamModeObj instanceof String) {
                 streamMode = Boolean.parseBoolean((String) streamModeObj);
+            } else {
+                streamMode = false;
             }
+        } else {
+            streamMode = false;
         }
-        logger.info("doRun: streamMode={}", streamMode);
+        logger.info("doRun: streamMode={}, requestId={}", streamMode, requestId);
         
         // 创建流式回调（仅在流式模式启用时）
         Consumer<String> onDelta = null;
+        final String sessionId = context.getMessage().getChatId();
+        
         if (streamMode && config.getChannels().isSendProgress()) {
             onDelta = delta -> {
-                // 创建流式消息片段
                 OutboundMessage.Builder builder = OutboundMessage.builder()
                     .channel(context.getMessage().getChannel())
-                    .chatId(context.getMessage().getChatId())
+                    .chatId(sessionId)
                     .content(delta)
                     .addMetadata("_stream_delta", true)
                     .addMetadata("_progress", true);
                 
-                // 设置连接 ID（确保发送到正确的 WebSocket）
                 if (connectionId != null) {
                     builder.connectionId(connectionId);
                 }
                 
                 publishProgress(builder.build());
+                
+                if (streamResponseCallback != null && requestId != null) {
+                    streamResponseCallback.onStreamData(sessionId, requestId, delta);
+                }
             };
         }
         
@@ -622,15 +655,23 @@ public class AgentLoop {
             context.setFinalContent(result);
             
             // 发送流式结束标记（仅在流式模式启用时）
-            if (streamMode && onDelta != null && connectionId != null) {
-                OutboundMessage streamEnd = OutboundMessage.builder()
-                    .channel(context.getMessage().getChannel())
-                    .chatId(context.getMessage().getChatId())
-                    .content("")
-                    .connectionId(connectionId)
-                    .addMetadata("_stream_end", true)
-                    .build();
-                publishProgress(streamEnd);
+            if (streamMode && onDelta != null) {
+                // WebSocket 结束标记
+                if (connectionId != null) {
+                    OutboundMessage streamEnd = OutboundMessage.builder()
+                        .channel(context.getMessage().getChannel())
+                        .chatId(sessionId)
+                        .content("")
+                        .connectionId(connectionId)
+                        .addMetadata("_stream_end", true)
+                        .build();
+                    publishProgress(streamEnd);
+                }
+                
+                // SSE 结束标记
+                if (streamResponseCallback != null && requestId != null) {
+                    streamResponseCallback.onStreamComplete(sessionId, requestId);
+                }
             }
         } catch (Exception e) {
             logger.error("Runner failed: {}", e.getMessage(), e);
@@ -736,5 +777,12 @@ public class AgentLoop {
     
     public void setProgressCallback(Consumer<OutboundMessage> callback) {
         this.progressCallback = callback;
+    }
+    
+    /**
+     * 设置流式响应回调
+     */
+    public void setStreamResponseCallback(StreamResponseCallback callback) {
+        this.streamResponseCallback = callback;
     }
 }

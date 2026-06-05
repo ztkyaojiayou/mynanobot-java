@@ -91,7 +91,7 @@ public class DeepSeekProvider implements LLMProvider {
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                    .timeout(Duration.ofSeconds(60))
+                    .timeout(Duration.ofSeconds(300))
                     .build();
                 
                 HttpResponse<String> response = httpClient.send(request, 
@@ -112,51 +112,116 @@ public class DeepSeekProvider implements LLMProvider {
     }
     
     @Override
-    public CompletableFuture<LLMResponse> chatStream(List<Message> messages, List<JsonNode> tools, 
+    public CompletableFuture<LLMResponse> chatStream(List<Message> messages, List<JsonNode> tools,
                                                      Consumer<String> onDelta) {
-        return chat(messages, tools).thenApply(response -> {
-            if (response.getContent() != null && onDelta != null) {
-                String content = response.getContent();
-                // 模拟流式输出：每次发送一小段内容
-                try {
-                    int chunkSize = Math.max(1, content.length() / 50); // 分成约50块
-                    for (int i = 0; i < content.length(); i += chunkSize) {
-                        int end = Math.min(i + chunkSize, content.length());
-                        String chunk = content.substring(i, end);
-                        onDelta.accept(chunk);
-                        Thread.sleep(10); // 短暂延迟模拟流式效果
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String requestBody = buildRequestBody(messages, tools, true);
+
+                HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(apiBase + "/chat/completions"))
+                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    .timeout(Duration.ofSeconds(300))
+                    .build();
+
+                StringBuilder fullContent = new StringBuilder();
+                List<LLMResponse.ToolCallRequest> toolCalls = new ArrayList<>();
+                boolean toolCallMode = false;
+
+                // 发送请求并获取响应流
+                HttpResponse<java.io.InputStream> response = httpClient.send(request,
+                    HttpResponse.BodyHandlers.ofInputStream());
+
+                // 检查响应状态
+                if (response.statusCode() != 200) {
+                    String body = new String(response.body().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                    return LLMResponse.error("HTTP error: " + response.statusCode() + " - " + body, "http_error");
                 }
+
+                // 逐行解析 SSE 响应
+                try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(response.body(), java.nio.charset.StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.isEmpty()) {
+                            continue;
+                        }
+
+                        if (!line.startsWith("data: ")) {
+                            continue;
+                        }
+
+                        String json = line.substring(6);
+                        if ("[DONE]".equals(json)) {
+                            continue;
+                        }
+
+                        JsonNode chunk = objectMapper.readTree(json);
+                        JsonNode choices = chunk.get("choices");
+                        if (choices != null && choices.isArray() && choices.size() > 0) {
+                            JsonNode choice = choices.get(0);
+                            JsonNode delta = choice.get("delta");
+
+                            if (delta != null) {
+                                if (delta.has("tool_calls")) {
+                                    toolCallMode = true;
+                                    parseToolCallsFromDelta(delta.get("tool_calls"), toolCalls);
+                                }
+                                if (delta.has("content")) {
+                                    String content = delta.get("content").asText();
+                                    fullContent.append(content);
+                                    if (onDelta != null) {
+                                        onDelta.accept(content);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (toolCallMode && !toolCalls.isEmpty()) {
+                    return LLMResponse.toolCalls(toolCalls, model);
+                }
+
+                return LLMResponse.success(fullContent.toString(), "stop", null);
+
+            } catch (Exception e) {
+                logger.error("DeepSeek streaming request failed", e);
+                return LLMResponse.error("Failed to call DeepSeek API: " + e.getMessage(), "network_error");
             }
-            return response;
         });
     }
     
     private String buildRequestBody(List<Message> messages, List<JsonNode> tools) {
+        return buildRequestBody(messages, tools, false);
+    }
+
+    private String buildRequestBody(List<Message> messages, List<JsonNode> tools, boolean stream) {
         try {
             Map<String, Object> body = new HashMap<>();
             body.put("model", model);
             body.put("max_tokens", 8192);
             body.put("temperature", 0.7);
-            
+            body.put("stream", stream);
+
             List<Map<String, Object>> messagesList = new ArrayList<>();
             for (Message msg : messages) {
                 Map<String, Object> msgMap = new HashMap<>();
                 msgMap.put("role", msg.getRole());
-                
+
                 if (msg.getContent() != null) {
                     msgMap.put("content", msg.getContent());
                 }
-                
+
                 if (msg.getToolCalls() != null && !msg.getToolCalls().isEmpty()) {
                     List<Map<String, Object>> toolCalls = new ArrayList<>();
                     for (Message.ToolCallInfo tc : msg.getToolCalls()) {
                         Map<String, Object> toolCall = new HashMap<>();
                         toolCall.put("id", tc.getId());
                         toolCall.put("type", "function");
-                        
+
                         Map<String, Object> function = new HashMap<>();
                         function.put("name", tc.getName());
                         // DeepSeek API 要求 arguments 必须是字符串格式（JSON 字符串）
@@ -172,27 +237,58 @@ public class DeepSeekProvider implements LLMProvider {
                             }
                         }
                         toolCall.put("function", function);
-                        
+
                         toolCalls.add(toolCall);
                     }
                     msgMap.put("tool_calls", toolCalls);
                 }
-                
+
                 if (msg.getToolCallId() != null) {
                     msgMap.put("tool_call_id", msg.getToolCallId());
                 }
-                
+
                 messagesList.add(msgMap);
             }
             body.put("messages", messagesList);
-            
+
             if (tools != null && !tools.isEmpty()) {
                 body.put("tools", tools);
             }
-            
+
             return objectMapper.writeValueAsString(body);
         } catch (Exception e) {
             throw new RuntimeException("Failed to build request body", e);
+        }
+    }
+
+    private void parseToolCallsFromDelta(JsonNode toolCallsNode, List<LLMResponse.ToolCallRequest> toolCalls) {
+        for (JsonNode tc : toolCallsNode) {
+            String id = tc.has("id") ? tc.get("id").asText() : null;
+            JsonNode function = tc.get("function");
+
+            if (function != null) {
+                String name = function.has("name") ? function.get("name").asText() : null;
+                JsonNode args = function.get("arguments");
+
+                if (name != null) {
+                    Map<String, Object> arguments = new HashMap<>();
+                    if (args != null) {
+                        if (args.isTextual()) {
+                            try {
+                                String argsStr = args.asText();
+                                arguments = objectMapper.readValue(argsStr, 
+                                    new TypeReference<Map<String, Object>>() {});
+                            } catch (Exception e) {
+                                logger.warn("Failed to parse arguments string: {}", args.asText());
+                            }
+                        } else {
+                            arguments = objectMapper.convertValue(args, 
+                                new TypeReference<Map<String, Object>>() {});
+                        }
+                    }
+                    toolCalls.add(new LLMResponse.ToolCallRequest(id, name, arguments));
+                }
+            }
         }
     }
     

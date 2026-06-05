@@ -74,8 +74,11 @@ public class OpenAIProvider implements LLMProvider {
     /** API 版本 */
     private static final String API_VERSION = "v1";
     
-    /** 超时时间 */
-    private static final Duration TIMEOUT = Duration.ofSeconds(120);
+    /** 连接超时时间 */
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(30);
+    
+    /** 请求超时时间（包含流式响应的读取时间） */
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(300);
     
     // ==================== 配置 ====================
     
@@ -130,7 +133,7 @@ public class OpenAIProvider implements LLMProvider {
         this.extraBody = Map.of();
         
         this.httpClient = HttpClient.newBuilder()
-            .connectTimeout(TIMEOUT)
+            .connectTimeout(CONNECT_TIMEOUT)
             .build();
         this.objectMapper = new ObjectMapper();
     }
@@ -216,79 +219,100 @@ public class OpenAIProvider implements LLMProvider {
             List<Message> messages, 
             List<JsonNode> tools,
             Consumer<String> onDelta) {
-        
+
         return CompletableFuture.supplyAsync(() -> {
             try {
                 // 构建请求体（启用流式）
                 ObjectNode requestBody = buildRequestBody(messages, tools, true);
-                
+
                 // 发送请求
                 String endpoint = apiBase + "/chat/completions";
                 HttpRequest request = buildRequest(endpoint, requestBody);
-                
-                // 使用流式处理器
+
+                // 使用 InputStream 来处理流式响应
                 StringBuilder fullContent = new StringBuilder();
                 List<LLMResponse.ToolCallRequest> toolCalls = new ArrayList<>();
                 Map<String, Integer> usage = new HashMap<>();
                 String finishReason = null;
-                
-                HttpResponse<String> response = httpClient.send(request, 
-                    HttpResponse.BodyHandlers.ofString());
-                
-                // 解析 SSE 响应
-                String body = response.body();
-                for (String line : body.split("\n")) {
-                    if (line.startsWith("data: ")) {
+                boolean toolCallMode = false;
+
+                // 发送请求并获取响应流
+                HttpResponse<java.io.InputStream> response = httpClient.send(request,
+                    HttpResponse.BodyHandlers.ofInputStream());
+
+                // 检查响应状态
+                if (response.statusCode() != 200) {
+                    String body = new String(response.body().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                    return LLMResponse.error("HTTP error: " + response.statusCode() + " - " + body, "http_error");
+                }
+
+                // 逐行解析 SSE 响应
+                try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(response.body(), java.nio.charset.StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.isEmpty()) {
+                            continue;
+                        }
+
+                        if (!line.startsWith("data: ")) {
+                            continue;
+                        }
+
                         String json = line.substring(6);
                         if ("[DONE]".equals(json)) {
                             continue;
                         }
-                        
+
                         // 解析 SSE 数据
                         JsonNode chunk = objectMapper.readTree(json);
                         JsonNode choices = chunk.get("choices");
                         if (choices != null && choices.isArray() && !choices.isEmpty()) {
                             JsonNode choice = choices.get(0);
-                            
+
                             // delta 内容
                             JsonNode delta = choice.get("delta");
-                            if (delta != null && delta.has("content")) {
-                                String content = delta.get("content").asText();
-                                fullContent.append(content);
-                                if (onDelta != null) {
-                                    onDelta.accept(content);
+                            if (delta != null) {
+                                // 检查是否有工具调用
+                                if (delta.has("tool_calls")) {
+                                    toolCallMode = true;
+                                    parseToolCalls(delta.get("tool_calls"), toolCalls);
+                                }
+
+                                // 文本内容
+                                if (delta.has("content")) {
+                                    String content = delta.get("content").asText();
+                                    fullContent.append(content);
+                                    if (onDelta != null) {
+                                        onDelta.accept(content);
+                                    }
                                 }
                             }
-                            
-                            // 工具调用
-                            if (delta != null && delta.has("tool_calls")) {
-                                parseToolCalls(delta.get("tool_calls"), toolCalls);
-                            }
-                            
+
                             // finish_reason
                             if (choice.has("finish_reason")) {
                                 finishReason = choice.get("finish_reason").asText();
                             }
                         }
-                        
-                        // usage
+
+                        // usage（通常在最后一个 chunk 中）
                         if (chunk.has("usage")) {
                             parseUsage(chunk.get("usage"), usage);
                         }
                     }
                 }
-                
+
                 // 构建响应
-                if (!toolCalls.isEmpty()) {
+                if (toolCallMode && !toolCalls.isEmpty()) {
                     return LLMResponse.toolCalls(toolCalls, model);
                 } else {
                     return LLMResponse.success(
-                        fullContent.toString(), 
+                        fullContent.toString(),
                         finishReason != null ? finishReason : "stop",
                         usage
                     );
                 }
-                
+
             } catch (Exception e) {
                 return handleException(e);
             }
@@ -355,7 +379,7 @@ public class OpenAIProvider implements LLMProvider {
             .uri(URI.create(endpoint))
             .header("Content-Type", "application/json")
             .header("Authorization", "Bearer " + apiKey)
-            .timeout(TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
             .POST(HttpRequest.BodyPublishers.ofString(body.toString()));
         
         // 添加额外头

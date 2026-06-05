@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
@@ -50,6 +51,7 @@ public class ChannelServer {
     private HttpServer httpServer;
     private final int port;
     private final Map<String, WebSocketConnection> wsConnections = new ConcurrentHashMap<>();
+    private final Map<String, ChatHandler.StreamResponseHandler> streamResponseHandlers = new ConcurrentHashMap<>();
     
     public ChannelServer(MessageBus messageBus, int port) {
         this.messageBus = messageBus;
@@ -176,26 +178,30 @@ public class ChannelServer {
                 // 发布到消息总线
                 messageBus.publishInbound(message);
                 
-                // 等待并获取响应（最多60秒），使用requestId精确匹配
-                String responseContent = waitForResponse(sessionId, requestId, 60);
-                
-                if (responseContent != null) {
-                    // 返回实际响应内容
-                    String response = objectMapper.writeValueAsString(Map.of(
-                        "status", "ok",
-                        "sessionId", sessionId,
-                        "content", responseContent
-                    ));
-                    exchange.getResponseHeaders().set("Content-Type", "application/json");
-                    exchange.sendResponseHeaders(200, response.getBytes().length);
-                    exchange.getResponseBody().write(response.getBytes());
+                // 如果是流式模式，使用 SSE 流式响应
+                if (streamMode) {
+                    handleStreamingResponse(exchange, sessionId, requestId);
                 } else {
-                    String error = objectMapper.writeValueAsString(Map.of(
-                        "status", "error",
-                        "message", "Request timed out"
-                    ));
-                    exchange.sendResponseHeaders(504, error.getBytes().length);
-                    exchange.getResponseBody().write(error.getBytes());
+                    // 非流式模式，等待完整响应
+                    String responseContent = waitForResponse(sessionId, requestId, 300);
+                    
+                    if (responseContent != null) {
+                        String response = objectMapper.writeValueAsString(Map.of(
+                            "status", "ok",
+                            "sessionId", sessionId,
+                            "content", responseContent
+                        ));
+                        exchange.getResponseHeaders().set("Content-Type", "application/json");
+                        exchange.sendResponseHeaders(200, response.getBytes().length);
+                        exchange.getResponseBody().write(response.getBytes());
+                    } else {
+                        String error = objectMapper.writeValueAsString(Map.of(
+                            "status", "error",
+                            "message", "Request timed out"
+                        ));
+                        exchange.sendResponseHeaders(504, error.getBytes().length);
+                        exchange.getResponseBody().write(error.getBytes());
+                    }
                 }
                 
             } catch (Exception e) {
@@ -210,6 +216,118 @@ public class ChannelServer {
                 exchange.close();
             }
         }
+        
+        /**
+         * 处理流式响应（SSE）
+         */
+        private void handleStreamingResponse(HttpExchange exchange, String sessionId, String requestId) {
+            try {
+                // 设置 SSE 响应头
+                exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+                exchange.getResponseHeaders().set("Cache-Control", "no-cache");
+                exchange.getResponseHeaders().set("Connection", "keep-alive");
+                exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+                exchange.sendResponseHeaders(200, 0); // 0 表示不预先设置内容长度
+                
+                OutputStream outputStream = exchange.getResponseBody();
+                
+                // 创建流式响应处理器
+                StreamResponseHandler handler = new StreamResponseHandler(outputStream);
+                
+                // 注册流式响应回调
+                synchronized (streamResponseHandlers) {
+                    String key = sessionId + ":" + requestId;
+                    streamResponseHandlers.put(key, handler);
+                }
+                
+                // 等待响应完成或超时
+                try {
+                    synchronized (handler) {
+                        handler.wait(300000); // 5分钟超时
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    // 清理
+                    synchronized (streamResponseHandlers) {
+                        String key = sessionId + ":" + requestId;
+                        streamResponseHandlers.remove(key);
+                    }
+                    
+                    // 发送结束标记
+                    try {
+                        outputStream.write("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
+                        outputStream.flush();
+                    } catch (IOException ignored) {}
+                }
+                
+            } catch (IOException e) {
+                logger.error("Error handling streaming response", e);
+            }
+        }
+        
+        /**
+         * 流式响应处理器
+         */
+        private class StreamResponseHandler {
+            private final OutputStream outputStream;
+            private volatile boolean completed = false;
+            
+            public StreamResponseHandler(OutputStream outputStream) {
+                this.outputStream = outputStream;
+            }
+            
+            public void sendChunk(String content) {
+                try {
+                    String json = objectMapper.writeValueAsString(Map.of(
+                        "type", "chunk",
+                        "content", content
+                    ));
+                    String sseMessage = "data: " + json + "\n\n";
+                    outputStream.write(sseMessage.getBytes(StandardCharsets.UTF_8));
+                    outputStream.flush();
+                } catch (IOException e) {
+                    logger.warn("Error sending stream chunk", e);
+                }
+            }
+            
+            public void complete() {
+                completed = true;
+                synchronized (this) {
+                    this.notifyAll();
+                }
+            }
+            
+            public boolean isCompleted() {
+                return completed;
+            }
+        }
+        
+    /**
+     * 推送流式响应数据
+     */
+    public void pushStreamResponse(String sessionId, String requestId, String content) {
+        synchronized (streamResponseHandlers) {
+            String key = sessionId + ":" + requestId;
+            ChatHandler.StreamResponseHandler handler = streamResponseHandlers.get(key);
+            if (handler != null) {
+                handler.sendChunk(content);
+            }
+        }
+    }
+    
+    /**
+     * 完成流式响应
+     */
+    public void completeStreamResponse(String sessionId, String requestId) {
+        synchronized (streamResponseHandlers) {
+            String key = sessionId + ":" + requestId;
+            ChatHandler.StreamResponseHandler handler = streamResponseHandlers.get(key);
+            if (handler != null) {
+                handler.complete();
+            }
+        }
+    }
         
         /**
      * 等待指定会话的响应（使用 requestId 精确匹配）
