@@ -3,6 +3,7 @@ package com.nanobot.controller;
 import com.nanobot.NanobotRunner;
 import com.nanobot.bus.MessageBus;
 import com.nanobot.bus.InboundMessage;
+import com.nanobot.bus.OutboundMessage;
 import com.nanobot.core.AgentLoop;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -43,11 +44,11 @@ public class ChatController {
      */
     @PostMapping("/chat")
     public ResponseEntity<Map<String, Object>> chat(@RequestBody ChatRequest request) {
-        logger.info("Received sync chat request: sessionId={}", request.getSessionId());
+        logger.info("Received sync chat request: chatId={}", request.getChatId());
         
         try {
-            // 生成 sessionId
-            String sessionId = request.getSessionId();
+            // 使用 chatId 作为会话标识
+            String sessionId = request.getChatId();
             if (sessionId == null || sessionId.isBlank()) {
                 sessionId = UUID.randomUUID().toString();
             }
@@ -55,35 +56,52 @@ public class ChatController {
             // 生成 requestId
             String requestId = UUID.randomUUID().toString();
             
-            // 构建入站消息
+            // 构建元数据
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("requestId", requestId);
+            metadata.put("streamMode", request.isStreamMode());
+            metadata.put("useSearch", request.isUseSearch());
+            
+            // 构建入站消息（senderId 使用 sessionId，因为 API 通道没有独立的发送者 ID）
             InboundMessage message = InboundMessage.builder()
                 .chatId(sessionId)
+                .senderId(sessionId) // API 通道使用 sessionId 作为 senderId
                 .content(request.getContent())
                 .channel(request.getChannel() != null ? request.getChannel() : "api")
+                .metadata(metadata)
                 .build();
-            message.getMetadata().put("requestId", requestId);
-            message.getMetadata().put("streamMode", false);
             
             // 发送消息到 MessageBus
             MessageBus messageBus = NanobotRunner.getMessageBus();
             messageBus.publishInbound(message);
             
-            // 由于没有 waitForResponse 方法，
-            // 同步接口直接返回确认，实际响应通过 WebSocket 获取
+            // 等待 LLM 响应
+            logger.info("Waiting for response for session: {}, requestId: {}", sessionId, requestId);
+            OutboundMessage response = messageBus.waitForSessionResponse(sessionId, requestId, 120, java.util.concurrent.TimeUnit.SECONDS);
             
             Map<String, Object> result = new HashMap<>();
-            result.put("status", "accepted");
-            result.put("sessionId", sessionId);
-            result.put("requestId", requestId);
-            result.put("message", "Message received. Use WebSocket for response.");
+            if (response != null && response.getContent() != null) {
+                result.put("status", "success");
+                result.put("sessionId", sessionId);
+                result.put("requestId", requestId);
+                result.put("content", response.getContent());
+                logger.info("Response received for session: {}, content length: {}", sessionId, response.getContent().length());
+            } else {
+                result.put("status", "timeout");
+                result.put("sessionId", sessionId);
+                result.put("requestId", requestId);
+                result.put("content", "请求超时，请稍后重试。");
+                logger.warn("Timeout waiting for response for session: {}", sessionId);
+            }
             
-            return ResponseEntity.accepted().body(result);
+            return ResponseEntity.ok(result);
             
         } catch (Exception e) {
             logger.error("Chat request failed", e);
             Map<String, Object> error = new HashMap<>();
             error.put("status", "error");
             error.put("message", e.getMessage());
+            error.put("content", "请求失败：" + e.getMessage());
             return ResponseEntity.internalServerError().body(error);
         }
     }
@@ -96,38 +114,47 @@ public class ChatController {
     @RequestMapping(value = "/chat/stream", 
                    produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamChat(@RequestBody ChatRequest request) {
-        logger.info("Received stream chat request: sessionId={}", request.getSessionId());
+        logger.info("Received stream chat request: chatId={}, streamMode={}, useSearch={}", 
+                   request.getChatId(), request.isStreamMode(), request.isUseSearch());
         
         // 创建 SSE emitter
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT);
         
-        // 生成 requestId 和 sessionId
+        // 生成 requestId 和 sessionId（使用 chatId）
         String requestId = UUID.randomUUID().toString();
-        String sessionId = request.getSessionId() != null ? request.getSessionId() : UUID.randomUUID().toString();
+        String sessionId = request.getChatId() != null ? request.getChatId() : UUID.randomUUID().toString();
+        
+        logger.info("Stream chat requestId={}, sessionId={}", requestId, sessionId);
         
         // 设置流式回调
         AgentLoop agentLoop = NanobotRunner.getAgentLoop();
         AgentLoop.StreamResponseCallback callback = new AgentLoop.StreamResponseCallback() {
             @Override
             public void onStreamData(String sId, String reqId, String content) {
+                logger.debug("Stream callback onStreamData: sId={}, reqId={}, content_length={}", 
+                           sId, reqId, content != null ? content.length() : 0);
                 if (sessionId.equals(sId) && requestId.equals(reqId)) {
                     try {
-                        emitter.send(content);
+                        emitter.send("data: " + content + "\n\n");
+                        logger.debug("SSE data sent successfully: \"{}\"", content);
                     } catch (IOException e) {
                         logger.warn("Failed to send SSE data", e);
                         emitter.completeWithError(e);
                     }
+                } else {
+                    logger.debug("Session mismatch: expected sessionId={}, got {}; expected requestId={}, got {}", 
+                               sessionId, sId, requestId, reqId);
                 }
             }
             
             @Override
             public void onStreamComplete(String sId, String reqId) {
+                logger.debug("Stream callback onStreamComplete: sId={}, reqId={}", sId, reqId);
                 if (sessionId.equals(sId) && requestId.equals(reqId)) {
                     try {
-                        emitter.send(SseEmitter.event()
-                            .name("done")
-                            .data("[DONE]"));
+                        emitter.send("data: [DONE]\n\n");
                         emitter.complete();
+                        logger.info("SSE stream completed");
                     } catch (IOException e) {
                         emitter.completeWithError(e);
                     }
@@ -136,15 +163,22 @@ public class ChatController {
         };
         
         agentLoop.setStreamResponseCallback(callback);
+        logger.info("Stream callback set for sessionId={}, requestId={}", sessionId, requestId);
         
-        // 构建入站消息
+        // 构建元数据
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("requestId", requestId);
+        metadata.put("streamMode", request.isStreamMode());
+        metadata.put("useSearch", request.isUseSearch());
+        
+        // 构建入站消息（senderId 使用 sessionId，因为 API 通道没有独立的发送者 ID）
         InboundMessage message = InboundMessage.builder()
             .chatId(sessionId)
+            .senderId(sessionId) // API 通道使用 sessionId 作为 senderId
             .content(request.getContent())
             .channel(request.getChannel() != null ? request.getChannel() : "api")
+            .metadata(metadata)
             .build();
-        message.getMetadata().put("requestId", requestId);
-        message.getMetadata().put("streamMode", true);
         
         // 发送消息到 MessageBus
         MessageBus messageBus = NanobotRunner.getMessageBus();
@@ -202,7 +236,7 @@ public class ChatController {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class ChatRequest {
-        private String sessionId;
+        private String chatId;
         private String content;
         private String channel;
         private boolean useSearch;

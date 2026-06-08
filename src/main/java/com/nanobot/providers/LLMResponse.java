@@ -1,7 +1,6 @@
 package com.nanobot.providers;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
 
 import java.util.List;
@@ -15,10 +14,9 @@ import java.util.Optional;
  * 本类封装了 LLM API 返回的响应数据。
  * 设计为不可变对象，确保响应数据在传递过程中不会被意外修改。
  */
-@Data
+@Value
 @Builder
 @AllArgsConstructor
-@NoArgsConstructor(access = AccessLevel.PRIVATE)
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class LLMResponse {
     
@@ -31,6 +29,7 @@ public class LLMResponse {
     private final List<ToolCallRequest> toolCalls;
     
     @Builder.Default
+    @Getter(AccessLevel.NONE)
     private final boolean shouldExecuteTools = false;
     
     // ==================== 元数据字段 ====================
@@ -90,6 +89,10 @@ public class LLMResponse {
     
     // ==================== 自定义 Getter 方法 ====================
     
+    public boolean shouldExecuteTools() {
+        return shouldExecuteTools;
+    }
+    
     public Optional<String> getReasoningContent() {
         return Optional.ofNullable(reasoningContent);
     }
@@ -148,15 +151,14 @@ public class LLMResponse {
     
     // ==================== ToolCallRequest 内部类 ====================
     
-    @Data
+    @Value
     @Builder
-    @NoArgsConstructor
     @AllArgsConstructor
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class ToolCallRequest {
-        private String id;
-        private String name;
-        private Map<String, Object> arguments;
+        private final String id;
+        private final String name;
+        private final Map<String, Object> arguments;
         
         @SuppressWarnings("unchecked")
         public <T> T getArgument(String key) {

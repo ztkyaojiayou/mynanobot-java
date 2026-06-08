@@ -518,6 +518,9 @@
         const messagesContainer = document.getElementById('messages');
         const inputMessage = document.getElementById('inputMessage');
         const sendBtn = document.getElementById('sendBtn');
+        
+        console.log('messagesContainer:', messagesContainer);
+        console.log('messagesContainer children count:', messagesContainer ? messagesContainer.children.length : 'null');
         const searchBtn = document.getElementById('searchBtn');
         const streamModeCheckbox = document.getElementById('streamMode');
         let chatId = 'web-' + Date.now();
@@ -567,18 +570,29 @@
 
         // 处理流式消息片段
         function handleStreamDelta(delta) {
+            console.log('[handleStreamDelta] delta:', delta);
+            console.log('[handleStreamDelta] currentStreamingMessage:', currentStreamingMessage);
+            
             if (!currentStreamingMessage) {
                 // 创建新的流式消息容器
                 currentStreamingMessage = createStreamingMessageElement();
                 currentStreamingContent = '';
+                console.log('[handleStreamDelta] Created new streaming message element');
             }
             
             // 累积内容
             currentStreamingContent += delta;
+            console.log('[handleStreamDelta] currentStreamingContent:', currentStreamingContent);
             
             // 更新显示
             const contentDiv = currentStreamingMessage.querySelector('.message-content');
-            contentDiv.innerHTML = markdownToHtml(currentStreamingContent);
+            console.log('[handleStreamDelta] contentDiv:', contentDiv);
+            if (contentDiv) {
+                contentDiv.innerHTML = markdownToHtml(currentStreamingContent);
+                console.log('[handleStreamDelta] Updated content:', contentDiv.innerHTML);
+            } else {
+                console.error('[handleStreamDelta] contentDiv is null!');
+            }
             
             scrollToBottom();
         }
@@ -738,6 +752,88 @@
             }
         }
 
+        // 发送消息（HTTP 流式）
+        async function sendMessageStreamHTTP(content) {
+            const requestId = Date.now() + '-' + Math.random().toString(36).substring(7);
+            
+            console.log(`[${requestId}] Sending HTTP stream request, chatId: ${chatId}, content: ${content}`);
+
+            try {
+                // 重置流式状态
+                currentStreamingMessage = null;
+                currentStreamingContent = '';
+
+                console.log(`[${requestId}] Creating streaming state reset, about to fetch`);
+
+                const response = await fetch('/api/chat/stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'text/event-stream'
+                    },
+                    body: JSON.stringify({
+                        channel: 'http',
+                        chatId: chatId,
+                        content: content,
+                        useSearch: useSearchMode,
+                        streamMode: true,
+                        requestId: requestId
+                    })
+                });
+
+                console.log(`[${requestId}] Fetch completed, response:`, response);
+
+                if (!response.ok) {
+                    console.log(`[${requestId}] Stream response not ok:`, response.status);
+                    addMessage('bot', '请求失败，请稍后重试。');
+                    return;
+                }
+
+                console.log(`[${requestId}] Response ok, getting reader`);
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+
+                console.log(`[${requestId}] SSE connection established, starting to read stream...`);
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    
+                    if (done) {
+                        console.log(`[${requestId}] SSE stream done`);
+                        handleStreamEnd();
+                        break;
+                    }
+
+                    const chunk = decoder.decode(value);
+                    console.log(`[${requestId}] Received chunk: "${chunk}"`);
+                    
+                    const lines = chunk.split('\n');
+                    console.log(`[${requestId}] Parsed ${lines.length} lines`);
+                    
+                    for (const line of lines) {
+                        console.log(`[${requestId}] Line: "${line}"`);
+                        if (line.startsWith('data: ')) {
+                            const data = line.substring(6);
+                            console.log(`[${requestId}] Data content: "${data}"`);
+                            if (data === '[DONE]') {
+                                console.log(`[${requestId}] Received [DONE]`);
+                                handleStreamEnd();
+                                return;
+                            }
+                            // 处理流式数据
+                            handleStreamDelta(data);
+                        }
+                    }
+                }
+
+            } catch (error) {
+                console.error(`[${requestId}] Stream error:`, error);
+                handleStreamEnd();
+                addMessage('bot', '流式连接失败，请检查网络连接。');
+            }
+        }
+
         // 发送消息（智能选择 WebSocket 或 HTTP）
         function sendMessage() {
             const content = inputMessage.value.trim();
@@ -754,6 +850,9 @@
                     console.log('Sending via WebSocket');
                     // WebSocket 不需要等待，直接发送
                     sendMessageWS(content);
+                } else if (useStreamMode) {
+                    console.log('Sending via HTTP Stream');
+                    await sendMessageStreamHTTP(content);
                 } else {
                     console.log('Sending via HTTP');
                     await sendMessageHTTP(content);

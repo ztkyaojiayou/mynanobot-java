@@ -612,6 +612,9 @@ public class AgentLoop {
         final boolean streamMode;
         if (context.getMessage().getMetadata() != null) {
             Object streamModeObj = context.getMessage().getMetadata().get("streamMode");
+            logger.debug("Stream mode object from metadata: type={}, value={}", 
+                        streamModeObj != null ? streamModeObj.getClass().getName() : "null", 
+                        streamModeObj);
             if (streamModeObj instanceof Boolean) {
                 streamMode = (Boolean) streamModeObj;
             } else if (streamModeObj instanceof String) {
@@ -622,7 +625,8 @@ public class AgentLoop {
         } else {
             streamMode = false;
         }
-        logger.info("doRun: streamMode={}, requestId={}", streamMode, requestId);
+        logger.info("doRun: streamMode={}, requestId={}, sendProgress={}", 
+                   streamMode, requestId, config.getChannels().isSendProgress());
         
         // 创建流式回调（仅在流式模式启用时）
         Consumer<String> onDelta = null;
@@ -644,9 +648,18 @@ public class AgentLoop {
                 publishProgress(builder.build());
                 
                 if (streamResponseCallback != null && requestId != null) {
+                    logger.info("Calling streamResponseCallback.onStreamData: sessionId={}, requestId={}, delta_length={}", 
+                               sessionId, requestId, delta != null ? delta.length() : 0);
                     streamResponseCallback.onStreamData(sessionId, requestId, delta);
+                } else {
+                    logger.info("streamResponseCallback is null: {}, requestId is null: {}", 
+                               streamResponseCallback == null, requestId == null);
                 }
             };
+            logger.info("Created onDelta callback for sessionId={}, requestId={}", sessionId, requestId);
+        } else {
+            logger.info("Not creating onDelta callback: streamMode={}, sendProgress={}", 
+                       streamMode, config.getChannels().isSendProgress());
         }
         
         // 执行 Runner
