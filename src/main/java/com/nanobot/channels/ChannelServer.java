@@ -74,7 +74,7 @@ public class ChannelServer {
         httpServer.createContext("/static/", new StaticHandler());
         
         // 设置执行器
-        httpServer.setExecutor(java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor());
+        httpServer.setExecutor(java.util.concurrent.Executors.newFixedThreadPool(10));
         
         httpServer.start();
         logger.info("ChannelServer started on http://0.0.0.0:{}", port);

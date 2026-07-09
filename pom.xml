@@ -2,7 +2,7 @@
 <!--
     Nanobot-Java 项目配置
     =====================
-    这是一个基于 Java 21 的 AI Agent 核心实现项目
+    这是一个基于 Java 17 的 AI Agent 核心实现项目
     
     项目目标：
     - 学习 Agent 的底层实现和架构思想
@@ -10,7 +10,7 @@
     - 采用纯 Java 技术栈，不依赖任何 AI 框架
     
     技术栈：
-    - Java 21 (LTS) - 支持 Virtual Threads
+    - Java 17 (LTS)
     - Maven - 依赖管理
     - Jackson - JSON 处理
     - SLF4J + Logback - 日志框架
@@ -30,15 +30,15 @@
 
     <name>Nanobot-Java</name>
     <description>
-        基于 Java 21 的 AI Agent 核心实现
+        基于 Java 17 的 AI Agent 核心实现
         用于学习 Agent 的底层实现和架构思想
     </description>
 
     <!-- Java 版本要求 -->
     <properties>
-        <java.version>21</java.version>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
+        <java.version>17</java.version>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         
         <!-- 依赖版本管理 -->
