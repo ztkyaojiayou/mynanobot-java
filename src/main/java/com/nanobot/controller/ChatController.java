@@ -135,24 +135,24 @@ public class ChatController {
                            sId, reqId, content != null ? content.length() : 0);
                 if (sessionId.equals(sId) && requestId.equals(reqId)) {
                     try {
-                        emitter.send("data: " + content + "\n\n");
+                        emitter.send(SseEmitter.event().data(content != null ? content : ""));
                         logger.debug("SSE data sent successfully: \"{}\"", content);
                     } catch (IOException e) {
                         logger.warn("Failed to send SSE data", e);
                         emitter.completeWithError(e);
                     }
                 } else {
-                    logger.debug("Session mismatch: expected sessionId={}, got {}; expected requestId={}, got {}", 
+                    logger.debug("Session mismatch: expected sessionId={}, got {}; expected requestId={}, got {}",
                                sessionId, sId, requestId, reqId);
                 }
             }
-            
+
             @Override
             public void onStreamComplete(String sId, String reqId) {
                 logger.debug("Stream callback onStreamComplete: sId={}, reqId={}", sId, reqId);
                 if (sessionId.equals(sId) && requestId.equals(reqId)) {
                     try {
-                        emitter.send("data: [DONE]\n\n");
+                        emitter.send(SseEmitter.event().data("[DONE]"));
                         emitter.complete();
                         logger.info("SSE stream completed");
                     } catch (IOException e) {
@@ -165,10 +165,10 @@ public class ChatController {
         agentLoop.setStreamResponseCallback(callback);
         logger.info("Stream callback set for sessionId={}, requestId={}", sessionId, requestId);
         
-        // 构建元数据
+        // 构建元数据（/chat/stream 端点始终启用流式模式）
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("requestId", requestId);
-        metadata.put("streamMode", request.isStreamMode());
+        metadata.put("streamMode", true);
         metadata.put("useSearch", request.isUseSearch());
         
         // 构建入站消息（senderId 使用 sessionId，因为 API 通道没有独立的发送者 ID）

@@ -796,34 +796,40 @@
 
                 console.log(`[${requestId}] SSE connection established, starting to read stream...`);
 
+                let streamBuffer = '';  // 跨 chunk 行缓冲
+
                 while (true) {
                     const { done, value } = await reader.read();
-                    
+
+                    // 先处理数据（done=true 时 value 仍可能含最后一包数据）
+                    if (value) {
+                        // 最后一包用 stream:false 刷新 TextDecoder 内部缓冲
+                        const text = streamBuffer + decoder.decode(value, { stream: !done });
+                        streamBuffer = '';
+                        const lines = text.split('\n');
+                        // 非最后一包时，末行不完整则留到下次拼接
+                        if (!done && text.length > 0 && text[text.length - 1] !== '\n') {
+                            streamBuffer = lines.pop();
+                        }
+
+                        for (const line of lines) {
+                            if (line.startsWith('data:')) {
+                                const data = line.substring(5).replace(/^ /, '');
+                                if (data === '[DONE]') {
+                                    handleStreamEnd();
+                                    return;
+                                }
+                                if (data) {
+                                    handleStreamDelta(data);
+                                }
+                            }
+                        }
+                    }
+
                     if (done) {
                         console.log(`[${requestId}] SSE stream done`);
                         handleStreamEnd();
                         break;
-                    }
-
-                    const chunk = decoder.decode(value);
-                    console.log(`[${requestId}] Received chunk: "${chunk}"`);
-                    
-                    const lines = chunk.split('\n');
-                    console.log(`[${requestId}] Parsed ${lines.length} lines`);
-                    
-                    for (const line of lines) {
-                        console.log(`[${requestId}] Line: "${line}"`);
-                        if (line.startsWith('data: ')) {
-                            const data = line.substring(6);
-                            console.log(`[${requestId}] Data content: "${data}"`);
-                            if (data === '[DONE]') {
-                                console.log(`[${requestId}] Received [DONE]`);
-                                handleStreamEnd();
-                                return;
-                            }
-                            // 处理流式数据
-                            handleStreamDelta(data);
-                        }
                     }
                 }
 

@@ -76,23 +76,12 @@ class MetricsHookTest {
     }
     
     private AgentHookContext createMockContext(String sessionKey, int iteration) {
-        return new AgentHookContext() {
-            @Override
-            public String getSessionKey() { return sessionKey; }
-            @Override
-            public int getIteration() { return iteration; }
-            @Override
-            public java.util.List<java.util.Map<String, Object>> getMessages() { return java.util.List.of(); }
-            @Override
-            public boolean hasToolCalls() { return false; }
-            @Override
-            public java.util.List<?> getToolCalls() { return java.util.List.of(); }
-            @Override
-            public boolean hasError() { return false; }
-            @Override
-            public java.util.Map<String, Integer> getUsage() { return java.util.Map.of("promptTokens", 100, "completionTokens", 50); }
-            @Override
-            public int getTotalTokens() { return 150; }
-        };
+        return new AgentHookContext.Builder()
+            .sessionKey(sessionKey)
+            .iteration(iteration)
+            .messages(java.util.List.of())
+            .toolCalls(java.util.List.of())
+            .usage(java.util.Map.of("promptTokens", 100, "completionTokens", 50))
+            .build();
     }
 }

@@ -361,11 +361,28 @@ public class MessageBus {
     // ==================== 出站消息操作 ====================
     
     /**
+     * 非阻塞发布出站消息。
+     *
+     * <p>用于进度/流式增量等非关键消息。队列满时静默丢弃，不阻塞调用线程。
+     * 最终响应请使用 {@link #publishOutbound(OutboundMessage)}（阻塞保证不丢失）。</p>
+     */
+    public void offerOutbound(OutboundMessage message) {
+        if (!running.get()) {
+            return;
+        }
+        outboundQueue.offer(message);
+        if (message.getChatId() != null) {
+            sessionResponses.computeIfAbsent(message.getChatId(), k -> new java.util.LinkedList<>())
+                           .offer(message);
+        }
+    }
+
+    /**
      * 发布出站消息（同步）
-     * 
+     *
      * 将响应消息放入出站队列，等待被 ChannelManager 发送。
      * 同时也将消息添加到会话响应映射中，用于按会话ID匹配。
-     * 
+     *
      * @param message 要发布的出站消息
      * @throws InterruptedException 如果阻塞时被中断
      */

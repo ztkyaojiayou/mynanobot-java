@@ -86,7 +86,7 @@ class SubagentCommunicationTest {
         
         // 获取共享状态
         assertEquals("test-key", comm.getSharedState("config.apiKey"));
-        assertEquals(30000, comm.getSharedState("config.timeout"));
+        assertEquals(30000, (Integer) comm.getSharedState("config.timeout"));
         
         // 检查状态存在
         assertTrue(comm.hasSharedState("config.apiKey"));

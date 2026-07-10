@@ -112,8 +112,8 @@ class WebSocketFrameTest {
     void testParseTextFrame() throws IOException {
         // 构造一个简单的文本帧
         byte[] frameData = new byte[14];
-        frameData[0] = 0x81;  // FIN=1, OPCODE=1 (TEXT)
-        frameData[1] = 0x05;  // 长度=5
+        frameData[0] = (byte) 0x81;  // FIN=1, OPCODE=1 (TEXT)
+        frameData[1] = (byte) 0x05;  // 长度=5
         System.arraycopy("Hello".getBytes(StandardCharsets.UTF_8), 0, frameData, 2, 5);
         
         ByteArrayInputStream inputStream = new ByteArrayInputStream(frameData);
@@ -129,8 +129,8 @@ class WebSocketFrameTest {
     void testParseMaskedFrame() throws IOException {
         // 构造一个掩码的文本帧
         byte[] frameData = new byte[11];
-        frameData[0] = 0x81;  // FIN=1, OPCODE=1
-        frameData[1] = 0x85;  // MASKED=1, 长度=5
+        frameData[0] = (byte) 0x81;  // FIN=1, OPCODE=1
+        frameData[1] = (byte) 0x85;  // MASKED=1, 长度=5
         
         // 掩码键
         frameData[2] = 0x01;

@@ -65,23 +65,12 @@ class ValidationHookTest {
     }
     
     private AgentHookContext createMockContext() {
-        return new AgentHookContext() {
-            @Override
-            public String getSessionKey() { return "test-session"; }
-            @Override
-            public int getIteration() { return 1; }
-            @Override
-            public java.util.List<java.util.Map<String, Object>> getMessages() { return java.util.List.of(); }
-            @Override
-            public boolean hasToolCalls() { return false; }
-            @Override
-            public java.util.List<?> getToolCalls() { return java.util.List.of(); }
-            @Override
-            public boolean hasError() { return false; }
-            @Override
-            public java.util.Map<String, Integer> getUsage() { return java.util.Map.of(); }
-            @Override
-            public int getTotalTokens() { return 0; }
-        };
+        return new AgentHookContext.Builder()
+            .sessionKey("test-session")
+            .iteration(1)
+            .messages(java.util.List.of())
+            .toolCalls(java.util.List.of())
+            .usage(java.util.Map.of())
+            .build();
     }
 }

@@ -632,7 +632,9 @@ public class AgentLoop {
         Consumer<String> onDelta = null;
         final String sessionId = context.getMessage().getChatId();
         
-        if (streamMode && config.getChannels().isSendProgress()) {
+        // 流式条件：streamMode=true 且（WebSocket progress 启用 或 已设置 SSE 回调）
+        boolean hasStreamCallback = streamResponseCallback != null && requestId != null;
+        if (streamMode && (config.getChannels().isSendProgress() || hasStreamCallback)) {
             onDelta = delta -> {
                 OutboundMessage.Builder builder = OutboundMessage.builder()
                     .channel(context.getMessage().getChannel())
@@ -775,11 +777,7 @@ public class AgentLoop {
      * 发布进度
      */
     private void publishProgress(OutboundMessage progress) {
-        try {
-            messageBus.publishOutbound(progress);
-        } catch (Exception e) {
-            logger.warn("Failed to publish progress: {}", e.getMessage());
-        }
+        messageBus.offerOutbound(progress);
     }
     
     // ==================== 状态查询 ====================
