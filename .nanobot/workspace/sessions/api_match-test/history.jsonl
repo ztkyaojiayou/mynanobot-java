@@ -1,0 +1,12 @@
+{"role":"user","content":"test"}
+{"role":"assistant","content":"Hello from nanobot"}
+{"role":"user","content":"test"}
+{"role":"assistant","content":"Hello from nanobot"}
+{"role":"user","content":"test"}
+{"role":"assistant","content":"Hello from nanobot"}
+{"content":"test","role":"user"}
+{"content":"Hello from nanobot","role":"assistant"}
+{"content":"test","role":"user"}
+{"content":"Hello from nanobot","role":"assistant"}
+{"content":"test","role":"user"}
+{"content":"Hello from nanobot","role":"assistant"}
