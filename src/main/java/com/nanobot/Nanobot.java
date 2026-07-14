@@ -178,17 +178,20 @@ public class Nanobot {
      */
     private void registerTools() {
         String workspace = config.getAgents().getDefaults().getWorkspace();
-        
-        // 文件工具
-        toolRegistry.register(new ReadFileTool(workspace));
-        toolRegistry.register(new WriteFileTool(workspace));
-        toolRegistry.register(new EditFileTool(workspace));
-        toolRegistry.register(new ListDirTool(workspace));
-        
+
+        // 文件工具（路径验证由 ToolRegistry 中的 PathGuard 统一处理）
+        toolRegistry.register(new ReadFileTool());
+        toolRegistry.register(new WriteFileTool());
+        toolRegistry.register(new EditFileTool());
+        toolRegistry.register(new ListDirTool());
+
         // 搜索工具
-        toolRegistry.register(new GlobTool(workspace));
-        toolRegistry.register(new GrepTool(workspace));
-        
+        toolRegistry.register(new GlobTool());
+        toolRegistry.register(new GrepTool());
+
+        // 时间工具
+        toolRegistry.register(new GetCurrentTimeTool());
+
         // Shell 工具
         if (config.getTools().getExec().isEnable()) {
             toolRegistry.register(new ExecTool());

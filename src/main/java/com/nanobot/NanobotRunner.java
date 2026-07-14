@@ -61,11 +61,26 @@ public class NanobotRunner implements ApplicationRunner {
     private void setMessageBus(MessageBus messageBus) {
         NanobotRunner.messageBus = messageBus;
     }
-    
+
+    @Autowired
+    private void setAgentLoop(AgentLoop agentLoop) {
+        NanobotRunner.agentLoop = agentLoop;
+    }
+
+    @Autowired
+    private void setToolRegistry(ToolRegistry toolRegistry) {
+        NanobotRunner.toolRegistry = toolRegistry;
+    }
+
+    @Autowired
+    private void setSessionManager(SessionManager sessionManager) {
+        NanobotRunner.sessionManager = sessionManager;
+    }
+
     @Override
     public void run(ApplicationArguments args) throws Exception {
         logger.info("Initializing Nanobot components...");
-        
+
         // 1. 加载配置
         config = ConfigLoader.load();
         var errors = config.validate();
@@ -75,58 +90,41 @@ public class NanobotRunner implements ApplicationRunner {
             throw new IllegalStateException("Invalid configuration");
         }
         logger.info("Configuration loaded");
-        
-        // 2. 初始化工具注册中心
-        toolRegistry = new ToolRegistry();
-        registerTools();
-        
-        // 3. 初始化会话管理器
-        sessionManager = new SessionManager(config);
-        
-        // 4. 初始化内存存储
-        memoryStore = new MemoryStore(config);
-        
-        // 5. 初始化身份管理器
+
+        // 2. 初始化身份管理器
         identityManager = new IdentityManager(config);
         identityManager.load();
         logger.info("Identity files loaded");
-        
-        // 6. 初始化规则管理器
+
+        // 3. 初始化规则管理器
         ruleManager = new RuleManager(config);
         ruleManager.loadRules();
         logger.info("Loaded {} rules", ruleManager.getRegistry().size());
-        
-        // 7. 初始化技能管理器
+
+        // 4. 初始化技能管理器
         skillManager = new SkillManager(config);
         skillManager.loadSkills();
         logger.info("Loaded {} skills", skillManager.getRegistry().size());
-        
-        // 8. 初始化 LLM 提供商
+
+        // 5. 初始化 LLM 提供商
         provider = createProvider();
-        
-        // 9. 初始化长期记忆系统
+
+        // 6. 初始化长期记忆系统
         int maxMemories = config.getMemory().getDream().getMaxMemories();
         dream = new Dream(provider, maxMemories);
         Path baseDir = Paths.get(".nanobot").toAbsolutePath().normalize();
         dream.loadFromMemoryFile(baseDir);
         logger.info("Dream long-term memory initialized");
-        
-        // 10. 创建并启动 AgentLoop
-        agentLoop = new AgentLoop(
-            messageBus,
-            provider,
-            toolRegistry,
-            sessionManager,
-            config,
-            ruleManager,
-            skillManager,
-            identityManager
-        );
-        agentLoop.start();
-        
+
+        // 7. AgentLoop / ToolRegistry / SessionManager / MessageBus
+        //    由 Spring Bean (NanobotConfig) 统一创建和管理
+        //    通过 @Autowired setter 注入到静态字段
+        logger.info("AgentLoop injected from Spring: {}", agentLoop != null ? "OK" : "MISSING");
+        logger.info("MessageBus injected from Spring: {}", messageBus != null ? "OK" : "MISSING");
+
         logger.info("Nanobot components initialized successfully");
         logger.info("Model: {}", config.getAgents().getDefaults().getModel());
-        
+
         // 注册关闭钩子
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("Shutting down Nanobot...");
@@ -139,16 +137,16 @@ public class NanobotRunner implements ApplicationRunner {
      */
     private void registerTools() {
         String workspace = config.getAgents().getDefaults().getWorkspace();
-        
-        // 文件工具
-        toolRegistry.register(new ReadFileTool(workspace));
-        toolRegistry.register(new WriteFileTool(workspace));
-        toolRegistry.register(new EditFileTool(workspace));
-        toolRegistry.register(new ListDirTool(workspace));
-        
+
+        // 文件工具（路径验证由 ToolRegistry 中的 PathGuard 统一处理）
+        toolRegistry.register(new ReadFileTool());
+        toolRegistry.register(new WriteFileTool());
+        toolRegistry.register(new EditFileTool());
+        toolRegistry.register(new ListDirTool());
+
         // 搜索工具
-        toolRegistry.register(new GlobTool(workspace));
-        toolRegistry.register(new GrepTool(workspace));
+        toolRegistry.register(new GlobTool());
+        toolRegistry.register(new GrepTool());
         
         // Shell 工具
         if (config.getTools().getExec().isEnable()) {
