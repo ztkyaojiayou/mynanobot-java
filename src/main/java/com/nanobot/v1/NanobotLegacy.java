@@ -1,4 +1,4 @@
-package com.nanobot;
+package com.nanobot.v1;
 
 /**
  * Nanobot Legacy 启动入口

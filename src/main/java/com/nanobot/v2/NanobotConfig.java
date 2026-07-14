@@ -1,6 +1,8 @@
-package com.nanobot.config;
+package com.nanobot.v2;
 
 import com.nanobot.bus.MessageBus;
+import com.nanobot.config.Config;
+import com.nanobot.config.ConfigLoader;
 import com.nanobot.core.AgentLoop;
 import com.nanobot.identity.IdentityManager;
 import com.nanobot.mcp.MCPManager;

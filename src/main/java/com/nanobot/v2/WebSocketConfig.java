@@ -1,4 +1,4 @@
-package com.nanobot.config;
+package com.nanobot.v2;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.websocket.server.ServerEndpoint;

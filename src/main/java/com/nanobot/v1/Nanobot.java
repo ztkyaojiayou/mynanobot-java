@@ -1,7 +1,7 @@
-package com.nanobot;
+package com.nanobot.v1;
 
 import com.nanobot.bus.MessageBus;
-import com.nanobot.channels.ChannelServer;
+import com.nanobot.v1.channel.ChannelServer;
 import com.nanobot.config.Config;
 import com.nanobot.config.ConfigLoader;
 import com.nanobot.core.AgentLoop;

@@ -1,4 +1,4 @@
-package com.nanobot.channels;
+package com.nanobot.v1.channel;
 
 import com.nanobot.bus.InboundMessage;
 import com.nanobot.bus.MessageBus;

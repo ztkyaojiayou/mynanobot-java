@@ -1,4 +1,4 @@
-package com.nanobot.channels;
+package com.nanobot.v1.channel;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

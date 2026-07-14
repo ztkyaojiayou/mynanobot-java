@@ -1,4 +1,4 @@
-package com.nanobot.controller;
+package com.nanobot.v2.controller;
 
 import com.nanobot.NanobotRunner;
 import com.nanobot.bus.MessageBus;

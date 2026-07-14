@@ -1,4 +1,4 @@
-package com.nanobot.channels;
+package com.nanobot.v1.channel;
 
 import java.io.BufferedReader;
 import java.io.IOException;

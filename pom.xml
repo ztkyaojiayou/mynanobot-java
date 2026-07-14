@@ -32,6 +32,8 @@
     <description>
         基于 Java 17 的 AI Agent 核心实现
         用于学习 Agent 的底层实现和架构思想
+        相当于一个基于spring-ai-alibaba-agent实现的agent系统
+        （底层也都是自己实现的，相当于手搓实现了spring-ai-alibaba-datascope！）
     </description>
 
     <!-- Java 版本要求 -->
@@ -40,7 +42,7 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        
+
         <!-- 依赖版本管理 -->
         <jackson.version>2.17.2</jackson.version>
         <slf4j.version>2.0.9</slf4j.version>
@@ -66,7 +68,7 @@
             <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
-        
+
         <!-- ==================== JSON 处理 ==================== -->
         <!-- Jackson Core - 核心 JSON 处理 -->
         <dependency>
@@ -93,7 +95,7 @@
             <version>2.17.2</version>
             <scope>compile</scope>
         </dependency>
-        
+
         <!-- ==================== HTML 解析 ==================== -->
         <!-- Jsoup - HTML 解析库，用于 web_fetch 工具 -->
         <dependency>
@@ -101,7 +103,7 @@
             <artifactId>jsoup</artifactId>
             <version>1.17.2</version>
         </dependency>
-        
+
         <!-- ==================== Lombok - 减少样板代码 ==================== -->
         <!-- Lombok - 自动生成 getter/setter/builder 等 -->
         <dependency>
@@ -110,7 +112,7 @@
             <version>${lombok.version}</version>
             <scope>provided</scope>
         </dependency>
-        
+
         <!-- ==================== 日志框架 ==================== -->
         <!-- SLF4J API - 日志门面 -->
         <dependency>
@@ -124,7 +126,7 @@
             <artifactId>logback-classic</artifactId>
             <version>${logback.version}</version>
         </dependency>
-        
+
         <!-- ==================== Spring Boot Web ==================== -->
         <!-- Spring Boot Web (内嵌 Tomcat + Spring MVC) -->
         <dependency>
@@ -139,7 +141,7 @@
                 </exclusion>
             </exclusions>
         </dependency>
-        
+
         <!-- Spring Boot WebSocket -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -152,7 +154,7 @@
                 </exclusion>
             </exclusions>
         </dependency>
-        
+
         <!-- Spring Boot Actuator (可选，用于监控) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -213,7 +215,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>com.nanobot.Nanobot</mainClass>
+                            <mainClass>com.nanobot.v1.Nanobot</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
@@ -234,7 +236,7 @@
                         <configuration>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>com.nanobot.Nanobot</mainClass>
+                                    <mainClass>com.nanobot.v1.Nanobot</mainClass>
                                 </transformer>
                             </transformers>
                         </configuration>
@@ -242,7 +244,7 @@
                 </executions>
             </plugin>
             -->
-            
+
             <!-- Spring Boot Maven Plugin -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
@@ -256,7 +258,7 @@
                             <goal>repackage</goal>
                         </goals>
                         <configuration>
-                            <mainClass>com.nanobot.NanobotApplication</mainClass>
+                            <mainClass>com.nanobot.v2.NanobotApplication</mainClass>
                         </configuration>
                     </execution>
                 </executions>

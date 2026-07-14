@@ -1,4 +1,4 @@
-package com.nanobot;
+package com.nanobot.v2;
 
 import com.nanobot.config.Config;
 import com.nanobot.rules.RuleManager;
@@ -24,7 +24,7 @@ import java.net.UnknownHostException;
  * - Spring WebSocket (标准 WebSocket)
  * - 原有 Nanobot 核心组件
  */
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = "com.nanobot")
 public class NanobotApplication {
     
     private static final Logger logger = LoggerFactory.getLogger(NanobotApplication.class);

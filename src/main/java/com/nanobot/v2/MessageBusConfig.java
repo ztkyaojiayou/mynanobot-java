@@ -1,4 +1,4 @@
-package com.nanobot.config;
+package com.nanobot.v2;
 
 import com.nanobot.bus.MessageBus;
 import org.springframework.context.annotation.Bean;

@@ -1,4 +1,4 @@
-package com.nanobot.websocket;
+package com.nanobot.v2.websocket;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -6,7 +6,7 @@ import com.nanobot.NanobotRunner;
 import com.nanobot.bus.MessageBus;
 import com.nanobot.bus.InboundMessage;
 import com.nanobot.config.Config.ChannelAclConfig;
-import com.nanobot.controller.ChatController;
+import com.nanobot.v2.controller.ChatController;
 import com.nanobot.core.AgentLoop;
 import jakarta.annotation.PostConstruct;
 import jakarta.websocket.*;
