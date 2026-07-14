@@ -1,12 +1,12 @@
 # Nanobot-Java 配置文件
 # =====================
 #
-# 复制到 ~/.nanobot/config.yaml 并修改相应值
+# 复制到 .nanobot/config.yaml 并修改相应值
 
 # Agent 配置
 agents:
   defaults:
-    workspace: "~/.nanobot/workspace"
+    workspace: ".nanobot/workspace"
     
     # 使用 DeepSeek 模型
     model: "deepseek-chat"

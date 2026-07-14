@@ -71,7 +71,7 @@ public class MemoryStore {
     // ==================== 构造函数 ====================
     
     public MemoryStore(Config config) {
-        String workspace = config.getAgents().getDefaults().getWorkspace();
+        String workspace = config.getWorkspacePath();
         this.memoryDir = Paths.get(workspace, "memory");
         this.memoryFile = memoryDir.resolve("MEMORY.md");
         this.soulFile = memoryDir.resolve("SOUL.md");

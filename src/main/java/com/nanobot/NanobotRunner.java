@@ -77,6 +77,11 @@ public class NanobotRunner implements ApplicationRunner {
         NanobotRunner.sessionManager = sessionManager;
     }
 
+    @Autowired
+    private void setMemoryStore(MemoryStore memoryStore) {
+        NanobotRunner.memoryStore = memoryStore;
+    }
+
     @Override
     public void run(ApplicationArguments args) throws Exception {
         logger.info("Initializing Nanobot components...");
@@ -136,8 +141,6 @@ public class NanobotRunner implements ApplicationRunner {
      * 注册工具
      */
     private void registerTools() {
-        String workspace = config.getAgents().getDefaults().getWorkspace();
-
         // 文件工具（路径验证由 ToolRegistry 中的 PathGuard 统一处理）
         toolRegistry.register(new ReadFileTool());
         toolRegistry.register(new WriteFileTool());

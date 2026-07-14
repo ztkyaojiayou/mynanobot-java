@@ -69,7 +69,7 @@ public class SessionManager {
     // ==================== 构造函数 ====================
     
     public SessionManager(Config config) {
-        String workspace = config.getAgents().getDefaults().getWorkspace();
+        String workspace = config.getWorkspacePath();
         this.baseDir = Paths.get(workspace, "sessions");
         this.maxHistorySize = 1000;  // 可配置
         

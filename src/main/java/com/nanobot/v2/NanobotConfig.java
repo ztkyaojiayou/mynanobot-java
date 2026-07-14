@@ -6,6 +6,7 @@ import com.nanobot.config.ConfigLoader;
 import com.nanobot.core.AgentLoop;
 import com.nanobot.identity.IdentityManager;
 import com.nanobot.mcp.MCPManager;
+import com.nanobot.memory.MemoryStore;
 import com.nanobot.providers.LLMProvider;
 import com.nanobot.providers.impl.DeepSeekProvider;
 import com.nanobot.providers.impl.OpenAIProvider;
@@ -42,7 +43,7 @@ public class NanobotConfig {
     
     @Bean
     public PathGuard pathGuard(Config config) {
-        String workspace = config.getAgents().getDefaults().getWorkspace();
+        String workspace = config.getWorkspacePath();
         PathGuard guard = new PathGuard(workspace);
         return guard;
     }
@@ -130,6 +131,11 @@ public class NanobotConfig {
     @Bean
     public SessionManager sessionManager(Config config) {
         return new SessionManager(config);
+    }
+
+    @Bean
+    public MemoryStore memoryStore(Config config) {
+        return new MemoryStore(config);
     }
 
     @Bean

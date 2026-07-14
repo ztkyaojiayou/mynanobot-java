@@ -145,8 +145,8 @@ public class Config {
     @Data
     public static class AgentDefaults {
 
-        /** 工作空间目录 */
-        private String workspace = "~/.nanobot/workspace";
+        /** 工作空间目录（相对于项目根目录） */
+        private String workspace = ".nanobot/workspace";
 
         /** 默认模型 */
         private String model = "anthropic/claude-sonnet-4-20250514";
@@ -510,6 +510,20 @@ public class Config {
         String path = agents.getDefaults().getWorkspace();
         if (path.startsWith("~")) {
             path = System.getProperty("user.home") + path.substring(1);
+            return java.nio.file.Paths.get(path).toAbsolutePath().normalize().toString();
+        }
+        // 相对路径：从 classpath 推断项目根目录（target/classes 的父目录的父目录）
+        if (!java.nio.file.Paths.get(path).isAbsolute()) {
+            try {
+                java.net.URL classUrl = Config.class.getProtectionDomain().getCodeSource().getLocation();
+                java.nio.file.Path classesDir = java.nio.file.Paths.get(classUrl.toURI());
+                // classesDir = .../target/classes → 向上两级 = 项目根
+                java.nio.file.Path projectRoot = classesDir.getParent().getParent();
+                return projectRoot.resolve(path).normalize().toString();
+            } catch (Exception e) {
+                // fallback: 使用 user.dir
+                return java.nio.file.Paths.get(path).toAbsolutePath().normalize().toString();
+            }
         }
         return path;
     }

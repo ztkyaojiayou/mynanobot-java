@@ -177,8 +177,6 @@ public class Nanobot {
      * 注册工具
      */
     private void registerTools() {
-        String workspace = config.getAgents().getDefaults().getWorkspace();
-
         // 文件工具（路径验证由 ToolRegistry 中的 PathGuard 统一处理）
         toolRegistry.register(new ReadFileTool());
         toolRegistry.register(new WriteFileTool());
