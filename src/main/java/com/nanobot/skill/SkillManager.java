@@ -1,6 +1,7 @@
 package com.nanobot.skill;
 
 import com.nanobot.config.Config;
+import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,6 +33,7 @@ import java.util.*;
  * List<Skill> matches = manager.findMatchingSkills("帮我审查代码");
  * ```
  */
+@Getter
 public class SkillManager {
     
     private static final Logger logger = LoggerFactory.getLogger(SkillManager.class);
@@ -326,13 +328,6 @@ public class SkillManager {
         }
         
         return null;
-    }
-    
-    /**
-     * 获取技能注册中心
-     */
-    public SkillRegistry getRegistry() {
-        return registry;
     }
     
     /**

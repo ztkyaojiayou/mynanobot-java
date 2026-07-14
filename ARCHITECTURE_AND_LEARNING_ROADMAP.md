@@ -41,7 +41,14 @@ Nanobot-Java 是基于香港大学开源的 Nanobot（mini 版 OpenClaw）项目
 │   工具层      │    │   提供商层    │    │   内存层      │
 │  ToolRegistry │    │  LLMProvider  │    │ MemoryStore   │
 │  + Tools      │    │  + Providers  │    │ + Sessions    │
-└───────────────┘    └───────────────┘    └───────────────┘
+└───────┬───────┘    └───────────────┘    └───────────────┘
+        │
+        │  ╔══════════════════════════════╗
+        └──╣  安全层 (Security) ★新增    ║
+           ║  Hook→Guards→Rules→Mode     ║
+           ║  PathGuard / CommandGuard   ║
+           ║  NetworkGuard / RuleEngine  ║
+           ╚══════════════════════════════╝
 ```
 
 ### 2.2 核心组件职责
@@ -68,6 +75,14 @@ Nanobot-Java 是基于香港大学开源的 Nanobot（mini 版 OpenClaw）项目
 | **Consolidator** | 记忆压缩器 | `memory/Consolidator.java` |
 | **Dream** | 长期记忆系统 | `memory/Dream.java` |
 | **ChannelServer** | 多通道接入服务器 | `channels/ChannelServer.java` |
+| **PermissionManager** | 权限编排器，Hook→Guards→Rules→Mode 管道 | `security/PermissionManager.java` |
+| **PathGuard** | 文件路径守卫，工作区隔离 | `security/guard/PathGuard.java` |
+| **CommandGuard** | Shell命令守卫，黑/白名单过滤 | `security/guard/CommandGuard.java` |
+| **NetworkGuard** | 网络/SSRF守卫，IP范围过滤 | `security/guard/NetworkGuard.java` |
+| **RuleEngine** | 规则引擎，deny→ask→allow 优先级链 | `security/rule/RuleEngine.java` |
+| **PreToolUseHookManager** | Hook链管理器，工具执行前拦截 | `security/hook/PreToolUseHookManager.java` |
+
+> 📖 完整安全模块文档: [docs/features.md](docs/features.md)
 
 ### 2.3 定时任务系统 (CronScheduler)
 
@@ -235,7 +250,381 @@ RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE
 | SAVE | ok | RESPOND | 保存会话状态 |
 | RESPOND | ok | DONE | 发送响应 |
 
-### 2.4 模块结构
+### 2.8 核心消息处理全链路详解
+
+> **本节目标**：完整梳理一条用户消息从进入系统到生成响应的全链路，理解每一层的职责、数据流转和关键代码路径。
+
+#### 2.8.1 端到端流程图
+
+```
+                        【消息入口层】—— 三种渠道
+┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐
+│ POST /api/   │  │  WebSocket   │  │ POST /api/chat       │
+│ chat (HTTP)  │  │ /ws (原生)    │  │ /api/chat/stream     │
+│ ChannelServer│  │ ChannelServer│  │ ChatController(Spring)│
+└──────┬───────┘  └──────┬───────┘  └──────────┬───────────┘
+       │                  │                      │
+       │    构建 InboundMessage(channel, chatId, content, metadata...)
+       │                  │                      │
+       └──────────────────┼──────────────────────┘
+                          │
+                          ▼   publishInbound()
+              ┌───────────────────────┐
+              │     MessageBus        │  ◄── 双队列生产者-消费者模式
+              │  inboundQueue.put()   │      ArrayBlockingQueue
+              └───────────┬───────────┘
+                          │
+                          ▼   consumeInbound() — AgentLoop 单线程阻塞消费
+              ┌───────────────────────────────────────────────────────┐
+              │                   AgentLoop                           │
+              │                七状态状态机引擎                         │
+              │                                                       │
+              │  RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE
+              └───────────────────────────────────────────────────────┘
+                          │                        ▲
+                          │   RUN 状态              │ 递归循环（工具调用）
+                          ▼                        │
+              ┌───────────────────────────────────────────────────────┐
+              │                   AgentRunner                         │
+              │               LLM 调用 + 工具执行循环                   │
+              │                                                       │
+              │  ① 清理孤立的 tool 结果 (dropOrphanToolResults)        │
+              │  ② 转换消息格式 → LLMProvider.Message                 │
+              │  ③ 调用 LLM API (chat / chatStream)                   │
+              │  ④ 解析响应                                           │
+              │  ⑤ 如果有 tool_calls → 并行执行工具 → 结果追加 → 回到② │
+              │  ⑥ 否则 → 返回最终文本内容                             │
+              └─────────────┬─────────────────────────────────────────┘
+                            │
+                            ▼ 最终响应
+              ┌───────────────────────┐
+              │     MessageBus        │
+              │  outboundQueue.put()  │  ← 出站队列
+              └───────────┬───────────┘
+                          │
+       ┌──────────────────┼──────────────────────┐
+       │                  │                      │
+       ▼                  ▼                      ▼
+  HTTP 同步响应      SSE 流式推送           WebSocket 推送
+  waitForSessionResp StreamRespCallback   session.sendText()
+```
+
+#### 2.8.2 阶段一：消息入口 —— 三种渠道
+
+系统支持三种渠道接收用户消息，最终都构建 `InboundMessage` 发布到 `MessageBus`。
+
+**渠道 A：Spring Boot REST API**（`controller/ChatController.java`）
+
+| 端点 | 模式 | 机制 |
+|------|------|------|
+| `POST /api/chat` | 同步 | 发布消息后 `waitForSessionResponse()` 阻塞等待（默认 120s），按 `requestId` 精确匹配 |
+| `POST /api/chat/stream` | 流式 SSE | 注册 `StreamResponseCallback` 到 AgentLoop，通过 `SseEmitter` 实时推送每个 token |
+
+**渠道 B：Jakarta WebSocket**（`websocket/NanobotWebSocketEndpoint.java`）
+
+- 端点：`ws://host:port/ws`
+- `@OnMessage` 解析 JSON → type 为 `"chat"` → 构建 InboundMessage
+- WebSocket 默认启用流式模式（`streamMode: true`）
+- 流式响应通过 `StreamResponseCallback` → `session.getBasicRemote().sendText()`
+
+**渠道 C：内嵌 HTTP 服务器**（`channels/ChannelServer.java`）
+
+- 独立模式下的内嵌 HTTP 服务器（`com.sun.net.httpserver.HttpServer`）
+- `ChatHandler` 处理 `POST /api/chat`，支持流式 SSE 和同步两种模式
+- `WebSocketHandler` 处理 `/ws` 的 WebSocket 升级握手，`WebSocketConnection` 管理帧读写
+
+**InboundMessage 核心字段**：
+
+| 字段 | 说明 |
+|------|------|
+| `channel` | 来源通道：`"api"`, `"websocket"`, `"http"` 等 |
+| `senderId` | 发送者 ID |
+| `chatId` | 会话标识，用于会话隔离 |
+| `content` | 用户文本内容 |
+| `metadata` | 元数据 Map，包含 `requestId`, `streamMode`, `useSearch`, `connectionId` 等 |
+| `sessionKey` | 会话键，格式 `"{channel}:{chatId}"`，支持 `sessionKeyOverride` 覆盖 |
+
+#### 2.8.3 阶段二：MessageBus —— 异步消息总线
+
+文件：`bus/MessageBus.java`
+
+MessageBus 是系统的**中枢神经**，采用双队列 + 生产者-消费者模式实现模块解耦：
+
+```
+Channel Adapters ──(publishInbound)──→ inboundQueue  ──(consumeInbound)──→ AgentLoop
+AgentLoop ────────(publishOutbound)──→ outboundQueue ──(consumeOutbound)──→ Channel Adapters
+                                      sessionResponses (ConcurrentHashMap, 按 requestId 匹配)
+```
+
+| 方法 | 说明 |
+|------|------|
+| `publishInbound(msg)` | 阻塞写入入站队列（`put`），队列满时阻塞等待 |
+| `consumeInbound(timeout)` | 带超时的阻塞消费，AgentLoop 主循环使用 |
+| `publishOutbound(msg)` | 阻塞写入出站队列 + 同步存入 `sessionResponses` Map |
+| `offerOutbound(msg)` | 非阻塞写入出站队列（`offer`），用于流式进度消息，队列满时静默丢弃 |
+| `waitForSessionResponse(sessionId, requestId, timeout)` | HTTP 同步模式专用：轮询 `sessionResponses` Map，按 `requestId` 精确匹配 |
+
+**设计要点**：
+- 使用 `ArrayBlockingQueue`（有界队列），默认容量 100，防止内存溢出
+- 入站单线程消费（AgentLoop 的 daemon 线程），保证消息串行处理
+- `sessionResponses` 用 `ConcurrentHashMap<String, Queue<OutboundMessage>>` 存储，支持按 sessionId + requestId 精确匹配响应
+
+#### 2.8.4 阶段三：AgentLoop —— 七状态状态机引擎
+
+文件：`core/AgentLoop.java`
+
+AgentLoop 是整个系统的**核心引擎**，在单 daemon 线程中运行主循环：
+
+```java
+// AgentLoop.runLoop() — 主循环
+while (running.get()) {
+    InboundMessage message = messageBus.consumeInbound(1, TimeUnit.SECONDS);
+    if (message != null) {
+        processMessage(message);  // 创建 TurnContext → 驱动状态机 → 发送响应
+    }
+}
+```
+
+**状态机七阶段详解**：
+
+| # | 状态 | 职责 | 核心操作 | 下一状态 |
+|---|------|------|---------|---------|
+| 1 | **RESTORE** | 恢复会话 | `sessionManager.loadHistory(sessionKey)` → 从 JSONL 文件加载历史消息；将当前用户消息追加到消息列表 | COMPACT |
+| 2 | **COMPACT** | 压缩历史 | 检查 token 预算，超限时调用 LLM 生成摘要压缩旧消息（当前为 TODO，直接跳过） | COMMAND |
+| 3 | **COMMAND** | 命令分发 | 解析 `/` 前缀：匹配 Skills（`skillManager.parseSlashCommand()`）、`/stop`、`/clear`、`/skills`、`/rules`；命中命令则直接返回，否则继续 | BUILD 或 DONE |
+| 4 | **BUILD** | 构建上下文 | 组装 System Prompt：注入身份信息（`IdentityManager.getSystemPrompt()`）+ 规则（`RuleManager.getRulesPrompt()`）+ 工具指令；根据 `useSearch` 元数据决定是否启用工具 | RUN |
+| 5 | **RUN** | 运行 LLM | 设置流式回调 `onDelta` → 调用 `AgentRunner.run(context, messages, onDelta)` → 等待结果 → 发送流式结束标记 | SAVE |
+| 6 | **SAVE** | 保存状态 | 将助手响应追加到消息历史 → `sessionManager.saveHistory(sessionKey, messages)` → 写入 JSONL 文件 | RESPOND |
+| 7 | **RESPOND** | 发送响应 | 构建 `OutboundMessage` → `messageBus.publishOutbound(response)` → 发布到出站队列 | DONE |
+
+**流式回调机制**（在 `doRun()` 中设置）：
+
+```java
+onDelta = delta -> {
+    // 路径1：发布进度消息到 MessageBus（供 ChannelServer WebSocket 消费）
+    publishProgress(OutboundMessage.progress(channel, chatId, delta));
+
+    // 路径2：调用 StreamResponseCallback（供 SSE/WebSocket 直接推送）
+    if (streamResponseCallback != null) {
+        streamResponseCallback.onStreamData(sessionId, requestId, delta);
+    }
+};
+```
+
+**System Prompt 构建过程**（`doBuild()`）：
+
+```
+System Prompt =
+    IdentityManager.getSystemPrompt(currentDate)    // SOUL.md + IDENTITY.md + USER.md
+    + (useSearch ? 工具调用指令 : "请直接回答，不要调用工具")
+    + RuleManager.getRulesPrompt()                   // CLAUDE.md + .nanobot/rules/*.md
+```
+
+#### 2.8.5 阶段四：AgentRunner —— LLM 调用 + 工具执行循环
+
+文件：`core/AgentRunner.java`
+
+AgentRunner 是**最核心的执行引擎**，采用递归模式实现"LLM 调用 → 工具执行 → 再调用"的多轮循环。
+
+**递归循环流程**：
+
+```
+runInternal(context, messages, onDelta, iteration=0)
+    │
+    ├─ 1. 终止条件检查
+    │     - iteration >= maxIterations (默认100) → 返回 "达到最大次数限制"
+    │     - context.isCancelled() → 返回 "处理已取消"
+    │
+    ├─ 2. dropOrphanToolResults(messages)
+    │     清理没有对应 tool_calls 的孤立 tool 结果消息
+    │
+    ├─ 3. convertToLLMMessages(messages)
+    │     Map<String,Object> → LLMProvider.Message
+    │
+    ├─ 4. 调用 LLM API
+    │     if (streamMode && provider.supportsStreaming())
+    │         provider.chatStream(messages, toolDefs, onDelta)
+    │     else
+    │         provider.chat(messages, toolDefs)
+    │
+    ├─ 5. 解析 LLMResponse
+    │     ├─ isError() → 返回错误信息
+    │     │
+    │     ├─ shouldExecuteTools() → 有工具调用
+    │     │   ├─ 检查 useSearch 过滤（禁用联网时过滤掉非 ask_user 的工具）
+    │     │   ├─ 创建 assistant 消息（含 tool_calls）追加到 messages
+    │     │   ├─ executeTools() — 并行执行所有工具（CompletableFuture.allOf）
+    │     │   │   └─ 每个工具：executeToolWithRetry() 最多重试3次
+    │     │   │       结果截断至 16000 字符
+    │     │   │       追加 tool 角色消息到 messages
+    │     │   └─ return runInternal(context, messages, onDelta, iteration+1)  ← 递归
+    │     │
+    │     └─ 最终文本响应 → 追加 assistant 消息 → 返回 content
+    │
+    └─ 6. 返回 CompletableFuture<String>
+```
+
+**工具执行细节**：
+
+```java
+// executeTools() — 并行工具执行
+for (ToolCallRequest call : toolCalls) {
+    CompletableFuture.runAsync(() -> {
+        Object result = executeToolWithRetry(toolName, params, callId);
+        // 截断过长结果 (>16000字符)
+        // 追加 tool 角色消息: {role: "tool", tool_call_id: id, content: result}
+    }, toolExecutor);
+}
+return CompletableFuture.allOf(futures);  // 等待全部完成
+
+// executeToolWithRetry() — 带重试机制
+// - 最大重试3次，重试间隔1秒
+// - 仅对网络错误 (ConnectException, IOException) 和超时重试
+// - 其他异常直接返回错误信息
+// - 每次执行有30秒超时保护
+```
+
+#### 2.8.6 阶段五：LLM Provider 调用
+
+接口：`providers/LLMProvider.java`
+实现：`providers/impl/DeepSeekProvider.java`、`providers/impl/OpenAIProvider.java`
+
+**DeepSeekProvider 调用流程**（当前主要使用的 provider）：
+
+```
+chatStream(messages, tools, onDelta)
+    │
+    ├─ buildRequestBody(messages, tools, stream=true)
+    │     POST https://api.deepseek.com/chat/completions
+    │     Body: {model, messages, tools, stream: true, max_tokens, temperature}
+    │
+    ├─ 发送 HTTP 请求 (Java HttpClient, 超时300s)
+    │
+    ├─ 逐行解析 SSE 响应流
+    │     data: {"choices":[{"delta":{"content":"..."}}]}
+    │     data: {"choices":[{"delta":{"tool_calls":[...]}}]}
+    │     data: [DONE]
+    │
+    ├─ 每收到 content delta → onDelta.accept(content) → 流式推送给用户
+    │
+    └─ 返回 LLMResponse
+          ├─ 有 tool_calls → LLMResponse.toolCalls(...)
+          └─ 纯文本     → LLMResponse.success(content, finishReason)
+```
+
+**LLMResponse 三种类型**：
+
+| 类型 | `shouldExecuteTools()` | `isError()` | 含义 |
+|------|----------------------|-------------|------|
+| `success(content, ...)` | false | false | 最终文本响应 |
+| `toolCalls(list, model)` | true | false | LLM 请求执行工具 |
+| `error(msg, kind)` | false | true | API 调用失败 |
+
+#### 2.8.7 阶段六：响应返回
+
+响应通过 `OutboundMessage` 封装，按请求渠道和模式分三种路径返回：
+
+| 模式 | 机制 | 代码路径 | 适用场景 |
+|------|------|---------|---------|
+| **HTTP 同步** | `MessageBus.waitForSessionResponse(sessionId, requestId, 120s)` 轮询匹配 OutboundMessage | ChatController.chat() / ChannelServer.ChatHandler | `POST /api/chat` |
+| **SSE 流式** | `AgentLoop.StreamResponseCallback.onStreamData()` → `SseEmitter.send()` | ChatController.streamChat() → AgentLoop.doRun() → onDelta | `POST /api/chat/stream` |
+| **WebSocket** | `StreamResponseCallback.onStreamData()` → `Session.getBasicRemote().sendText()` | NanobotWebSocketEndpoint.onMessage() → AgentLoop.doRun() → onDelta | `ws://host:port/ws` |
+
+**OutboundMessage 特殊标记**（metadata 中以 `_` 开头的系统标记）：
+
+| 标记 | 含义 |
+|------|------|
+| `_progress` | 流式输出的进度消息（中间结果） |
+| `_stream_delta` | 流式消息片段 |
+| `_stream_end` | 流式消息结束标记 |
+| `_streamed` | 消息已完整流式发送 |
+| `_tool_hint` | 工具调用提示 |
+| `_wants_stream` | 请求启用流式输出 |
+
+#### 2.8.8 完整数据流示例
+
+以用户发送 `"帮我搜索最新AI新闻"` 为例：
+
+```
+用户输入 "帮我搜索最新AI新闻"
+    │
+    ▼
+[ChatController.streamChat()] 
+    构建 InboundMessage {channel:"api", chatId:"xxx", content:"帮我搜索最新AI新闻",
+                         metadata:{requestId:"uuid", streamMode:true, useSearch:true}}
+    │
+    ▼
+[MessageBus.publishInbound()] → inboundQueue.put(msg)
+    │
+    ▼
+[AgentLoop.consumeInbound()] → processMessage(msg)
+    │
+    ├─ [RESTORE] SessionManager.loadHistory() → 加载历史消息 (JSONL)
+    │     messages = [{role:"system",...}, {role:"user",...}, ...]
+    │
+    ├─ [COMPACT] (skip)
+    │
+    ├─ [COMMAND] 不是 / 命令 → 继续
+    │
+    ├─ [BUILD] 构建 System Prompt:
+    │     IdentityManager.getSystemPrompt()   ← SOUL.md: "你是 my-nanobot..."
+    │     + "你可以调用工具...包括网页搜索"       ← useSearch=true
+    │     + RuleManager.getRulesPrompt()       ← 项目规则
+    │
+    ├─ [RUN] AgentRunner.run(context, messages, onDelta)
+    │     │
+    │     ├─ 第1轮 LLM 调用 (iteration=0)
+    │     │   POST DeepSeek API: messages + tools[{web_search,...}]
+    │     │   LLM 返回: tool_calls:[{name:"web_search", args:{query:"最新AI新闻"}}]
+    │     │
+    │     ├─ executeTools() 并行执行
+    │     │   WebSearchTool.execute({query:"最新AI新闻"})
+    │     │   → HTTP 请求搜索引擎 → 返回 [{title:"...", url:"...", snippet:"..."}, ...]
+    │     │
+    │     ├─ 第2轮 LLM 调用 (iteration=1) — 递归
+    │     │   messages 追加了 tool_calls assistant消息 + tool结果消息
+    │     │   LLM 基于搜索结果生成回答:
+    │     │   "根据最新搜索，以下是近期AI领域的重大新闻：1. ... 2. ..."
+    │     │   → 纯文本响应，无 tool_calls
+    │     │
+    │     └─ 返回最终内容
+    │
+    ├─ [SAVE] SessionManager.saveHistory() → 写入 JSONL
+    │
+    └─ [RESPOND] OutboundMessage → MessageBus.outboundQueue
+                    │
+                    ▼
+              SSE 流式推送给客户端 (实时展示)
+```
+
+#### 2.8.9 两种运行模式对比
+
+| 维度 | 独立模式 (Nanobot) | Spring Boot 模式 (NanobotApplication) |
+|------|-------------------|--------------------------------------|
+| 入口类 | `Nanobot.java` | `NanobotApplication.java` |
+| 初始化 | `Nanobot.initialize()` 手动组装 | `NanobotRunner.run()` + Spring DI 自动注入 |
+| HTTP 服务器 | `ChannelServer`（内嵌 `com.sun.net.httpserver`） | Spring MVC + 内嵌 Tomcat |
+| WebSocket | `ChannelServer.WebSocketHandler`（手动帧解析） | `NanobotWebSocketEndpoint`（Jakarta WebSocket 注解） |
+| REST API | `ChannelServer.ChatHandler` | `ChatController`（`@RestController`） |
+| 配置管理 | `ConfigLoader.load()` | Spring `@ConfigurationProperties` + `application.yml` |
+| 组件获取 | 直接引用字段 | `NanobotRunner.getXxx()` 静态方法 / Spring `@Autowired` |
+| 核心流程 | **完全一致** — AgentLoop + AgentRunner + MessageBus | **完全一致** — AgentLoop + AgentRunner + MessageBus |
+
+#### 2.8.10 关键设计决策与要点
+
+| 设计决策 | 说明 |
+|---------|------|
+| **单线程消费入站消息** | AgentLoop 在单 daemon 线程运行，保证同一会话消息串行处理，避免并发修改会话历史 |
+| **有界阻塞队列** | `ArrayBlockingQueue`（默认 100），防止生产者过快导致 OOM |
+| **递归而非循环** | AgentRunner 用递归实现多轮工具调用，每轮自然携带更新后的 messages |
+| **工具并行执行** | 同一轮次的多个 tool_calls 并行执行（`CompletableFuture.allOf`），减少等待时间 |
+| **流式回调双路径** | `onDelta` 同时走 MessageBus（WebSocket 广播）和 StreamResponseCallback（SSE/直接 WebSocket），覆盖两种推送场景 |
+| **会话级锁** | SessionManager 用 `ConcurrentHashMap<String, Object>` 实现会话级 synchronized，确保读写历史文件串行 |
+| **增量保存历史** | `saveHistory()` 只追加新增消息（对比已有行数），而非全量覆写 |
+
+---
+
+### 2.9 模块结构
 
 ```
 nanobot-java/

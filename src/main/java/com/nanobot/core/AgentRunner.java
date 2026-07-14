@@ -149,7 +149,7 @@ public class AgentRunner {
             List<Map<String, Object>> messages,
             Consumer<String> onDelta) {
         
-        return runInternal(context, messages, onDelta, 0);
+        return runInternal(context, messages, onDelta, 0, 0);
     }
     
     /**
@@ -159,8 +159,16 @@ public class AgentRunner {
             TurnContext context,
             List<Map<String, Object>> messages,
             Consumer<String> onDelta,
-            int iteration) {
-        
+            int iteration,
+            int consecutiveToolFailures) {
+
+        // 降级兜底：连续工具失败3次，强制 LLM 不使用工具直接回答
+        if (consecutiveToolFailures >= 3) {
+            logger.warn("{} consecutive tool failures, forcing fallback (no tools) for session: {}",
+                    consecutiveToolFailures, context.getSessionKey());
+            return callLLMWithoutTools(context, messages, onDelta);
+        }
+
         // 检查最大迭代
         if (iteration >= context.getMaxIterations()) {
             logger.warn("Max iterations reached for session: {}", context.getSessionKey());
@@ -168,12 +176,12 @@ public class AgentRunner {
                 "抱歉，我已经达到了最大处理次数限制。请重新开始或简化您的请求。"
             );
         }
-        
+
         // 检查取消
         if (context.isCancelled()) {
             return CompletableFuture.completedFuture("处理已取消。");
         }
-        
+
         // 清理孤立工具结果
         final List<Map<String, Object>> finalMessages = dropOrphanToolResults(messages);
         
@@ -270,21 +278,19 @@ public class AgentRunner {
                 List<LLMResponse.ToolCallRequest> toolCalls = response.getToolCalls();
                 boolean webSearchDisabled = false;
                 
-                // 检查是否禁用了联网搜索
+                // 检查是否禁用了联网搜索（仅禁用 web，本地工具始终可用）
                 Boolean useSearch = (Boolean) context.getMessage().getMetadata().get("useSearch");
                 if (useSearch != null && !useSearch) {
                     webSearchDisabled = true;
-                    // 过滤掉所有非 ask_user 的工具调用
+                    // 仅过滤 web_search / web_fetch，保留 get_current_time / 文件 / shell 等本地工具
                     List<LLMResponse.ToolCallRequest> filteredCalls = toolCalls.stream()
-                        .filter(tc -> "ask_user".equals(tc.getName()))
+                        .filter(tc -> !"web_search".equals(tc.getName())
+                                   && !"web_fetch".equals(tc.getName()))
                         .collect(Collectors.toList());
-                    
-                    if (!filteredCalls.isEmpty() || filteredCalls.size() != toolCalls.size()) {
-                        logger.info("Web search disabled, filtering out tool calls: {}", 
-                                  toolCalls.stream()
-                                      .filter(tc -> !"ask_user".equals(tc.getName()))
-                                      .map(LLMResponse.ToolCallRequest::getName)
-                                      .collect(Collectors.joining(", ")));
+
+                    int removed = toolCalls.size() - filteredCalls.size();
+                    if (removed > 0) {
+                        logger.info("Web search disabled, removed {} web tool call(s)", removed);
                     }
                     toolCalls = filteredCalls;
                 }
@@ -334,21 +340,19 @@ public class AgentRunner {
             Map<String, Object> assistantMsg = createAssistantMessage(response.getContent(), toolCalls);
             workingMessages.add(assistantMsg);
             
-            // 执行工具（确保工具结果紧跟在助手消息之后）
+            // 执行工具，跟踪连续失败次数用于降级兜底
+            final int tcCount = toolCalls.size();
             return executeTools(context, workingMessages, toolCalls)
                 .thenCompose(v -> {
-                    // 验证消息顺序：工具结果应该紧跟在带 tool_calls 的助手消息之后
-                    logger.debug("Messages after tool execution: {}", workingMessages.size());
-                    for (int i = 0; i < workingMessages.size(); i++) {
-                        Map<String, Object> m = workingMessages.get(i);
-                        String r = (String) m.get("role");
-                        logger.debug("  [{}] role={}, hasToolCalls={}, hasToolCallId={}", 
-                                   i, r, m.containsKey("tool_calls"), m.containsKey("tool_call_id"));
+                    boolean allFailed = checkAllToolsFailed(workingMessages, tcCount);
+                    int newFailures = allFailed ? consecutiveToolFailures + 1 : 0;
+                    if (allFailed) {
+                        logger.warn("All {} tool(s) failed (consecutive={})", tcCount, newFailures);
                     }
-                    return runInternal(context, workingMessages, onDelta, iteration + 1);
+                    return runInternal(context, workingMessages, onDelta, iteration + 1, newFailures);
                 });
             }
-            
+
             // 最终响应
             String content = response.getContent();
             if (content == null || content.isBlank()) {
@@ -501,6 +505,39 @@ public class AgentRunner {
         return errorMsg;
     }
     
+    // ==================== 降级兜底 ====================
+
+    private boolean checkAllToolsFailed(List<Map<String, Object>> messages, int tcCount) {
+        int found = 0, failed = 0;
+        for (int i = messages.size() - 1; i >= 0 && found < tcCount; i--) {
+            Map<String, Object> msg = messages.get(i);
+            if ("tool".equals(msg.get("role"))) {
+                found++;
+                String c = (String) msg.get("content");
+                if (c != null && (c.startsWith("Error:") || c.startsWith("Security blocked:"))) failed++;
+            }
+        }
+        return found > 0 && failed == found;
+    }
+
+    private CompletableFuture<String> callLLMWithoutTools(
+            TurnContext ctx, List<Map<String, Object>> msgs, Consumer<String> delta) {
+        logger.info("Fallback LLM (no tools) for session: {}", ctx.getSessionKey());
+        List<LLMProvider.Message> llmMsgs = convertToLLMMessages(msgs);
+        CompletableFuture<LLMResponse> f;
+        if (delta != null && provider.supportsStreaming())
+            f = provider.chatStream(llmMsgs, Collections.emptyList(), delta);
+        else
+            f = provider.chat(llmMsgs, Collections.emptyList());
+        return f.thenApply(r -> {
+            String c = r.getContent();
+            return (c == null || c.isBlank()) ? "[工具调用失败，请重试]" : c;
+        }).exceptionally(e -> {
+            logger.error("Fallback LLM call failed: {}", e.getMessage());
+            return "抱歉，工具调用出现异常：" + e.getMessage();
+        });
+    }
+
     // ==================== 消息处理 ====================
     
     /**

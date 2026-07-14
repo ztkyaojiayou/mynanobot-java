@@ -1,6 +1,12 @@
 package com.nanobot.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.nanobot.security.PermissionManager;
+import com.nanobot.security.PermissionResult;
+import com.nanobot.security.guard.CommandGuard;
+import com.nanobot.security.guard.NetworkGuard;
+import com.nanobot.security.guard.PathGuard;
+import com.nanobot.security.guard.SecurityException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -115,7 +121,21 @@ public class ToolRegistry {
      * 避免频繁序列化工具定义。
      */
     private volatile List<JsonNode> cachedDefinitions = null;
-    
+
+    // ==================== 安全守卫 ====================
+
+    /** 权限编排管理器（统一入口） */
+    private PermissionManager permissionManager;
+
+    /** 文件路径守卫（向后兼容，Phase 1 遗留） */
+    private PathGuard pathGuard;
+
+    /** Shell 命令守卫（向后兼容） */
+    private CommandGuard commandGuard;
+
+    /** 网络安全守卫（向后兼容） */
+    private NetworkGuard networkGuard;
+
     // ==================== 执行器 ====================
     
     /**
@@ -357,13 +377,29 @@ public class ToolRegistry {
         // 3. 验证参数
         List<String> errors = tool.validateParameters(params);
         if (!errors.isEmpty()) {
-            String error = String.format("Invalid parameters for tool '%s': %s", 
+            String error = String.format("Invalid parameters for tool '%s': %s",
                                         name, String.join("; ", errors));
             logger.warn(error);
             return "Error: " + error;
         }
-        
-        // 4. 执行工具
+
+        // 4. 权限检查（Phase 2: PermissionManager 编排）
+        if (permissionManager != null) {
+            PermissionResult result = permissionManager.check(tool, params);
+            if (result.isDenied()) {
+                return "Permission denied: " + result.getReason();
+            }
+        } else {
+            // 向后兼容：未配置 PermissionManager 时使用旧版 applyGuards
+            try {
+                params = applyGuards(name, params);
+            } catch (SecurityException e) {
+                logger.warn("Tool '{}' blocked by {}: {}", name, e.getGuard(), e.getReason());
+                return "Security blocked: " + e.getMessage();
+            }
+        }
+
+        // 5. 执行工具
         try {
             CompletableFuture<Object> future = tool.execute(params);
             Object result = future.join();
@@ -511,6 +547,97 @@ public class ToolRegistry {
         }
     }
     
+    // ==================== 安全守卫 ====================
+
+    /**
+     * 设置权限编排管理器（推荐，替代单独设置守卫）
+     */
+    public void setPermissionManager(PermissionManager permissionManager) {
+        this.permissionManager = permissionManager;
+    }
+
+    /**
+     * 设置文件路径守卫
+     */
+    public void setPathGuard(PathGuard pathGuard) {
+        this.pathGuard = pathGuard;
+    }
+
+    /**
+     * 设置 Shell 命令守卫
+     */
+    public void setCommandGuard(CommandGuard commandGuard) {
+        this.commandGuard = commandGuard;
+    }
+
+    /**
+     * 设置网络安全守卫
+     */
+    public void setNetworkGuard(NetworkGuard networkGuard) {
+        this.networkGuard = networkGuard;
+    }
+
+    /**
+     * 应用安全守卫 — 在工具执行前进行安全检查
+     *
+     * @return 可能被守卫修改过的参数（如路径被 PathGuard 解析为绝对路径）
+     * @throws SecurityException 如果被任何守卫拦截
+     */
+    private Map<String, Object> applyGuards(String toolName, Map<String, Object> params) {
+        Map<String, Object> securedParams = params;
+
+        // PathGuard：文件类工具
+        if (isFileTool(toolName) && pathGuard != null) {
+            String pathParam = (String) params.get("path");
+            if (pathParam != null) {
+                java.nio.file.Path validatedPath = pathGuard.resolvePath(pathParam);
+                // 替换为解析后的安全绝对路径
+                securedParams = new HashMap<>(params);
+                securedParams.put("path", validatedPath.toString());
+            }
+        }
+
+        // CommandGuard：Shell 执行工具
+        if (isShellTool(toolName) && commandGuard != null) {
+            String command = (String) params.get("command");
+            if (command != null) {
+                commandGuard.guard(command);
+            }
+        }
+
+        // NetworkGuard：网络类工具
+        if (isNetworkTool(toolName) && networkGuard != null) {
+            String url = (String) params.get("url");
+            if (url != null) {
+                networkGuard.validateUrl(url);
+            }
+        }
+
+        return securedParams;
+    }
+
+    /**
+     * 判断是否为文件系统类工具
+     */
+    private boolean isFileTool(String name) {
+        return Set.of("read_file", "write_file", "edit_file",
+                "list_dir", "glob", "grep").contains(name);
+    }
+
+    /**
+     * 判断是否为 Shell 执行工具
+     */
+    private boolean isShellTool(String name) {
+        return "exec".equals(name);
+    }
+
+    /**
+     * 判断是否为网络类工具
+     */
+    private boolean isNetworkTool(String name) {
+        return Set.of("web_fetch", "web_search").contains(name);
+    }
+
     // ==================== 生命周期 ====================
     
     /**

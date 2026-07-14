@@ -2,6 +2,7 @@ package com.nanobot.core.hook.impl;
 
 import com.nanobot.core.hook.AgentHook;
 import com.nanobot.core.hook.AgentHookContext;
+import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,6 +51,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Map<String, Object> stats = metrics.getMetrics("sessionKey");
  * ```
  */
+@Getter
 public class MetricsHook implements AgentHook {
     
     private static final Logger logger = LoggerFactory.getLogger(MetricsHook.class);
@@ -226,6 +228,7 @@ public class MetricsHook implements AgentHook {
     /**
      * 会话级指标
      */
+    @Getter
     private static class SessionMetrics {
         private int promptTokens;
         private int completionTokens;
@@ -300,6 +303,7 @@ public class MetricsHook implements AgentHook {
     /**
      * 全局指标
      */
+    @Getter
     private static class GlobalMetrics {
         private long totalRequests;
         private long totalErrors;

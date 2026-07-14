@@ -2,6 +2,8 @@ package com.nanobot.core.hook.impl;
 
 import com.nanobot.core.hook.AgentHook;
 import com.nanobot.core.hook.AgentHookContext;
+import lombok.Getter;
+import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,6 +54,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * List<TraceSpan> spans = tracing.getSpans("sessionKey");
  * ```
  */
+@Getter
 public class TracingHook implements AgentHook {
     
     private static final Logger logger = LoggerFactory.getLogger(TracingHook.class);
@@ -323,30 +326,26 @@ public class TracingHook implements AgentHook {
     /**
      * 追踪上下文
      */
+    @Getter
     private static class TraceContext {
         private final String traceId;
+        @Setter
         private String parentSpanId;
+        @Setter
         private String currentSpanId;
+        @Setter
         private String lastToolSpanId;
-        
+
         TraceContext(String traceId, String parentSpanId) {
             this.traceId = traceId;
             this.parentSpanId = parentSpanId;
         }
-        
-        String getTraceId() { return traceId; }
-        String getParentSpanId() { return parentSpanId; }
-        String getCurrentSpanId() { return currentSpanId; }
-        String getLastToolSpanId() { return lastToolSpanId; }
-        
-        void setParentSpanId(String parentSpanId) { this.parentSpanId = parentSpanId; }
-        void setCurrentSpanId(String currentSpanId) { this.currentSpanId = currentSpanId; }
-        void setLastToolSpanId(String lastToolSpanId) { this.lastToolSpanId = lastToolSpanId; }
     }
     
     /**
      * 追踪 Span
      */
+    @Getter
     public static class TraceSpan {
         private final String traceId;
         private final String spanId;
@@ -386,17 +385,8 @@ public class TracingHook implements AgentHook {
             return !"RUNNING".equals(status);
         }
         
-        // Getters
-        public String getTraceId() { return traceId; }
-        public String getSpanId() { return spanId; }
-        public String getParentSpanId() { return parentSpanId; }
-        public String getSessionKey() { return sessionKey; }
-        public String getOperation() { return operation; }
-        public Instant getStartTime() { return startTime; }
         public Map<String, String> getTags() { return Map.copyOf(tags); }
-        public String getStatus() { return status; }
-        public long getDurationMs() { return durationMs; }
-        
+
         public Map<String, Object> toMap() {
             Map<String, Object> map = new HashMap<>();
             map.put("traceId", traceId);

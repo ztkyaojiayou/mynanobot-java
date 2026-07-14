@@ -2,6 +2,7 @@ package com.nanobot.core.hook.impl;
 
 import com.nanobot.core.hook.AgentHook;
 import com.nanobot.core.hook.AgentHookContext;
+import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,6 +41,7 @@ import java.util.stream.Collectors;
  * - 如果内容过长，会被截断
  * - 如果不符合格式要求，会返回错误信息
  */
+@Getter
 public class ValidationHook implements AgentHook {
     
     private static final Logger logger = LoggerFactory.getLogger(ValidationHook.class);
@@ -103,13 +105,6 @@ public class ValidationHook implements AgentHook {
      */
     public void setMaxContentLength(int maxLength) {
         this.maxContentLength = maxLength;
-    }
-    
-    /**
-     * 获取内容最大长度
-     */
-    public int getMaxContentLength() {
-        return maxContentLength;
     }
     
     /**

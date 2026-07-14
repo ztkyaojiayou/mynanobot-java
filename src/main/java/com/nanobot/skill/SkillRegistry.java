@@ -1,5 +1,6 @@
 package com.nanobot.skill;
 
+import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * - 获取所有技能列表
  * - 搜索匹配的技能（用于自动触发）
  */
+@Getter
 public class SkillRegistry {
     
     private static final Logger logger = LoggerFactory.getLogger(SkillRegistry.class);

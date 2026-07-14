@@ -22,12 +22,11 @@ import java.util.concurrent.CompletableFuture;
  * - append: 是否追加（可选）
  */
 public class WriteFileTool implements Tool {
-    
+
     private static final ObjectMapper mapper = new ObjectMapper();
-    private final Path basePath;
-    
-    public WriteFileTool(String basePath) {
-        this.basePath = Paths.get(basePath);
+
+    public WriteFileTool() {
+        // Path validation is handled centrally by PathGuard in ToolRegistry.execute()
     }
     
     @Override
@@ -76,7 +75,7 @@ public class WriteFileTool implements Tool {
             }
             
             try {
-                Path filePath = resolvePath(pathStr);
+                Path filePath = Paths.get(pathStr);  // Path already validated & resolved by ToolRegistry/PathGuard
                 
                 Path parent = filePath.getParent();
                 if (parent != null && !Files.exists(parent)) {
@@ -101,12 +100,10 @@ public class WriteFileTool implements Tool {
     public boolean isReadOnly() {
         return false;
     }
-    
-    private Path resolvePath(String path) {
-        Path p = Paths.get(path);
-        if (p.isAbsolute()) {
-            return p.normalize();
-        }
-        return basePath.resolve(p).normalize();
-    }
+
+    /*
+     * Path resolution is handled centrally by PathGuard in ToolRegistry.execute().
+     * The 'path' parameter is already validated and resolved to an absolute path
+     * before this tool's execute() is called.
+     */
 }

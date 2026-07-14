@@ -22,10 +22,9 @@ import java.util.concurrent.CompletableFuture;
 public class GlobTool implements Tool {
     
     private static final ObjectMapper mapper = new ObjectMapper();
-    private final Path basePath;
-    
-    public GlobTool(String basePath) {
-        this.basePath = Paths.get(basePath);
+
+    public GlobTool() {
+        // Path validation is handled centrally by PathGuard in ToolRegistry.execute()
     }
     
     @Override
@@ -69,7 +68,7 @@ public class GlobTool implements Tool {
             }
             
             try {
-                Path searchPath = resolvePath(basePathStr);
+                Path searchPath = Paths.get(basePathStr);  // Path already validated & resolved by ToolRegistry/PathGuard
                 
                 if (!Files.exists(searchPath)) {
                     return "Error: Path not found: " + basePathStr;
@@ -114,12 +113,8 @@ public class GlobTool implements Tool {
     public boolean isReadOnly() {
         return true;
     }
-    
-    private Path resolvePath(String path) {
-        Path p = Paths.get(path);
-        if (p.isAbsolute()) {
-            return p.normalize();
-        }
-        return basePath.resolve(p).normalize();
-    }
+
+    /*
+     * Path resolution is handled centrally by PathGuard in ToolRegistry.execute().
+     */
 }

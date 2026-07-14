@@ -26,10 +26,9 @@ import java.util.regex.Pattern;
 public class GrepTool implements Tool {
     
     private static final ObjectMapper mapper = new ObjectMapper();
-    private final Path basePath;
-    
-    public GrepTool(String basePath) {
-        this.basePath = Paths.get(basePath);
+
+    public GrepTool() {
+        // Path validation is handled centrally by PathGuard in ToolRegistry.execute()
     }
     
     @Override
@@ -83,7 +82,7 @@ public class GrepTool implements Tool {
             }
             
             try {
-                Path searchPath = resolvePath(pathStr);
+                Path searchPath = Paths.get(pathStr);  // Path already validated & resolved by ToolRegistry/PathGuard
                 
                 if (!Files.exists(searchPath)) {
                     return "Error: path not found: " + pathStr;
@@ -153,12 +152,8 @@ public class GrepTool implements Tool {
     public boolean isReadOnly() {
         return true;
     }
-    
-    private Path resolvePath(String path) {
-        Path p = Paths.get(path);
-        if (p.isAbsolute()) {
-            return p.normalize();
-        }
-        return basePath.resolve(p).normalize();
-    }
+
+    /*
+     * Path resolution is handled centrally by PathGuard in ToolRegistry.execute().
+     */
 }

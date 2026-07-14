@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nanobot.NanobotRunner;
 import com.nanobot.bus.MessageBus;
 import com.nanobot.bus.InboundMessage;
+import com.nanobot.config.Config.ChannelAclConfig;
 import com.nanobot.controller.ChatController;
 import com.nanobot.core.AgentLoop;
 import jakarta.annotation.PostConstruct;
@@ -47,10 +48,21 @@ public class NanobotWebSocketEndpoint {
     // 连接计数
     private static final AtomicInteger connectionCount = new AtomicInteger(0);
     
+    // 通道级 ACL
+    private static ChannelAclConfig channelAcl;
+
     // Spring Bean将通过setter注入（因为@ServerEndpoint不由Spring管理）
     private static MessageBus messageBus;
     private static AgentLoop agentLoop;
     private static ObjectMapper objectMapper = new ObjectMapper();
+
+    @Autowired(required = false)
+    public void setChannelAcl(ChannelAclConfig channelAcl) {
+        NanobotWebSocketEndpoint.channelAcl = channelAcl;
+        if (channelAcl != null) {
+            logger.info("Channel ACL configured: {} channels", channelAcl.getChannels().size());
+        }
+    }
     
     @Autowired
     public void setMessageBus(MessageBus messageBus) {
@@ -74,7 +86,7 @@ public class NanobotWebSocketEndpoint {
      */
     private static void initStreamCallback() {
         if (agentLoop != null) {
-            agentLoop.setStreamResponseCallback(new AgentLoop.StreamResponseCallback() {
+            agentLoop.addStreamResponseCallback(new AgentLoop.StreamResponseCallback() {
                 @Override
                 public void onStreamData(String sessionId, String requestId, String content) {
                     Session session = SESSIONS.get(sessionId);
@@ -115,12 +127,26 @@ public class NanobotWebSocketEndpoint {
     @OnOpen
     public void onOpen(Session session) {
         String sessionId = session.getId();
+        String userId = session.getUserPrincipal() != null
+                ? session.getUserPrincipal().getName() : null;
+
+        // 通道级 ACL 检查
+        if (channelAcl != null && !channelAcl.isAllowed("websocket", userId)) {
+            logger.warn("WebSocket connection rejected by ACL: sessionId={}, userId={}", sessionId, userId);
+            try {
+                session.close(new CloseReason(CloseReason.CloseCodes.VIOLATED_POLICY, "Access denied by ACL"));
+            } catch (IOException e) {
+                logger.warn("Failed to close rejected session", e);
+            }
+            return;
+        }
+
         SESSIONS.put(sessionId, session);
-        
+
         // 配置会话
         session.setMaxTextMessageBufferSize(1024 * 1024); // 1MB
         session.setMaxIdleTimeout(300_000); // 5分钟超时
-        
+
         int count = connectionCount.incrementAndGet();
         logger.info("WebSocket connected: sessionId={}, total={}", sessionId, count);
         

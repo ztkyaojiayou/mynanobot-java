@@ -4,6 +4,7 @@ import com.nanobot.core.hook.impl.MetricsHook;
 import com.nanobot.core.hook.impl.TracingHook;
 import com.nanobot.core.hook.impl.ValidationHook;
 import com.nanobot.config.Config;
+import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,6 +53,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * **自定义钩子**：
  * 可以通过全限定类名加载自定义钩子实现。
  */
+@Getter
 public class HookLoader {
     
     private static final Logger logger = LoggerFactory.getLogger(HookLoader.class);

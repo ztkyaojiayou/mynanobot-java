@@ -22,12 +22,11 @@ import java.util.concurrent.CompletableFuture;
  * - maxLines: 最大行数（可选，默认全部）
  */
 public class ReadFileTool implements Tool {
-    
+
     private static final ObjectMapper mapper = new ObjectMapper();
-    private final Path basePath;
-    
-    public ReadFileTool(String basePath) {
-        this.basePath = Paths.get(basePath);
+
+    public ReadFileTool() {
+        // Path validation is handled centrally by PathGuard in ToolRegistry.execute()
     }
     
     @Override
@@ -71,7 +70,7 @@ public class ReadFileTool implements Tool {
             }
             
             try {
-                Path filePath = resolvePath(pathStr);
+                Path filePath = Paths.get(pathStr);  // Path already validated & resolved by ToolRegistry/PathGuard
                 
                 if (!Files.exists(filePath)) {
                     return "Error: file not found: " + pathStr;
@@ -107,12 +106,10 @@ public class ReadFileTool implements Tool {
     public boolean isReadOnly() {
         return true;
     }
-    
-    private Path resolvePath(String path) {
-        Path p = Paths.get(path);
-        if (p.isAbsolute()) {
-            return p.normalize();
-        }
-        return basePath.resolve(p).normalize();
-    }
+
+    /*
+     * Path resolution is handled centrally by PathGuard in ToolRegistry.execute().
+     * The 'path' parameter is already validated and resolved to an absolute path
+     * before this tool's execute() is called.
+     */
 }

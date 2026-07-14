@@ -1,5 +1,6 @@
 package com.nanobot.skill;
 
+import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -122,6 +123,7 @@ public class SkillLoader {
         
         private final SkillMetadata metadata;
         private final String content;
+        @Getter
         private final Path skillDir;
         
         public FileSkill(SkillMetadata metadata, String content, Path skillDir) {
@@ -169,8 +171,5 @@ public class SkillLoader {
             return result.toString();
         }
         
-        public Path getSkillDir() {
-            return skillDir;
-        }
     }
 }

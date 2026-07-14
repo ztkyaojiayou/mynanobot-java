@@ -22,12 +22,11 @@ import java.util.concurrent.CompletableFuture;
  * - newText: 替换后的文本（必填）
  */
 public class EditFileTool implements Tool {
-    
+
     private static final ObjectMapper mapper = new ObjectMapper();
-    private final Path basePath;
-    
-    public EditFileTool(String basePath) {
-        this.basePath = Paths.get(basePath);
+
+    public EditFileTool() {
+        // Path validation is handled centrally by PathGuard in ToolRegistry.execute()
     }
     
     @Override
@@ -76,7 +75,7 @@ public class EditFileTool implements Tool {
             }
             
             try {
-                Path filePath = resolvePath(pathStr);
+                Path filePath = Paths.get(pathStr);  // Path already validated & resolved by ToolRegistry/PathGuard
                 
                 if (!Files.exists(filePath)) {
                     return "Error: file not found: " + pathStr;
@@ -104,12 +103,10 @@ public class EditFileTool implements Tool {
     public boolean isReadOnly() {
         return false;
     }
-    
-    private Path resolvePath(String path) {
-        Path p = Paths.get(path);
-        if (p.isAbsolute()) {
-            return p.normalize();
-        }
-        return basePath.resolve(p).normalize();
-    }
+
+    /*
+     * Path resolution is handled centrally by PathGuard in ToolRegistry.execute().
+     * The 'path' parameter is already validated and resolved to an absolute path
+     * before this tool's execute() is called.
+     */
 }

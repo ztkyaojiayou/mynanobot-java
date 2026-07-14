@@ -23,10 +23,9 @@ import java.util.concurrent.CompletableFuture;
 public class ListDirTool implements Tool {
     
     private static final ObjectMapper mapper = new ObjectMapper();
-    private final Path basePath;
-    
-    public ListDirTool(String basePath) {
-        this.basePath = Paths.get(basePath);
+
+    public ListDirTool() {
+        // Path validation is handled centrally by PathGuard in ToolRegistry.execute()
     }
     
     @Override
@@ -66,7 +65,7 @@ public class ListDirTool implements Tool {
             Boolean recursive = (Boolean) params.getOrDefault("recursive", false);
             
             try {
-                Path dirPath = resolvePath(pathStr);
+                Path dirPath = Paths.get(pathStr);  // Path already validated & resolved by ToolRegistry/PathGuard
                 
                 if (!Files.exists(dirPath)) {
                     return "Error: directory not found: " + pathStr;
@@ -164,12 +163,8 @@ public class ListDirTool implements Tool {
     public boolean isReadOnly() {
         return true;
     }
-    
-    private Path resolvePath(String path) {
-        Path p = Paths.get(path);
-        if (p.isAbsolute()) {
-            return p.normalize();
-        }
-        return basePath.resolve(p).normalize();
-    }
+
+    /*
+     * Path resolution is handled centrally by PathGuard in ToolRegistry.execute().
+     */
 }
