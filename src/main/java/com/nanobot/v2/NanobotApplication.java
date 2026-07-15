@@ -12,31 +12,28 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
-
 /**
- * Nanobot Spring Boot 启动类
- * ============================
- * 
- * 这是 Spring Boot 版本的入口点，整合了：
- * - Spring MVC (REST API)
- * - Spring WebSocket (标准 WebSocket)
- * - 原有 Nanobot 核心组件
+ * Nanobot Spring Boot 启动类（V2 — HTTP/SSE + WebSocket）。
  */
 @SpringBootApplication(scanBasePackages = "com.nanobot")
 public class NanobotApplication {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(NanobotApplication.class);
-    
+
     public static void main(String[] args) {
         logger.info("Starting Nanobot Spring Boot Application...");
         SpringApplication.run(NanobotApplication.class, args);
     }
     
+    /**
+     * V2 启动 banner — 仅在 V2 模式下显示（CLI 模式跳过）。
+     * 因为 CLI 的 NanobotCliApplication 会扫描到 V2 的 @Configuration，
+     * 需用 Profile 隔离。
+     */
     @Bean
+    @org.springframework.context.annotation.Profile("!cli")
     public ApplicationRunner printBannerOnStartup(
-            Environment env, 
+            Environment env,
             ToolRegistry toolRegistry,
             SkillManager skillManager,
             RuleManager ruleManager,

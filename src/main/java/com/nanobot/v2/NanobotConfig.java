@@ -6,6 +6,7 @@ import com.nanobot.config.ConfigLoader;
 import com.nanobot.core.AgentLoop;
 import com.nanobot.identity.IdentityManager;
 import com.nanobot.mcp.MCPManager;
+import com.nanobot.memory.Consolidator;
 import com.nanobot.memory.MemoryStore;
 import com.nanobot.providers.LLMProvider;
 import com.nanobot.providers.impl.DeepSeekProvider;
@@ -19,6 +20,7 @@ import com.nanobot.security.guard.PathGuard;
 import com.nanobot.session.SessionManager;
 import com.nanobot.skill.SkillManager;
 import com.nanobot.tools.ToolRegistry;
+import com.nanobot.tools.annotation.ToolScanner;
 import com.nanobot.tools.impl.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -112,6 +114,12 @@ public class NanobotConfig {
             toolRegistry.register(new WebSearchTool(searchProvider, searchApiKey));
         }
 
+        // 自动扫描 @ToolDef 注解的工具（包路径可通过 config.tools.toolScanPackages 配置）
+        String scanPkgs = config.getTools().getToolScanPackages();
+        if (scanPkgs != null && !scanPkgs.isBlank()) {
+            new ToolScanner().scanAndRegister(toolRegistry, scanPkgs.split("\\s*,\\s*"));
+        }
+
         logger.info("Registered {} tools: {}",
                    toolRegistry.size(),
                    String.join(", ", toolRegistry.getToolNames()));
@@ -170,6 +178,16 @@ public class NanobotConfig {
         return mcpManager;
     }
     
+    /**
+     * 记忆压缩器 — 对话 token 数超过 contextWindowTokens 的 90% 时触发压缩。
+     * 使用 LLM 将旧消息总结为 system 消息，防止上下文窗口溢出。
+     */
+    @Bean
+    public Consolidator consolidator(LLMProvider llmProvider, Config config) {
+        int budget = config.getAgents().getDefaults().getContextWindowTokens();
+        return new Consolidator(llmProvider, budget);
+    }
+
     @Bean(destroyMethod = "stop")
     public AgentLoop agentLoop(
             MessageBus messageBus,
@@ -179,6 +197,7 @@ public class NanobotConfig {
             SkillManager skillManager,
             RuleManager ruleManager,
             IdentityManager identityManager,
+            Consolidator consolidator,
             Config config) {
         AgentLoop agentLoop = new AgentLoop(
             messageBus,
@@ -190,6 +209,7 @@ public class NanobotConfig {
             skillManager,
             identityManager
         );
+        agentLoop.setConsolidator(consolidator);
         // 启动 AgentLoop
         agentLoop.start();
         return agentLoop;

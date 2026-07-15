@@ -94,3 +94,14 @@ logging:
   level:
     root: INFO
     com.nanobot: DEBUG
+
+# CLI 模式：抑制日志，控制台只留对话
+---
+spring:
+  config:
+    activate:
+      on-profile: cli
+logging:
+  level:
+    root: WARN
+    com.nanobot: WARN
