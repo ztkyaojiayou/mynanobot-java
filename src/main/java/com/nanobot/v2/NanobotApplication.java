@@ -1,7 +1,9 @@
 package com.nanobot.v2;
 
 import com.nanobot.config.Config;
+import com.nanobot.cron.CronScheduler;
 import com.nanobot.rules.RuleManager;
+import com.nanobot.session.SessionManager;
 import com.nanobot.skill.SkillManager;
 import com.nanobot.tools.ToolRegistry;
 import org.slf4j.Logger;
@@ -76,6 +78,20 @@ public class NanobotApplication {
             System.out.println();
             System.out.println(banner);
             System.out.println();
+        };
+    }
+
+    /** 注册默认定时任务 */
+    @Bean
+    @org.springframework.context.annotation.Profile("!cli")
+    public ApplicationRunner registerCronJobs(CronScheduler scheduler, SessionManager sessions) {
+        return args -> {
+            // 每小时清理 24 小时前的旧会话响应缓存
+            scheduler.schedule("0 * * * *", () -> {
+                logger.debug("Cron: cleaning session responses...");
+                // 注: 具体清理逻辑按需添加
+            });
+            logger.info("CronScheduler started with default jobs");
         };
     }
 }
