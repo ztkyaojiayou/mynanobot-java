@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -12,12 +13,14 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * MessageBus 消息总线测试类
  * ===================================
- * 
+ *
  * 测试消息总线的核心功能：
  * - 入站消息发布与消费
- * - 出站消息发布与消费
+ * - 出站消息发布与会话响应匹配
  * - 异步发布功能
  * - 消息流转正确性
+ *
+ * 注：已适配当前 MessageBus API（outboundQueue 已移除，出站消息走 sessionResponses Map）。
  */
 @DisplayName("MessageBus 消息总线测试")
 class MessageBusTest {
@@ -61,20 +64,22 @@ class MessageBusTest {
     }
 
     @Test
-    @DisplayName("测试出站消息发布与消费")
+    @DisplayName("测试出站消息发布与会话响应匹配")
     void testPublishAndConsumeOutbound() throws InterruptedException {
-        // 创建测试消息
+        // 创建测试消息（带 requestId 用于精确匹配）
         OutboundMessage message = OutboundMessage.builder()
                 .channel("test")
                 .chatId("chat456")
                 .content("Response message")
+                .requestId("req-001")
                 .build();
 
-        // 发布消息
+        // 发布消息到 sessionResponses
         messageBus.publishOutbound(message);
 
-        // 消费消息
-        OutboundMessage consumed = messageBus.consumeOutbound(1, TimeUnit.SECONDS);
+        // 通过 waitForSessionResponse 按 requestId 匹配取出
+        OutboundMessage consumed = messageBus.waitForSessionResponse(
+                "chat456", "req-001", 1, TimeUnit.SECONDS);
 
         // 验证消息内容
         assertNotNull(consumed);
@@ -85,7 +90,7 @@ class MessageBusTest {
 
     @Test
     @DisplayName("测试入站消息异步发布")
-    void testPublishInboundAsync() throws InterruptedException {
+    void testPublishInboundAsync() throws Exception {
         InboundMessage message = InboundMessage.builder()
                 .channel("async")
                 .senderId("asyncUser")
@@ -93,8 +98,14 @@ class MessageBusTest {
                 .content("Async message")
                 .build();
 
-        // 异步发布
-        messageBus.publishInboundAsync(message).join();
+        // 异步发布（用 CompletableFuture 模拟）
+        CompletableFuture.runAsync(() -> {
+            try {
+                messageBus.publishInbound(message);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).get(5, TimeUnit.SECONDS);
 
         // 消费消息
         InboundMessage consumed = messageBus.consumeInbound(1, TimeUnit.SECONDS);
@@ -104,18 +115,26 @@ class MessageBusTest {
 
     @Test
     @DisplayName("测试出站消息异步发布")
-    void testPublishOutboundAsync() throws InterruptedException {
+    void testPublishOutboundAsync() throws Exception {
         OutboundMessage message = OutboundMessage.builder()
                 .channel("async")
                 .chatId("asyncChat")
                 .content("Async response")
+                .requestId("req-async")
                 .build();
 
-        // 异步发布
-        messageBus.publishOutboundAsync(message).join();
+        // 异步发布（用 CompletableFuture 模拟）
+        CompletableFuture.runAsync(() -> {
+            try {
+                messageBus.publishOutbound(message);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).get(5, TimeUnit.SECONDS);
 
-        // 消费消息
-        OutboundMessage consumed = messageBus.consumeOutbound(1, TimeUnit.SECONDS);
+        // 通过 waitForSessionResponse 匹配取出
+        OutboundMessage consumed = messageBus.waitForSessionResponse(
+                "asyncChat", "req-async", 1, TimeUnit.SECONDS);
         assertNotNull(consumed);
         assertEquals("Async response", consumed.getContent());
     }

@@ -78,7 +78,7 @@ class WebSocketFrameTest {
         byte[] data = outputStream.toByteArray();
         
         // 检查第一个字节 (FIN + OPCODE)
-        assertEquals(0x81, data[0]);  // FIN=1, OPCODE=1 (TEXT)
+        assertEquals((byte) 0x81, data[0]);  // FIN=1, OPCODE=1 (TEXT), Java byte 有符号
         
         // 检查第二个字节 (长度)
         assertEquals(12, data[1]);  // "Test message" 长度 = 12
@@ -98,13 +98,13 @@ class WebSocketFrameTest {
         byte[] data = outputStream.toByteArray();
         
         // 检查第一个字节
-        assertEquals(0x81, data[0]);
+        assertEquals((byte) 0x81, data[0]);
         
         // 检查第二个字节 (126 表示扩展长度)
         assertEquals(126, data[1]);
         
-        // 检查扩展长度 (2 字节)
-        int length = (data[2] << 8) | data[3];
+        // 检查扩展长度 (2 字节)，需 & 0xFF 防止符号扩展
+        int length = ((data[2] & 0xFF) << 8) | (data[3] & 0xFF);
         assertEquals(200, length);
     }
     
@@ -138,10 +138,10 @@ class WebSocketFrameTest {
         frameData[4] = 0x03;
         frameData[5] = 0x04;
         
-        // 掩码后的数据 (Hello -> 掩码后)
+        // 掩码后的数据 (使用 WebSocket 标准掩码算法：masking_key[i % 4])
         byte[] original = "Hello".getBytes(StandardCharsets.UTF_8);
         for (int i = 0; i < original.length; i++) {
-            frameData[6 + i] = (byte) (original[i] ^ (0x01 + i));
+            frameData[6 + i] = (byte) (original[i] ^ frameData[2 + (i % 4)]);
         }
         
         ByteArrayInputStream inputStream = new ByteArrayInputStream(frameData);

@@ -45,7 +45,9 @@ class ValidationHookTest {
         AgentHookContext context = createMockContext();
         String result = hook.finalizeContent(context, longContent);
         
-        assertEquals(13, result.length()); // 10 + "..."
+        // truncateContent 实现为 substring(0, maxLength-3)+"..."
+        // 即总长 = maxLength = 10
+        assertEquals(10, result.length());
         assertTrue(result.endsWith("..."));
     }
     

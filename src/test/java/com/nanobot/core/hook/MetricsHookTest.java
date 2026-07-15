@@ -59,7 +59,7 @@ class MetricsHookTest {
         }
         
         Map<String, Object> global = hook.getGlobalMetrics();
-        assertEquals(5, global.get("totalRequests"));
+        assertEquals(5L, global.get("totalRequests"));
     }
     
     @Test

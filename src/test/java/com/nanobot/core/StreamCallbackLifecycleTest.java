@@ -226,7 +226,7 @@ class StreamCallbackLifecycleTest {
         };
 
         agentLoop.addStreamResponseCallback(cb1);
-        assertEquals(2, agentLoop.getStreamCallbackCount()); // wsCallback + cb1
+        assertEquals(1, agentLoop.getStreamCallbackCount()); // cb1 only, no pre-registered callback
 
         Map<String, Object> meta1 = new java.util.HashMap<>();
         meta1.put("requestId", "clean-1");
@@ -237,7 +237,7 @@ class StreamCallbackLifecycleTest {
 
         round1Latch.await(10, TimeUnit.SECONDS);
         Thread.sleep(100); // 等待异步清理完成
-        assertEquals(1, agentLoop.getStreamCallbackCount(), "cb1 should be cleaned up");
+        assertEquals(0, agentLoop.getStreamCallbackCount(), "cb1 should be cleaned up");
 
         // Round 2: 验证不受影响
         CountDownLatch round2Latch = new CountDownLatch(1);
@@ -251,7 +251,7 @@ class StreamCallbackLifecycleTest {
         };
 
         agentLoop.addStreamResponseCallback(cb2);
-        assertEquals(2, agentLoop.getStreamCallbackCount());
+        assertEquals(1, agentLoop.getStreamCallbackCount());
 
         Map<String, Object> meta2 = new java.util.HashMap<>();
         meta2.put("requestId", "clean-2");
