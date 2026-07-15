@@ -160,6 +160,12 @@ public class AgentLoop {
     private final AgentRunner runner;
 
     /**
+     * 记忆压缩器 — 当对话历史超过 token 预算时，自动调用 LLM 总结旧消息。
+     * 可选注入，null 时跳过压缩。通过 {@link #setConsolidator} 设置。
+     */
+    private com.nanobot.memory.Consolidator consolidator;
+
+    /**
      * 运行状态
      */
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -221,6 +227,7 @@ public class AgentLoop {
         this.identityManager = identityManager;
 
         this.runner = new AgentRunner(provider, registry);
+        this.consolidator = null;  // 通过 setConsolidator() 注入
 
         // 加载钩子配置
         loadHooks();
@@ -489,8 +496,43 @@ public class AgentLoop {
     /**
      * COMPACT: 压缩历史（简化实现）
      */
+    /**
+     * 设置记忆压缩器（由 NanobotConfig 注入）。
+     */
+    public void setConsolidator(com.nanobot.memory.Consolidator c) { this.consolidator = c; }
+
+    /**
+     * COMPACT: 对话历史压缩。
+     *
+     * 当消息的估算 token 数超过 contextWindowTokens 的 90% 时触发，
+     * 调用 LLM 将旧的 assistant + tool 消息总结为一条 system 消息，
+     * 释放 token 预算，防止上下文窗口溢出。
+     *
+     * 参考: nanobot (Python) 的 consolidator.py
+     */
     private TurnState doCompact(TurnContext context) {
-        // TODO: 实现历史压缩逻辑
+        // 未注入压缩器则跳过（向后兼容，不会报错）
+        if (consolidator == null) return TurnState.BUILD;
+
+        List<Map<String, Object>> messages = context.getMessages();
+        if (!consolidator.needsConsolidation(messages)) return TurnState.BUILD;
+
+        logger.info("Compacting history: {} messages, ~{} tokens",
+                messages.size(), consolidator.getCurrentUsage(messages));
+        try {
+            // consolidate() 内部调用 LLM 生成总结，是异步操作，这里阻塞等待
+            List<Map<String, Object>> compacted = consolidator.consolidate(messages).join();
+            context.getMessages().clear();
+            context.getMessages().addAll(compacted);
+            logger.info("Compacted to {} messages", compacted.size());
+        } catch (Exception e) {
+            // 压缩失败不影响对话，继续使用原始消息
+            logger.warn("Compaction failed, continuing with original: {}", e.getMessage());
+        }
+        return TurnState.BUILD;
+    }
+
+    /**
         // 1. 计算当前 token 数
         // 2. 超过预算时，压缩旧消息
         // 3. 调用 LLM 生成摘要

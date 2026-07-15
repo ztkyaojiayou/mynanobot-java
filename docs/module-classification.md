@@ -26,7 +26,12 @@ com.nanobot
 │   └── websocket/
 │       └── NanobotWebSocketEndpoint.java @ServerEndpoint("/ws")
 │
-├─ ═══════════ 公共模块 (两版本共享) ═══════════
+├── v3/                   ← V3 专属 (2个文件) ★新增
+│   ├── NanobotCliApplication.java  入口：Spring Boot + CLI 交互
+│   └── cli/
+│       └── CliChannel.java         命令行终端对话
+│
+├─ ═══════════ 公共模块 (三版本共享) ═══════════
 │
 ├── NanobotRunner.java    ← 组件初始化 Runner
 ├── config/               ← 配置模型 (Config.java, ConfigLoader.java)
