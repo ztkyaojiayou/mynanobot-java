@@ -17,10 +17,8 @@ import org.springframework.context.annotation.Bean;
 public class NanobotCliApplication {
 
     public static void main(String[] args) {
-        // 用命令行参数优先级覆盖 YAML 中的 DEBUG 设置
         String[] cliArgs = new String[]{
-            "--logging.level.root=WARN",
-            "--logging.level.com.nanobot=WARN",
+            "--logging.config=classpath:logback-cli.xml",
             "--spring.main.banner-mode=off",
             "--spring.profiles.active=cli"};
 

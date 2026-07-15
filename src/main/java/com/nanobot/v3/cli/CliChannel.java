@@ -4,6 +4,7 @@ import com.nanobot.NanobotRunner;
 import com.nanobot.bus.InboundMessage;
 import com.nanobot.bus.MessageBus;
 import com.nanobot.core.AgentLoop;
+import com.nanobot.v3.tui.MarkdownRenderer;
 import org.springframework.context.ConfigurableApplicationContext;
 
 import java.util.Scanner;
@@ -42,7 +43,7 @@ public class CliChannel {
             @Override
             public void onStreamData(String sid, String reqId, String content) {
                 if (chatId.equals(sid) && currentRequestId != null && currentRequestId.equals(reqId))
-                    System.out.print(content);
+                    System.out.print(MarkdownRenderer.renderStreaming(content));
             }
 
             @Override
