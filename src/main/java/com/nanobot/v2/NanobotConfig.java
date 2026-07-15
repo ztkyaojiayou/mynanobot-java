@@ -4,6 +4,8 @@ import com.nanobot.bus.MessageBus;
 import com.nanobot.config.Config;
 import com.nanobot.config.ConfigLoader;
 import com.nanobot.core.AgentLoop;
+import com.nanobot.core.subagent.AgentCoordinator;
+import com.nanobot.cron.CronScheduler;
 import com.nanobot.identity.IdentityManager;
 import com.nanobot.mcp.MCPManager;
 import com.nanobot.memory.Consolidator;
@@ -69,18 +71,29 @@ public class NanobotConfig {
     public PermissionManager permissionManager(PathGuard pathGuard,
                                                 CommandGuard commandGuard,
                                                 NetworkGuard networkGuard) {
+        // 默认规则
+        com.nanobot.security.rule.RuleEngine ruleEngine = new com.nanobot.security.rule.RuleEngine();
+        // Shell 命令需要用户确认
+        ruleEngine.addRule(com.nanobot.security.rule.RuleType.ASK, "exec", null, null,
+                "Shell 命令执行需要您的确认");
+        // rm -rf 需特别确认
+        ruleEngine.addRule(com.nanobot.security.rule.RuleType.ASK, "exec", "command", "rm -rf.*",
+                "递归删除操作需要确认");
+
         return PermissionManager.builder()
                 .mode(PermissionMode.DEFAULT)
                 .pathGuard(pathGuard)
                 .commandGuard(commandGuard)
                 .networkGuard(networkGuard)
+                .ruleEngine(ruleEngine)
                 .build();
     }
 
     @Bean
-    public ToolRegistry toolRegistry(Config config, PermissionManager permissionManager) {
+    public ToolRegistry toolRegistry(Config config, PermissionManager permissionManager,
+                                      AgentCoordinator agentCoordinator) {
         ToolRegistry toolRegistry = new ToolRegistry();
-        registerTools(toolRegistry, config);
+        registerTools(toolRegistry, config, agentCoordinator);
 
         // 注入权限管理器（统一入口）
         toolRegistry.setPermissionManager(permissionManager);
@@ -88,7 +101,8 @@ public class NanobotConfig {
         return toolRegistry;
     }
 
-    private void registerTools(ToolRegistry toolRegistry, Config config) {
+    private void registerTools(ToolRegistry toolRegistry, Config config,
+                                AgentCoordinator agentCoordinator) {
         // 文件工具（路径验证由 ToolRegistry 中的 PathGuard 统一处理）
         toolRegistry.register(new ReadFileTool());
         toolRegistry.register(new WriteFileTool());
@@ -102,6 +116,10 @@ public class NanobotConfig {
         // 时间工具（解决模型训练数据日期偏差）
         toolRegistry.register(new GetCurrentTimeTool());
 
+        // 子 Agent spawn 工具（LLM 可调用 spawn 分解复杂任务）
+        // 注: agentCoordinator 已在上面创建，这里通过 Spring 的依赖注入获取
+        // SpawnTool 在下面单独注册
+
         // Shell 工具
         if (config.getTools().getExec().isEnable()) {
             toolRegistry.register(new ExecTool());
@@ -113,6 +131,9 @@ public class NanobotConfig {
             String searchApiKey = config.getTools().getWeb().getSearch().getApiKey();
             toolRegistry.register(new WebSearchTool(searchProvider, searchApiKey));
         }
+
+        // 子 Agent spawn 工具
+        toolRegistry.register(new SpawnTool(agentCoordinator));
 
         // 自动扫描 @ToolDef 注解的工具（包路径可通过 config.tools.toolScanPackages 配置）
         String scanPkgs = config.getTools().getToolScanPackages();
@@ -182,6 +203,33 @@ public class NanobotConfig {
      * 记忆压缩器 — 对话 token 数超过 contextWindowTokens 的 90% 时触发压缩。
      * 使用 LLM 将旧消息总结为 system 消息，防止上下文窗口溢出。
      */
+    /**
+     * 定时任务调度器 — 基于 cron 表达式的任务调度。
+     * 可在任何地方注入后调用 scheduler.schedule("0 * * * *", task) 注册任务。
+     */
+    /** 子 Agent 协调器 — 管理子 Agent 的注册、分配、执行 */
+    @Bean
+    public AgentCoordinator agentCoordinator(LLMProvider llmProvider,
+                                              @org.springframework.context.annotation.Lazy ToolRegistry toolRegistry) {
+        AgentCoordinator coordinator = new AgentCoordinator(llmProvider, toolRegistry);
+        // 注册默认子 Agent（各有不同能力）
+        coordinator.registerSubagent("searcher",  "搜索助手",
+                java.util.Map.of("web_search", true));
+        coordinator.registerSubagent("summarizer", "总结助手",
+                java.util.Map.of("summarization", true));
+        coordinator.registerSubagent("coder", "编程助手",
+                java.util.Map.of("code", true));
+        coordinator.registerSubagent("calculator", "计算助手",
+                java.util.Map.of("calculation", true));
+        coordinator.startAll();
+        return coordinator;
+    }
+
+    @Bean
+    public CronScheduler cronScheduler(MessageBus messageBus) {
+        return new CronScheduler(messageBus);
+    }
+
     @Bean
     public Consolidator consolidator(LLMProvider llmProvider, Config config) {
         int budget = config.getAgents().getDefaults().getContextWindowTokens();
