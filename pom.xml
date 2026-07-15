@@ -181,10 +181,7 @@
                 <configuration>
                     <source>${java.version}</source>
                     <target>${java.version}</target>
-                    <!-- 启用预览功能 (用于测试 Virtual Threads) -->
-                    <compilerArgs>
-                        <arg>--enable-preview</arg>
-                    </compilerArgs>
+                    <!-- 预览功能已移除，项目无需使用 Virtual Threads -->
                     <!-- Lombok 注解处理器路径 -->
                     <annotationProcessorPaths>
                         <path>
@@ -202,8 +199,8 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.3</version>
                 <configuration>
-                    <!-- 启用预览功能以支持 Virtual Threads -->
-                    <argLine>--enable-preview</argLine>
+                    <!-- JUnit 5 测试执行，指定 UTF-8 避免控制台中文乱码 -->
+                    <argLine>-Dfile.encoding=UTF-8</argLine>
                 </configuration>
             </plugin>
 
