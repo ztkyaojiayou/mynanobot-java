@@ -357,7 +357,6 @@ public class ToolRegistry {
      * @param params 工具参数
      * @return 执行结果
      * @throws ToolNotFoundException 如果工具不存在
-     * @throws ToolExecutionException 如果执行失败
      */
     public Object execute(String name, Map<String, Object> params) {
         // 1. 参数预处理
@@ -371,23 +370,23 @@ public class ToolRegistry {
             String error = String.format("Tool '%s' not found. Available tools: %s", 
                                         name, String.join(", ", tools.keySet()));
             logger.warn(error);
-            return "Error: " + error;
+            return ToolResult.err(error);
         }
-        
+
         // 3. 验证参数
         List<String> errors = tool.validateParameters(params);
         if (!errors.isEmpty()) {
             String error = String.format("Invalid parameters for tool '%s': %s",
                                         name, String.join("; ", errors));
             logger.warn(error);
-            return "Error: " + error;
+            return ToolResult.err(error);
         }
 
         // 4. 权限检查（Phase 2: PermissionManager 编排）
         if (permissionManager != null) {
             PermissionResult result = permissionManager.check(tool, params);
             if (result.isDenied()) {
-                return "Permission denied: " + result.getReason();
+                return ToolResult.err("Permission denied: " + result.getReason());
             }
         } else {
             // 向后兼容：未配置 PermissionManager 时使用旧版 applyGuards
@@ -395,7 +394,7 @@ public class ToolRegistry {
                 params = applyGuards(name, params);
             } catch (SecurityException e) {
                 logger.warn("Tool '{}' blocked by {}: {}", name, e.getGuard(), e.getReason());
-                return "Security blocked: " + e.getMessage();
+                return ToolResult.err("Security blocked: " + e.getMessage());
             }
         }
 
@@ -404,27 +403,18 @@ public class ToolRegistry {
             CompletableFuture<Object> future = tool.execute(params);
             Object result = future.join();
             
-            // 5. 处理结果
-            if (result instanceof String) {
-                String strResult = (String) result;
-                // 如果工具返回以 Error 开头的字符串，加上提示
-                if (strResult.startsWith("Error:")) {
-                    return strResult + "\n\n[Analyze the error above and try a different approach.]";
-                }
-                return result;
-            }
-            
-            return result != null ? result.toString() : "null";
-            
+            // 5. 处理结果 — 自动识别错误并标记 [TOOL_OK]/[TOOL_ERR]
+            return ToolResult.wrap(result);
+
         } catch (CompletionException e) {
             Throwable cause = e.getCause() != null ? e.getCause() : e;
             String error = "Error executing " + name + ": " + cause.getMessage();
             logger.error(error, cause);
-            return error + "\n\n[Analyze the error above and try a different approach.]";
+            return ToolResult.err(error);
         } catch (Exception e) {
             String error = "Error executing " + name + ": " + e.getMessage();
             logger.error(error, e);
-            return error + "\n\n[Analyze the error above and try a different approach.]";
+            return ToolResult.err(error);
         }
     }
     
@@ -554,6 +544,11 @@ public class ToolRegistry {
      */
     public void setPermissionManager(PermissionManager permissionManager) {
         this.permissionManager = permissionManager;
+    }
+
+    /** 获取权限管理器（供外部注入交互处理器） */
+    public PermissionManager getPermissionManager() {
+        return permissionManager;
     }
 
     /**
