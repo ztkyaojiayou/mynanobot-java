@@ -91,6 +91,9 @@ providers:
 
 # 工具配置
 tools:
+  # @ToolDef 注解扫描的包路径（逗号分隔多个）
+  toolScanPackages: "com.nanobot.tools.impl"
+
   # 是否限制工具只能访问工作空间
   restrictToWorkspace: false
   
