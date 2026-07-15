@@ -103,8 +103,7 @@ public class CommandGuard {
      * 加载内置默认黑名单（参考 Nanobot _guard_command）
      */
     private void addDefaultDenyPatterns() {
-        // 递归删除根目录
-        addDenyPattern("rm\\s+-rf\\s+/");
+        // 注意: rm -rf 不在 deny 列表中，而是通过 RuleEngine ASK 规则触发交互确认
         // Fork bomb（Unix + 变体）
         addDenyPattern(":\\(\\)\\s*\\{\\s*:\\|:&\\s*\\}\\s*;:");
         // 磁盘格式化

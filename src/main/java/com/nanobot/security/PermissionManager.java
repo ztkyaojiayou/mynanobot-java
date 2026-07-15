@@ -60,6 +60,9 @@ public class PermissionManager {
     /** 规则引擎 */
     private final RuleEngine ruleEngine;
 
+    /** 交互式确认处理器（CLI/WS 等通道各自实现） */
+    private volatile InteractivePermissionHandler interactiveHandler;
+
     /** PreToolUse 钩子管理器 */
     private final PreToolUseHookManager hookManager;
 
@@ -136,8 +139,13 @@ public class PermissionManager {
                         "rule:deny");
             }
             if (match.isAsk()) {
-                return PermissionResult.needsApproval(
-                        match.getReason() != null ? match.getReason() : "This action requires approval");
+                String reason = match.getReason() != null ? match.getReason() : "This action requires approval";
+                // 有交互处理器 → 用户确认；无 → 拒绝
+                if (interactiveHandler != null) {
+                    boolean allowed = interactiveHandler.requestConfirmation(tool, params, reason);
+                    if (allowed) return PermissionResult.allowed();
+                }
+                return PermissionResult.denied(reason, "rule:ask");
             }
             if (match.isAllow()) {
                 return PermissionResult.allowed();
@@ -192,6 +200,11 @@ public class PermissionManager {
         PermissionMode oldMode = this.mode;
         this.mode = mode;
         logger.info("Permission mode changed: {} -> {}", oldMode, mode);
+    }
+
+    /** 设置交互式确认处理器（CLI → stdin, WebSocket → 弹窗） */
+    public void setInteractiveHandler(InteractivePermissionHandler handler) {
+        this.interactiveHandler = handler;
     }
 
     // ==================== 工具分类 ====================
