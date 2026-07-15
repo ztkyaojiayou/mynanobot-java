@@ -71,7 +71,7 @@ public class OutboundMessage {
 
     /**
      * 目标聊天 ID
-     *
+     * 即即sessionId
      * 消息要发送到的具体聊天会话。
      */
     private String chatId;

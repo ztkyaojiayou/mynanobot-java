@@ -333,6 +333,10 @@ public class Config {
         /** 是否限制在工作空间 */
         @JsonProperty("restrictToWorkspace")
         private boolean restrictToWorkspace = false;
+
+        /** @ToolDef 注解扫描的包路径（逗号分隔） */
+        @JsonProperty("toolScanPackages")
+        private String toolScanPackages = "com.nanobot.tools.impl";
     }
 
     /**
