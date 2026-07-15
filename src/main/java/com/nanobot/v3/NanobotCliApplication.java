@@ -4,6 +4,7 @@ import com.nanobot.v3.cli.CliChannel;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 
 /**
@@ -32,10 +33,11 @@ public class NanobotCliApplication {
     }
 
     @Bean
-    public ApplicationRunner startCli() {
+    @org.springframework.context.annotation.Profile("cli")
+    public ApplicationRunner startCli(ConfigurableApplicationContext ctx) {
         return args -> new Thread(() -> {
             try { Thread.sleep(1500); } catch (InterruptedException ignored) {}
-            new CliChannel().start();
+            new CliChannel(ctx).start();
         }, "CLI-Main").start();
     }
 }

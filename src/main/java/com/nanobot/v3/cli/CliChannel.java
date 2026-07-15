@@ -4,51 +4,45 @@ import com.nanobot.NanobotRunner;
 import com.nanobot.bus.InboundMessage;
 import com.nanobot.bus.MessageBus;
 import com.nanobot.core.AgentLoop;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.springframework.context.ConfigurableApplicationContext;
 
 import java.util.Scanner;
-import java.util.concurrent.CountDownLatch;
 
 /**
  * CLI 交互通道 — 命令行终端直接对话。
  *
- * 启动方式: java -jar nanobot.jar --cli
- * 命令: /exit 退出, /clear 清空上下文, /mode plan|default 切换权限模式
+ * 命令: /exit 退出系统, /clear 清空上下文
  */
 public class CliChannel {
-
-    private static final Logger logger = LoggerFactory.getLogger(CliChannel.class);
 
     private final MessageBus messageBus;
     private final AgentLoop agentLoop;
     private final String chatId;
+    private final ConfigurableApplicationContext appContext;
 
     /** 当前流式输出的 requestId（用于等待完成） */
     private volatile String currentRequestId;
-    private volatile boolean streaming;
-    private final CountDownLatch streamDone = new CountDownLatch(1);
 
-    public CliChannel() {
+    public CliChannel(ConfigurableApplicationContext appContext) {
         this.messageBus = NanobotRunner.getMessageBus();
         this.agentLoop = NanobotRunner.getAgentLoop();
         this.chatId = "cli-" + System.currentTimeMillis();
+        this.appContext = appContext;
     }
 
     public void start() {
         if (messageBus == null || agentLoop == null) {
-            System.err.println("CLI 启动失败: MessageBus 或 AgentLoop 未就绪，请等待 Spring Boot 启动完成");
+            System.err.println("CLI 启动失败: MessageBus 或 AgentLoop 未就绪");
             return;
         }
 
-        // 注册流式回调 — SSE/WS 同款的 StreamResponseCallback
+        setupInteractivePermission();
+
         agentLoop.addStreamResponseCallback(new AgentLoop.StreamResponseCallback() {
             @Override
             public void onStreamData(String sid, String reqId, String content) {
-                if (chatId.equals(sid) && currentRequestId != null && currentRequestId.equals(reqId)) {
+                if (chatId.equals(sid) && currentRequestId != null && currentRequestId.equals(reqId))
                     System.out.print(content);
-                    streaming = true;
-                }
             }
 
             @Override
@@ -56,14 +50,12 @@ public class CliChannel {
                 if (chatId.equals(sid) && currentRequestId != null && currentRequestId.equals(reqId)) {
                     System.out.println();
                     currentRequestId = null;
-                    streaming = false;
-                    streamDone.countDown();
                 }
             }
         });
 
         printBanner();
-        System.out.println("输入消息开始对话，/exit 退出，/clear 清上下文，/mode plan|default 切换模式");
+        System.out.println("输入消息开始对话，/exit 退出系统，/clear 清上下文");
         System.out.println();
 
         try (Scanner scanner = new Scanner(System.in)) {
@@ -74,33 +66,47 @@ public class CliChannel {
                 String line = scanner.nextLine().trim();
                 if (line.isEmpty()) continue;
 
-                // 处理命令
                 if (line.startsWith("/")) {
                     if (handleCommand(line)) break;
                     continue;
                 }
-
-                // 发送消息
                 sendMessage(line);
             }
         }
+    }
+
+    /** 注册 CLI 交互式权限确认 */
+    private void setupInteractivePermission() {
+        var registry = NanobotRunner.getToolRegistry();
+        if (registry == null || registry.getPermissionManager() == null) return;
+
+        Scanner confirmScanner = new Scanner(System.in);
+        registry.getPermissionManager().setInteractiveHandler((tool, params, reason) -> {
+            System.out.println();
+            System.out.println("⚠️  工具调用需要确认:");
+            System.out.println("  工具: " + tool.getName());
+            System.out.println("  参数: " + params);
+            System.out.println("  原因: " + reason);
+            System.out.print("  允许执行? [y/N] ");
+            System.out.flush();
+            String input = confirmScanner.nextLine().trim().toLowerCase();
+            return "y".equals(input) || "yes".equals(input);
+        });
     }
 
     /** 处理 / 命令，返回 true 表示退出 */
     private boolean handleCommand(String cmd) {
         return switch (cmd.toLowerCase()) {
             case "/exit", "/quit", "/q" -> {
-                System.out.println("👋 再见！");
+                System.out.println("正在关闭系统...");
+                new Thread(() -> {
+                    try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+                    appContext.close();  // 优雅关闭 Spring Boot
+                }).start();
                 yield true;
             }
             case "/clear" -> {
-                // 换 chatId 即新会话
-                System.out.println("上下文已清空");
-                yield false;  // chatId reset below?
-                // 实际清空：重新生成 chatId
-            }
-            case "/mode", "/mode plan", "/mode default" -> {
-                System.out.println("模式切换: 请在配置中设置 nanobot.security.mode");
+                System.out.println("上下文已清空（重启 CLI 或发送新消息即新会话）");
                 yield false;
             }
             default -> {
@@ -114,21 +120,15 @@ public class CliChannel {
     private void sendMessage(String content) {
         String requestId = java.util.UUID.randomUUID().toString();
         currentRequestId = requestId;
-        streaming = false;
-        // 重置 latch（用新的）
-        // streamDone 需要重置 — 这里简单处理
 
         try {
             messageBus.publishInbound(InboundMessage.builder()
-                    .chatId(chatId)
-                    .senderId(chatId)
-                    .content(content)
-                    .channel("cli")
+                    .chatId(chatId).senderId(chatId).content(content).channel("cli")
                     .metadata(java.util.Map.of("requestId", requestId, "streamMode", true))
                     .build());
 
             // 等待流式完成（最多等5分钟）
-            Thread.sleep(200); // 给 AgentLoop 一点时间开始处理
+            Thread.sleep(200);
             int waited = 0;
             while (currentRequestId != null && waited < 300_000) {
                 Thread.sleep(100);
