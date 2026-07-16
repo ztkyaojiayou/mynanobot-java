@@ -181,7 +181,8 @@
                 <configuration>
                     <source>${java.version}</source>
                     <target>${java.version}</target>
-                    <!-- 预览功能已移除，项目无需使用 Virtual Threads -->
+                    <!-- 保留方法参数名，Spring MVC @PathVariable 等需要 -->
+                    <parameters>true</parameters>
                     <!-- Lombok 注解处理器路径 -->
                     <annotationProcessorPaths>
                         <path>

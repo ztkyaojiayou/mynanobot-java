@@ -228,28 +228,6 @@ public class SessionManager {
     /**
      * 删除会话
      */
-    public void deleteSession(String sessionKey) {
-        Path sessionDir = sessionDirs.remove(sessionKey);
-        if (sessionDir == null) {
-            return;
-        }
-        
-        try {
-            Files.walk(sessionDir)
-                .sorted(Comparator.reverseOrder())
-                .forEach(path -> {
-                    try {
-                        Files.delete(path);
-                    } catch (IOException e) {
-                        logger.warn("Failed to delete: {}", path);
-                    }
-                });
-            logger.info("Deleted session: {}", sessionKey);
-        } catch (IOException e) {
-            logger.error("Failed to delete session: {}", sessionKey, e);
-        }
-    }
-    
     // ==================== 元数据管理 ====================
     
     /**
@@ -307,6 +285,58 @@ public class SessionManager {
         return sessions;
     }
     
+    /**
+     * 列出所有会话的详细信息（名称、消息数、最近活动时间）。
+     */
+    public List<SessionInfo> listSessionDetails() {
+        List<SessionInfo> list = new ArrayList<>();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(baseDir)) {
+            for (Path dir : stream) {
+                if (!Files.isDirectory(dir)) continue;
+                String key = dir.getFileName().toString();
+                Path historyFile = dir.resolve("history.jsonl");
+                int msgCount = 0;
+                long lastModified = Files.getLastModifiedTime(dir).toMillis();
+                if (Files.exists(historyFile)) {
+                    try (var reader = Files.newBufferedReader(historyFile)) {
+                        while (reader.readLine() != null) msgCount++;
+                    }
+                    lastModified = Files.getLastModifiedTime(historyFile).toMillis();
+                }
+                list.add(new SessionInfo(key, msgCount, lastModified));
+            }
+        } catch (IOException e) {
+            logger.error("Failed to list session details", e);
+        }
+        list.sort((a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+        return list;
+    }
+
+    /**
+     * 删除指定会话及其历史文件。
+     */
+    public boolean deleteSession(String sessionKey) {
+        Path dir = getSessionDir(sessionKey);
+        if (!Files.exists(dir)) return false;
+        try {
+            try (var s = Files.walk(dir)) {
+                s.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                    try { Files.deleteIfExists(p); } catch (IOException ignored) {}
+                });
+            }
+            sessionDirs.remove(sessionKey);
+            sessionLocks.remove(sessionKey);
+            logger.info("Deleted session: {}", sessionKey);
+            return true;
+        } catch (IOException e) {
+            logger.error("Failed to delete session: {}", sessionKey, e);
+            return false;
+        }
+    }
+
+    /** 会话摘要信息 */
+    public record SessionInfo(String key, int messageCount, long lastModified) {}
+
     /**
      * 获取会话数量
      */

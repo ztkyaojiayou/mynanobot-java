@@ -76,9 +76,11 @@ public class ChatController {
             MessageBus messageBus = NanobotRunner.getMessageBus();
             messageBus.publishInbound(message);
 
-            // 等待 LLM 响应
+            // 等待 LLM 响应(这里还是同步阻塞的）
             logger.info("Waiting for response for session: {}, requestId: {}", sessionId, requestId);
-            // 最多等120s
+            // 去消息出站总线队列中获取（为什么不是直接同步等待而需要消息总线？
+            // 这是因为要使用消息总线来适配多种上游交互通道！）
+            // 核心就是一个阻塞队列，最多等120s
             OutboundMessage response = messageBus.waitForSessionResponse(sessionId, requestId, 120, java.util.concurrent.TimeUnit.SECONDS);
 
             Map<String, Object> result = new HashMap<>();
@@ -239,26 +241,6 @@ public class ChatController {
         });
 
         return emitter;
-    }
-
-    /**
-     * 健康检查接口
-     */
-    @GetMapping("/health")
-    public ResponseEntity<Map<String, Object>> health() {
-        Map<String, Object> result = new HashMap<>();
-        result.put("status", "ok");
-        result.put("service", "nanobot-java");
-        result.put("timestamp", System.currentTimeMillis());
-
-        // 检查核心组件状态
-        boolean componentsReady =
-                NanobotRunner.getMessageBus() != null &&
-                        NanobotRunner.getAgentLoop() != null;
-
-        result.put("componentsReady", componentsReady);
-
-        return ResponseEntity.ok(result);
     }
 
     // ==================== 内部类 ====================
