@@ -181,6 +181,12 @@ public class AgentLoop {
     private Consumer<OutboundMessage> progressCallback;
 
     /**
+     * 规划模式 — 只读分析 + 出计划 + 等审批。
+     * true 时 LLM 只能读文件/搜索，不能修改或执行命令。
+     */
+    private volatile boolean planMode = false;
+
+    /**
      * 流式响应回调列表（支持 SSE + WebSocket 同时工作）
      * 使用 CopyOnWriteArrayList 保证线程安全和迭代稳定性
      */
@@ -394,7 +400,8 @@ public class AgentLoop {
             // 创建上下文
             Config.AgentDefaults defaults = config.getAgents().getDefaults();
 
-            TurnContext context = TurnContext.create(message, defaults.getModel(), defaults.getMaxTokens(), defaults.getTemperature(), defaults.getMaxToolIterations(), registry.getDefinitions());
+            TurnContext context = TurnContext.create(message, defaults.getModel(), defaults.getMaxTokens(), defaults.getTemperature(), defaults.getMaxToolIterations(),
+                    planMode ? registry.getDefinitions(true) : registry.getDefinitions());
 
             // 状态机处理
             String result = processStates(context);
@@ -653,6 +660,36 @@ public class AgentLoop {
             }
         } catch (Exception e) {
             logger.debug("NANOBOT.md not found or unreadable: {}", e.getMessage());
+        }
+
+        // ============ Plan Mode 规划模式提示词注入 ============
+        if (planMode) {
+            String cwd = System.getProperty("user.dir", ".");
+            systemPrompt.append("""
+
+                    ⚠️ 你当前处于 **规划模式（Plan Mode）**。关键规则：
+
+                    【禁止事项】
+                    - ❌ 禁止写任何具体代码实现（不要贴代码）
+                    - ❌ 禁止直接给出最终答案
+                    - ❌ 禁止修改文件或执行命令
+
+                    【你必须做的】
+                    - ✅ 使用只读工具探索项目结构和现有代码
+                    - ✅ 向用户提问以澄清不明确的需求
+                    - ✅ 输出一个**结构化的实现计划**，包含：
+                      · ## 需求理解（一句话确认你要做什么）
+                      · ## 影响范围（列出要修改/创建的文件清单）
+                      · ## 实现步骤（每一步做什么，不要写代码）
+                      · ## 注意事项（风险、依赖、边界情况）
+                    - ✅ 计划末尾加上一句"确认后请回复 /plan approve 开始执行"
+
+                    【注意】用户在当前阶段只想看到计划，不想看到具体代码！
+                    等用户输入 /plan approve 之后你才能开始写代码。
+
+                    【工作目录】""" + cwd + """
+                    探索建议：先调用 list_dir 了解目录结构。
+                    """);
         }
 
         // ============ Rules 自动注入 ============
@@ -920,4 +957,16 @@ public class AgentLoop {
             streamResponseCallbacks.add(callback);
         }
     }
+
+    // ════════════════════════════════════════════════════════
+    // Plan Mode — 规划模式
+    // ════════════════════════════════════════════════════════
+
+    /** 进入/退出规划模式 */
+    public void setPlanMode(boolean planMode) {
+        this.planMode = planMode;
+        logger.info("Plan mode: {}", planMode ? "ON (只读分析)" : "OFF (正常模式)");
+    }
+
+    public boolean isPlanMode() { return planMode; }
 }

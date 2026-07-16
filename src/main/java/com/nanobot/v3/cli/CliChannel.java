@@ -34,6 +34,9 @@ public class CliChannel {
     /** 当前流式输出的 requestId（用于等待完成） */
     private volatile String currentRequestId;
 
+    /** 共享 Scanner — 整个 CLI 共用一个 System.in 读取器，避免多 Scanner 抢输入 */
+    private final Scanner scanner = new Scanner(System.in);
+
     public CliChannel(ConfigurableApplicationContext appContext) {
         this.messageBus = NanobotRunner.getMessageBus();
         this.agentLoop = NanobotRunner.getAgentLoop();
@@ -44,12 +47,14 @@ public class CliChannel {
         var registry = NanobotRunner.getToolRegistry();
         this.cmdCtx = new CommandContext(registry,
                 registry != null ? registry.getPermissionManager() : null,
+                agentLoop,
+                sessionId,
                 appContext::close);
         this.commands = new CommandRegistry();
         this.commands.register(new ExitCommand());
         this.commands.register(new ModeCommand());
         this.commands.register(new HelpCommand(commands));
-        this.commands.register(new InitCommand(messageBus, sessionId));
+        this.commands.register(new InitCommand());
     }
 
     public void start() {
@@ -82,21 +87,19 @@ public class CliChannel {
         System.out.println();
 
         //持续监听用户输入，这就是入口！！！
-        try (Scanner scanner = new Scanner(System.in)) {
-            while (true) {
-                System.out.print("> ");
-                System.out.flush();
-                if (!scanner.hasNextLine()) break;
-                String line = scanner.nextLine().trim();
-                if (line.isEmpty()) continue;
-                //若是命令，直接处理
-                if (line.startsWith("/")) {
-                    if (handleCommand(line)) break;
-                    continue;
-                }
-                //若是常规对话，发送到消息总线
-                sendMessage(line);
+        while (true) {
+            System.out.print("> ");
+            System.out.flush();
+            if (!scanner.hasNextLine()) break;
+            String line = scanner.nextLine().trim();
+            if (line.isEmpty()) continue;
+            //若是命令，直接处理
+            if (line.startsWith("/")) {
+                if (handleCommand(line)) break;
+                continue;
             }
+            //若是常规对话，发送到消息总线
+            sendMessage(line);
         }
     }
 
@@ -105,7 +108,6 @@ public class CliChannel {
         var registry = NanobotRunner.getToolRegistry();
         if (registry == null || registry.getPermissionManager() == null) return;
 
-        Scanner confirmScanner = new Scanner(System.in);
         registry.getPermissionManager().setInteractiveHandler((tool, params, reason) -> {
             System.out.println();
             System.out.println("⚠️  工具调用需要确认:");
@@ -114,7 +116,7 @@ public class CliChannel {
             System.out.println("  原因: " + reason);
             System.out.print("  允许执行? [y/N] ");
             System.out.flush();
-            String input = confirmScanner.nextLine().trim().toLowerCase();
+            String input = scanner.nextLine().trim().toLowerCase();
             return "y".equals(input) || "yes".equals(input);
         });
     }
@@ -125,13 +127,12 @@ public class CliChannel {
         if (registry == null) return;
         var tool = registry.get("ask_user");
         if (tool instanceof AskUserTool askTool) {
-            Scanner askScanner = new Scanner(System.in);
             askTool.setInteractiveHandler(question -> {
                 System.out.println();
                 System.out.println("❓ " + question);
                 System.out.print("> ");
                 System.out.flush();
-                return askScanner.nextLine().trim();
+                return scanner.nextLine().trim();
             });
         }
     }

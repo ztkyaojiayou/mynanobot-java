@@ -301,16 +301,25 @@ public class ToolRegistry {
      * @return 工具定义的 JSON 列表
      */
     public List<JsonNode> getDefinitions() {
-        // 使用缓存避免频繁序列化
-        if (cachedDefinitions != null) {
+        return getDefinitions(false);
+    }
+
+    /**
+     * 获取工具 Function Schema 列表。
+     * @param readOnlyOnly true 时只返回只读工具（用于 plan mode）
+     */
+    public List<JsonNode> getDefinitions(boolean readOnlyOnly) {
+        // 缓存仅在全量列表时使用
+        if (!readOnlyOnly && cachedDefinitions != null) {
             return cachedDefinitions;
         }
-        
+
         // 分类工具：内置工具 vs MCP 工具
         List<JsonNode> builtins = new ArrayList<>();
         List<JsonNode> mcpTools = new ArrayList<>();
-        
+
         for (Tool tool : tools.values()) {
+            if (readOnlyOnly && !tool.isReadOnly()) continue; // plan mode: 只暴露只读工具
             JsonNode schema = tool.toFunctionSchema();
             if (tool.getName().startsWith("mcp_")) {
                 mcpTools.add(schema);
@@ -318,16 +327,16 @@ public class ToolRegistry {
                 builtins.add(schema);
             }
         }
-        
+
         // 内置工具按名称排序，MCP 工具也按名称排序
         builtins.sort(Comparator.comparing(n -> n.get("function").get("name").asText()));
         mcpTools.sort(Comparator.comparing(n -> n.get("function").get("name").asText()));
-        
+
         // 内置工具在前，MCP 工具在后
         List<JsonNode> result = new ArrayList<>(builtins);
         result.addAll(mcpTools);
-        
-        cachedDefinitions = result;
+
+        if (!readOnlyOnly) cachedDefinitions = result;
         return result;
     }
     
@@ -376,8 +385,9 @@ public class ToolRegistry {
         // 3. 验证参数
         List<String> errors = tool.validateParameters(params);
         if (!errors.isEmpty()) {
-            String error = String.format("Invalid parameters for tool '%s': %s",
-                                        name, String.join("; ", errors));
+            String hint = params.isEmpty() ? " (参数为空，请检查是否忘记传参，如 list_dir 可不传参使用默认值)" : "";
+            String error = String.format("Invalid parameters for tool '%s': %s%s",
+                                        name, String.join("; ", errors), hint);
             logger.warn(error);
             return ToolResult.err(error);
         }

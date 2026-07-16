@@ -1,5 +1,6 @@
 package com.nanobot.command;
 
+import com.nanobot.core.AgentLoop;
 import com.nanobot.security.PermissionManager;
 import com.nanobot.tools.ToolRegistry;
 
@@ -9,5 +10,7 @@ import com.nanobot.tools.ToolRegistry;
 public record CommandContext(
         ToolRegistry toolRegistry,
         PermissionManager permissionManager,
+        AgentLoop agentLoop,
+        String sessionId,
         Runnable shutdown
 ) {}

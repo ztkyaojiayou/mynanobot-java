@@ -533,7 +533,10 @@ public class SubagentCommunication {
         }
         
         public static SubagentEvent stateChanged(String sourceId, String key, Object value) {
-            return new SubagentEvent(sourceId, Type.STATE_CHANGED, Map.of("key", key, "value", value));
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("key", key);
+            payload.put("value", value);  // HashMap 允许 null 值，Map.of 不允许
+            return new SubagentEvent(sourceId, Type.STATE_CHANGED, payload);
         }
         
         public static SubagentEvent taskCompleted(String agentId, String taskId) {

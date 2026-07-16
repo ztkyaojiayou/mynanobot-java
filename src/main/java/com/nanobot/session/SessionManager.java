@@ -303,7 +303,11 @@ public class SessionManager {
                     }
                     lastModified = Files.getLastModifiedTime(historyFile).toMillis();
                 }
-                list.add(new SessionInfo(key, msgCount, lastModified));
+                // 读取会话名称（若有）
+                String name = loadMetadata(key)
+                        .map(m -> (String) m.get("name"))
+                        .orElse(null);
+                list.add(new SessionInfo(key, name, msgCount, lastModified));
             }
         } catch (IOException e) {
             logger.error("Failed to list session details", e);
@@ -334,8 +338,19 @@ public class SessionManager {
         }
     }
 
+    /** 重命名会话 */
+    public boolean renameSession(String sessionKey, String name) {
+        Path dir = getSessionDir(sessionKey);
+        if (!Files.exists(dir)) return false;
+        Map<String, Object> meta = loadMetadata(sessionKey).orElse(new HashMap<>());
+        meta.put("name", name != null && !name.isBlank() ? name.trim() : null);
+        saveMetadata(sessionKey, meta);
+        logger.info("Renamed session: {} -> \"{}\"", sessionKey, name);
+        return true;
+    }
+
     /** 会话摘要信息 */
-    public record SessionInfo(String key, int messageCount, long lastModified) {}
+    public record SessionInfo(String key, String name, int messageCount, long lastModified) {}
 
     /**
      * 获取会话数量

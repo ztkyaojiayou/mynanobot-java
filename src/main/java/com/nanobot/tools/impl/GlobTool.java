@@ -54,7 +54,7 @@ public class GlobTool implements Tool {
                 .put("description", "Base path to search from");
 
         props.set("properties", properties);
-        props.putArray("required").add("pattern");
+        // pattern 有默认值 "*"，不标记为 required
 
         return props;
     }
@@ -62,12 +62,8 @@ public class GlobTool implements Tool {
     @Override
     public CompletableFuture<Object> execute(Map<String, Object> params) {
         return CompletableFuture.supplyAsync(() -> {
-            String pattern = (String) params.get("pattern");
+            String pattern = (String) params.getOrDefault("pattern", "*");
             String basePathStr = (String) params.getOrDefault("basePath", ".");
-
-            if (pattern == null || pattern.isBlank()) {
-                return "Error: pattern is required";
-            }
 
             try {
                 Path searchPath = Paths.get(basePathStr);  // Path already validated & resolved by ToolRegistry/PathGuard

@@ -25,6 +25,7 @@ public class SessionController {
         for (var info : sm.listSessionDetails()) {
             Map<String, Object> item = new HashMap<>();
             item.put("key", info.key());
+            item.put("name", info.name() != null ? info.name() : info.key());
             item.put("messageCount", info.messageCount());
             item.put("lastModified", info.lastModified());
             list.add(item);
@@ -56,6 +57,22 @@ public class SessionController {
         Map<String, Object> result = new HashMap<>();
         result.put("key", key);
         result.put("deleted", deleted);
+        return ResponseEntity.ok(result);
+    }
+
+    /** PATCH /api/sessions/{key} — 重命名会话，body: {"name": "新名称"} */
+    @PatchMapping("/sessions/{key}")
+    public ResponseEntity<Map<String, Object>> renameSession(@PathVariable("key") String key,
+                                                              @RequestBody Map<String, Object> body) {
+        var sm = NanobotRunner.getSessionManager();
+        if (sm == null) return ResponseEntity.notFound().build();
+
+        String name = (String) body.get("name");
+        boolean ok = sm.renameSession(key, name);
+        Map<String, Object> result = new HashMap<>();
+        result.put("key", key);
+        result.put("name", name);
+        result.put("ok", ok);
         return ResponseEntity.ok(result);
     }
 }

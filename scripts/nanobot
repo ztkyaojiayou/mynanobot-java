@@ -10,9 +10,11 @@ export PATH="$JAVA_HOME/bin:$PATH"
 # 自动编译（如需要）
 if [[ ! -f "$SCRIPT_DIR/target/classes/com/nanobot/v3/NanobotCliApplication.class" ]]; then
     echo "(首次运行，正在编译...)"
-    cd "$SCRIPT_DIR" && mvn compile -q -DskipTests
+    (cd "$SCRIPT_DIR" && mvn compile -q -DskipTests)
 fi
 
-cd "$SCRIPT_DIR"
-java -cp "target/classes:$(mvn -q dependency:build-classpath -DincludeScope=compile -Dmdep.outputFile=/dev/stdout 2>/dev/null)" \
-    com.nanobot.v3.NanobotCliApplication "$@"
+# 关键：不 cd 到 SCRIPT_DIR，保留用户当前目录作为工作区
+CLASSES="$SCRIPT_DIR/target/classes"
+CLASSPATH="$CLASSES:$(cd "$SCRIPT_DIR" && mvn -q dependency:build-classpath -DincludeScope=compile -Dmdep.outputFile=/dev/stdout 2>/dev/null)"
+
+java -cp "$CLASSPATH" com.nanobot.v3.NanobotCliApplication "$@"

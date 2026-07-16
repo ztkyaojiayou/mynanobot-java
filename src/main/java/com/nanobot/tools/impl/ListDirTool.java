@@ -54,8 +54,8 @@ public class ListDirTool implements Tool {
             .put("description", "List recursively");
         
         props.set("properties", properties);
-        props.putArray("required").add("path");
-        
+        // path 有默认值 "." ，不标记为 required，避免 LLM 不传参时报错
+
         return props;
     }
     

@@ -140,6 +140,9 @@ public class DeepSeekProvider implements LLMProvider {
                     return LLMResponse.error("HTTP error: " + response.statusCode() + " - " + body, "http_error");
                 }
 
+                // DeepSeek 逐字符流式返回 arguments，需跨 delta 拼接
+                Map<Integer, ToolCallAccumulator> accumulators = new HashMap<>();
+
                 // 逐行解析 SSE 响应
                 try (java.io.BufferedReader reader = new java.io.BufferedReader(
                         new java.io.InputStreamReader(response.body(), java.nio.charset.StandardCharsets.UTF_8))) {
@@ -167,7 +170,7 @@ public class DeepSeekProvider implements LLMProvider {
                             if (delta != null) {
                                 if (delta.has("tool_calls")) {
                                     toolCallMode = true;
-                                    parseToolCallsFromDelta(delta.get("tool_calls"), toolCalls);
+                                    parseToolCallsFromDelta(delta.get("tool_calls"), accumulators);
                                 }
                                 if (delta.has("content")) {
                                     String content = delta.get("content").asText();
@@ -179,6 +182,11 @@ public class DeepSeekProvider implements LLMProvider {
                             }
                         }
                     }
+                }
+
+                // 从累加器构建最终的工具调用列表（拼接完整的 arguments JSON）
+                if (toolCallMode) {
+                    toolCalls = buildToolCalls(accumulators);
                 }
 
                 if (toolCallMode && !toolCalls.isEmpty()) {
@@ -261,35 +269,61 @@ public class DeepSeekProvider implements LLMProvider {
         }
     }
 
-    private void parseToolCallsFromDelta(JsonNode toolCallsNode, List<LLMResponse.ToolCallRequest> toolCalls) {
-        for (JsonNode tc : toolCallsNode) {
-            String id = tc.has("id") ? tc.get("id").asText() : null;
-            JsonNode function = tc.get("function");
+    /** DeepSeek 流式工具调用参数累加器（按 index 拼接碎片） */
+    private static class ToolCallAccumulator {
+        String id;
+        String name;
+        final StringBuilder argsBuilder = new StringBuilder();
 
-            if (function != null) {
-                String name = function.has("name") ? function.get("name").asText() : null;
-                JsonNode args = function.get("arguments");
-
-                if (name != null) {
-                    Map<String, Object> arguments = new HashMap<>();
-                    if (args != null) {
-                        if (args.isTextual()) {
-                            try {
-                                String argsStr = args.asText();
-                                arguments = objectMapper.readValue(argsStr, 
-                                    new TypeReference<Map<String, Object>>() {});
-                            } catch (Exception e) {
-                                logger.warn("Failed to parse arguments string: {}", args.asText());
-                            }
-                        } else {
-                            arguments = objectMapper.convertValue(args, 
-                                new TypeReference<Map<String, Object>>() {});
-                        }
-                    }
-                    toolCalls.add(new LLMResponse.ToolCallRequest(id, name, arguments));
+        Map<String, Object> buildArgs(ObjectMapper mapper) {
+            Map<String, Object> args = new HashMap<>();
+            String argsStr = argsBuilder.toString();
+            if (!argsStr.isEmpty()) {
+                try {
+                    args = mapper.readValue(argsStr, new TypeReference<Map<String, Object>>() {});
+                } catch (Exception e) {
+                    // JSON 不完整，等流式结束再统一解析
                 }
             }
+            return args;
         }
+    }
+
+    private ToolCallAccumulator getOrCreateAcc(Map<Integer, ToolCallAccumulator> accs, int index) {
+        return accs.computeIfAbsent(index, k -> new ToolCallAccumulator());
+    }
+
+    private void parseToolCallsFromDelta(JsonNode toolCallsNode,
+                                          Map<Integer, ToolCallAccumulator> accumulators) {
+        for (JsonNode tc : toolCallsNode) {
+            int index = tc.has("index") ? tc.get("index").asInt() : 0;
+            JsonNode function = tc.get("function");
+            if (function == null) continue;
+
+            ToolCallAccumulator acc = getOrCreateAcc(accumulators, index);
+
+            if (tc.has("id") && !tc.get("id").asText().isEmpty())
+                acc.id = tc.get("id").asText();
+            if (function.has("name") && !function.get("name").asText().isEmpty())
+                acc.name = function.get("name").asText();
+            if (function.has("arguments")) {
+                String fragment = function.get("arguments").asText();
+                if (!fragment.isEmpty()) acc.argsBuilder.append(fragment);
+            }
+        }
+    }
+
+    /** 在所有 delta 处理完后，将累加器中的内容转为最终的工具调用列表 */
+    private List<LLMResponse.ToolCallRequest> buildToolCalls(Map<Integer, ToolCallAccumulator> accumulators) {
+        List<LLMResponse.ToolCallRequest> result = new ArrayList<>();
+        accumulators.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(e -> {
+                    ToolCallAccumulator acc = e.getValue();
+                    result.add(new LLMResponse.ToolCallRequest(
+                            acc.id, acc.name, acc.buildArgs(objectMapper)));
+                });
+        return result;
     }
     
     private LLMResponse parseResponse(String responseBody) {

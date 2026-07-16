@@ -182,8 +182,9 @@ public class AgentRunner {
             return CompletableFuture.completedFuture("处理已取消。");
         }
 
-        // 清理孤立工具结果
-        final List<Map<String, Object>> finalMessages = dropOrphanToolResults(messages);
+        // 清理孤立工具结果 + 不完整 tool_calls（DeepSeek 要求 tool_call 必须有对应结果）
+        List<Map<String, Object>> finalMessages = dropOrphanToolResults(messages);
+        finalMessages = sanitizeToolCallHistory(finalMessages);
         
         // 调用 LLM
         List<LLMProvider.Message> llmMessages = convertToLLMMessages(finalMessages);
@@ -600,7 +601,33 @@ public class AgentRunner {
         
         return result;
     }
-    
+
+    /**
+     * 清理不完整的 tool_calls。DeepSeek 要求 assistant(tool_calls) 后必须跟 tool 结果。
+     * 不满足则移除 tool_calls 字段，当作普通消息。
+     */
+    private List<Map<String, Object>> sanitizeToolCallHistory(List<Map<String, Object>> messages) {
+        List<Map<String, Object>> cleaned = new ArrayList<>(messages);
+        for (int i = 0; i < cleaned.size(); i++) {
+            Map<String, Object> msg = cleaned.get(i);
+            if (!"assistant".equals(msg.get("role"))) continue;
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> tcs = (List<Map<String, Object>>) msg.get("tool_calls");
+            if (tcs == null || tcs.isEmpty()) continue;
+            int found = 0;
+            for (int j = i + 1; j < cleaned.size() && found < tcs.size(); j++) {
+                if ("tool".equals(cleaned.get(j).get("role"))) found++;
+                else break;
+            }
+            if (found < tcs.size()) {
+                Map<String, Object> stripped = new HashMap<>(msg);
+                stripped.remove("tool_calls");
+                cleaned.set(i, stripped);
+            }
+        }
+        return cleaned;
+    }
+
     /**
      * 创建助手消息
      */

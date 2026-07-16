@@ -69,7 +69,8 @@ public class GrepTool implements Tool {
             .put("description", "Glob filter for filenames, e.g. '*.java' or '*.{js,ts}'");
 
         props.set("properties", properties);
-        props.putArray("required").add("pattern").add("path");
+        // path 有默认值 "."，只标记 pattern 为 required
+        props.putArray("required").add("pattern");
         
         return props;
     }
