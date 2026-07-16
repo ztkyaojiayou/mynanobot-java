@@ -525,7 +525,7 @@
         console.log('messagesContainer children count:', messagesContainer ? messagesContainer.children.length : 'null');
         const searchBtn = document.getElementById('searchBtn');
         const streamModeCheckbox = document.getElementById('streamMode');
-        let chatId = 'web-' + Date.now();
+        let sessionId = 'web-' + Date.now();
         let useSearchMode = false;
         let useStreamMode = false;
         let ws = null;
@@ -687,7 +687,7 @@
             // 通过 WebSocket 发送（调用前已确认连接状态）
             ws.send(JSON.stringify({
                 type: 'message',
-                chat_id: chatId,
+                chat_id: sessionId,
                 content: content,
                 useSearch: useSearchMode,
                 streamMode: useStreamMode
@@ -699,7 +699,7 @@
             const typingIndicator = addTypingIndicator();
             const requestId = Date.now() + '-' + Math.random().toString(36).substring(7);
             
-            console.log(`[${requestId}] Sending HTTP request, chatId: ${chatId}, content: ${content}`);
+            console.log(`[${requestId}] Sending HTTP request, sessionId: ${sessionId}, content: ${content}`);
 
             try {
                 // 使用完全随机的URL来确保没有缓存
@@ -714,7 +714,7 @@
                     },
                     body: JSON.stringify({
                         channel: 'http',
-                        chatId: chatId,
+                        sessionId: sessionId,
                         content: content,
                         useSearch: useSearchMode,
                         streamMode: useStreamMode,
@@ -758,7 +758,7 @@
         async function sendMessageStreamHTTP(content) {
             const requestId = Date.now() + '-' + Math.random().toString(36).substring(7);
             
-            console.log(`[${requestId}] Sending HTTP stream request, chatId: ${chatId}, content: ${content}`);
+            console.log(`[${requestId}] Sending HTTP stream request, sessionId: ${sessionId}, content: ${content}`);
 
             try {
                 // 重置流式状态
@@ -775,7 +775,7 @@
                     },
                     body: JSON.stringify({
                         channel: 'http',
-                        chatId: chatId,
+                        sessionId: sessionId,
                         content: content,
                         useSearch: useSearchMode,
                         streamMode: true,

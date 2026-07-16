@@ -12,104 +12,89 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * 读取文件工具
- * ================
- * 
- * 读取指定路径的文件内容。
- * 
+ * 读取文件工具。
+ *
  * 参数：
  * - path: 文件路径（必填）
- * - maxLines: 最大行数（可选，默认全部）
+ * - offset: 起始行号（1-based，默认1）
+ * - limit: 读取行数（默认2000，设0表示全部）
  */
 public class ReadFileTool implements Tool {
 
     private static final ObjectMapper mapper = new ObjectMapper();
+    private static final int DEFAULT_LIMIT = 2000;
 
-    public ReadFileTool() {
-        // Path validation is handled centrally by PathGuard in ToolRegistry.execute()
-    }
-    
-    @Override
-    public String getName() {
-        return "read_file";
-    }
-    
+    public ReadFileTool() {}
+
+    @Override public String getName() { return "read_file"; }
+
     @Override
     public String getDescription() {
-        return "Read the content of a file. Use this to view file contents.";
+        return "Read a file with line numbers. Default reads up to " + DEFAULT_LIMIT
+             + " lines from the beginning. Use offset and limit for large files.";
     }
-    
+
     @Override
     public JsonNode getParameters() {
+        ObjectNode root = mapper.createObjectNode();
+        root.put("type", "object");
         ObjectNode props = mapper.createObjectNode();
-        props.put("type", "object");
-        
-        ObjectNode properties = mapper.createObjectNode();
-        properties.putObject("path")
-            .put("type", "string")
-            .put("description", "File path to read");
-        
-        properties.putObject("maxLines")
-            .put("type", "integer")
-            .put("description", "Maximum number of lines to read");
-        
-        props.set("properties", properties);
-        props.putArray("required").add("path");
-        
-        return props;
+        props.putObject("path").put("type", "string").put("description", "File path to read");
+        props.putObject("offset").put("type", "integer")
+                .put("description", "Start line number (1-based, default 1)");
+        props.putObject("limit").put("type", "integer")
+                .put("description", "Max lines to read (default " + DEFAULT_LIMIT + ", 0=unlimited)");
+        root.set("properties", props);
+        root.set("required", mapper.createArrayNode().add("path"));
+        return root;
     }
-    
+
+    @Override public boolean isReadOnly() { return true; }
+
     @Override
     public CompletableFuture<Object> execute(Map<String, Object> params) {
         return CompletableFuture.supplyAsync(() -> {
             String pathStr = (String) params.get("path");
-            Integer maxLines = (Integer) params.get("maxLines");
-            
-            if (pathStr == null) {
-                return "Error: path is required";
-            }
-            
+            if (pathStr == null) return "Error: path is required";
+
             try {
-                Path filePath = Paths.get(pathStr);  // Path already validated & resolved by ToolRegistry/PathGuard
-                
-                if (!Files.exists(filePath)) {
+                Path filePath = Paths.get(pathStr);
+                if (!Files.exists(filePath))
                     return "Error: file not found: " + pathStr;
-                }
-                
-                if (Files.isDirectory(filePath)) {
-                    return "Error: path is a directory, not a file: " + pathStr;
-                }
-                
-                List<String> lines = Files.readAllLines(filePath);
-                
-                if (maxLines != null && maxLines > 0 && maxLines < lines.size()) {
-                    lines = lines.subList(0, maxLines);
-                }
-                
-                StringBuilder content = new StringBuilder();
-                content.append("File: ").append(filePath).append("\n");
-                content.append("Lines: ").append(lines.size()).append("\n\n");
-                
-                for (int i = 0; i < lines.size(); i++) {
-                    content.append(String.format("%6d  %s\n", i + 1, lines.get(i)));
-                }
-                
-                return content.toString();
-                
+                if (Files.isDirectory(filePath))
+                    return "Error: path is a directory: " + pathStr;
+
+                List<String> allLines = Files.readAllLines(filePath);
+                int totalLines = allLines.size();
+
+                int offset = params.containsKey("offset")
+                        ? Math.max(1, ((Number) params.get("offset")).intValue()) : 1;
+                int limit = params.containsKey("limit")
+                        ? ((Number) params.get("limit")).intValue() : DEFAULT_LIMIT;
+                if (limit <= 0) limit = Integer.MAX_VALUE;
+
+                int start = Math.min(offset - 1, totalLines);
+                int end = Math.min(start + limit, totalLines);
+                List<String> lines = allLines.subList(start, end);
+
+                StringBuilder sb = new StringBuilder();
+                sb.append("File: ").append(filePath)
+                        .append(" (").append(totalLines).append(" lines total");
+                if (end < totalLines || start > 0)
+                    sb.append(", showing lines ").append(start + 1).append("-").append(end);
+                sb.append(")\n\n");
+
+                for (int i = 0; i < lines.size(); i++)
+                    sb.append(String.format("%6d  %s\n", start + i + 1, lines.get(i)));
+
+                if (totalLines > end)
+                    sb.append("\n... (use offset=").append(end + 1)
+                            .append(" to read more)");
+
+                return sb.toString();
             } catch (IOException e) {
                 return "Error reading file: " + e.getMessage();
             }
         });
     }
-    
-    @Override
-    public boolean isReadOnly() {
-        return true;
-    }
-
-    /*
-     * Path resolution is handled centrally by PathGuard in ToolRegistry.execute().
-     * The 'path' parameter is already validated and resolved to an absolute path
-     * before this tool's execute() is called.
-     */
 }

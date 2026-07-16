@@ -36,7 +36,10 @@ public class EditFileTool implements Tool {
     
     @Override
     public String getDescription() {
-        return "Edit a file by replacing specific text. Use for small, targeted changes.";
+        return "Edit a file by replacing specific text. "
+             + "The oldText must appear exactly once in the file — "
+             + "if it appears multiple times, the edit will fail. "
+             + "Provide enough surrounding context to make oldText unique.";
     }
     
     @Override
@@ -51,8 +54,8 @@ public class EditFileTool implements Tool {
         
         properties.putObject("oldText")
             .put("type", "string")
-            .put("description", "Text to find and replace");
-        
+            .put("description", "Text to find and replace (must be unique — provide enough surrounding lines to ensure it appears exactly once)");
+
         properties.putObject("newText")
             .put("type", "string")
             .put("description", "Replacement text");
@@ -83,10 +86,16 @@ public class EditFileTool implements Tool {
                 
                 String content = Files.readString(filePath);
                 
-                if (!content.contains(oldText)) {
+                // 唯一性校验：oldText 必须在文件中恰好出现一次，防止误替换
+                int count = countOccurrences(content, oldText);
+                if (count == 0) {
                     return "Error: oldText not found in file";
                 }
-                
+                if (count > 1) {
+                    return "Error: oldText found " + count + " times in file — "
+                         + "must be unique. Provide more surrounding context to make it unique.";
+                }
+
                 String newContent = content.replace(oldText, newText);
                 
                 Files.writeString(filePath, newContent);
@@ -104,9 +113,14 @@ public class EditFileTool implements Tool {
         return false;
     }
 
+    /** 统计子串在文本中出现的次数 */
+    private int countOccurrences(String text, String sub) {
+        int count = 0, idx = 0;
+        while ((idx = text.indexOf(sub, idx)) != -1) { count++; idx += sub.length(); }
+        return count;
+    }
+
     /*
      * Path resolution is handled centrally by PathGuard in ToolRegistry.execute().
-     * The 'path' parameter is already validated and resolved to an absolute path
-     * before this tool's execute() is called.
      */
 }

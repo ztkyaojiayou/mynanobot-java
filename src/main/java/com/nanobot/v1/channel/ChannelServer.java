@@ -148,7 +148,7 @@ public class ChannelServer {
                 JsonNode json = objectMapper.readTree(body);
                 
                 // 优先使用 chatId，兼容 sessionId
-                String sessionId = json.has("chatId") ? json.get("chatId").asText() : 
+                String sessionId = json.has("sessionId") ? json.get("sessionId").asText() : 
                                   (json.has("sessionId") ? json.get("sessionId").asText() : UUID.randomUUID().toString());
                 String content = json.has("content") ? json.get("content").asText() : "";
                 String channel = json.has("channel") ? json.get("channel").asText() : "http";
@@ -165,7 +165,7 @@ public class ChannelServer {
                 metadata.put("requestId", requestId);
                 
                 InboundMessage message = InboundMessage.builder()
-                    .chatId(sessionId)
+                    .sessionId(sessionId)
                     .senderId(sessionId)
                     .content(content)
                     .channel(channel)
@@ -563,7 +563,7 @@ public class ChannelServer {
                 switch (type) {
                     case "message" -> {
                         // 创建入站消息
-                        String chatId = node.has("chatId") ? node.get("chatId").asText() : 
+                        String sessionId = node.has("sessionId") ? node.get("sessionId").asText() : 
                                        (node.has("chat_id") ? node.get("chat_id").asText() : connectionId);
                         String content = node.has("content") ? node.get("content").asText() : "";
                         
@@ -579,13 +579,13 @@ public class ChannelServer {
                         
                         InboundMessage inbound = InboundMessage.builder()
                             .channel("websocket")
-                            .chatId(chatId)
+                            .sessionId(sessionId)
                             .content(content)
                             .connectionId(connectionId)
                             .metadata(metadata)
                             .build();
                         
-                        logger.info("WebSocket message received: chatId={}, useSearch={}, streamMode={}", chatId, useSearch, streamMode);
+                        logger.info("WebSocket message received: sessionId={}, useSearch={}, streamMode={}", sessionId, useSearch, streamMode);
                         messageBus.publishInbound(inbound);
                     }
                     
@@ -622,7 +622,7 @@ public class ChannelServer {
                     jsonMap.put("type", "message");
                     jsonMap.put("content", message.getContent());
                     jsonMap.put("channel", message.getChannel());
-                    jsonMap.put("chatId", message.getChatId());
+                    jsonMap.put("sessionId", message.getSessionId());
                     jsonMap.put("sessionId", message.getSessionId());
                     jsonMap.put("isProgress", message.isProgress());
                     jsonMap.put("metadata", message.getMetadata());

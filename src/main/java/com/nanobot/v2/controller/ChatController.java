@@ -44,11 +44,11 @@ public class ChatController {
      */
     @PostMapping("/chat")
     public ResponseEntity<Map<String, Object>> chat(@RequestBody ChatRequest request) {
-        logger.info("Received sync chat request: chatId={}", request.getChatId());
+        logger.info("Received sync chat request: sessionId={}", request.getSessionId());
 
         try {
-            // 使用 chatId 作为会话标识
-            String sessionId = request.getChatId();
+            // 使用 sessionId 作为会话标识
+            String sessionId = request.getSessionId();
             if (sessionId == null || sessionId.isBlank()) {
                 sessionId = UUID.randomUUID().toString();
             }
@@ -65,7 +65,7 @@ public class ChatController {
             // 构建入站消息（senderId 使用 sessionId，因为 API 通道没有独立的发送者 ID）
             //相当于发消息到mq，而不是同步处理！！！这是核心的性能架构设计
             InboundMessage message = InboundMessage.builder()
-                    .chatId(sessionId)
+                    .sessionId(sessionId)
                     .senderId(sessionId) // API 通道使用 sessionId 作为 senderId
                     .content(request.getContent())
                     .channel(request.getChannel() != null ? request.getChannel() : "api")
@@ -120,7 +120,7 @@ public class ChatController {
     public SseEmitter streamChat(@RequestBody ChatRequest request) {
         // ═══════ 诊断日志：打印每次请求的消息内容（不含历史）═══════
         logger.info("═══════ SSE REQUEST ═══════");
-        logger.info("  chatId     : {}", request.getChatId());
+        logger.info("  sessionId     : {}", request.getSessionId());
         logger.info("  content    : '{}'", request.getContent() != null ? request.getContent() : "null");
         logger.info("  channel    : {}", request.getChannel());
         logger.info("  streamMode : {}", request.isStreamMode());
@@ -132,7 +132,7 @@ public class ChatController {
 
         // 生成 requestId 和 sessionId（使用 chatId）
         String requestId = UUID.randomUUID().toString();
-        String sessionId = request.getChatId() != null ? request.getChatId() : UUID.randomUUID().toString();
+        String sessionId = request.getSessionId() != null ? request.getSessionId() : UUID.randomUUID().toString();
 
         logger.info("Stream chat requestId={}, sessionId={}", requestId, sessionId);
 
@@ -207,7 +207,7 @@ public class ChatController {
 
         // 构建入站消息（senderId 使用 sessionId，因为 API 通道没有独立的发送者 ID）
         InboundMessage message = InboundMessage.builder()
-                .chatId(sessionId)
+                .sessionId(sessionId)
                 .senderId(sessionId) // API 通道使用 sessionId 作为 senderId
                 .content(request.getContent())
                 .channel(request.getChannel() != null ? request.getChannel() : "api")
@@ -253,7 +253,7 @@ public class ChatController {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class ChatRequest {
-        private String chatId;
+        private String sessionId;
         private String content;
         private String channel;
         private boolean useSearch;

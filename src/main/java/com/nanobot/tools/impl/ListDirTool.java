@@ -35,7 +35,8 @@ public class ListDirTool implements Tool {
     
     @Override
     public String getDescription() {
-        return "List contents of a directory. Shows files and subdirectories.";
+        return "List files and subdirectories in a directory. "
+             + "Use recursive=true for deep listing. Shows file sizes and directory indicators.";
     }
     
     @Override

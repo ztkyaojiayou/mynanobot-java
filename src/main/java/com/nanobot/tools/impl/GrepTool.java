@@ -38,7 +38,8 @@ public class GrepTool implements Tool {
     
     @Override
     public String getDescription() {
-        return "Search for text pattern in files. Returns matching lines with line numbers.";
+        return "Search for a regex pattern in files. Returns matching lines with line numbers. "
+             + "Use include to filter by file extension (e.g. '*.java').";
     }
     
     @Override
@@ -62,7 +63,11 @@ public class GrepTool implements Tool {
         properties.putObject("caseSensitive")
             .put("type", "boolean")
             .put("description", "Case sensitive search");
-        
+
+        properties.putObject("include")
+            .put("type", "string")
+            .put("description", "Glob filter for filenames, e.g. '*.java' or '*.{js,ts}'");
+
         props.set("properties", properties);
         props.putArray("required").add("pattern").add("path");
         
@@ -76,7 +81,8 @@ public class GrepTool implements Tool {
             String pathStr = (String) params.getOrDefault("path", ".");
             Boolean recursive = (Boolean) params.getOrDefault("recursive", false);
             Boolean caseSensitive = (Boolean) params.getOrDefault("caseSensitive", true);
-            
+            String include = (String) params.get("include");
+
             if (pattern == null) {
                 return "Error: pattern is required";
             }
@@ -89,19 +95,29 @@ public class GrepTool implements Tool {
                 }
                 
                 List<String> results = new ArrayList<>();
-                
+
+                // include 过滤：如 "*.java" 或 "*.{js,ts}"
+                java.util.function.Predicate<Path> includeFilter = f -> {
+                    if (include == null || include.isBlank()) return true;
+                    try {
+                        return f.getFileSystem().getPathMatcher("glob:" + include)
+                                .matches(f.getFileName());
+                    } catch (Exception e) { return true; }
+                };
+
                 if (Files.isRegularFile(searchPath)) {
-                    searchFile(searchPath, pattern, caseSensitive, results);
+                    if (includeFilter.test(searchPath))
+                        searchFile(searchPath, pattern, caseSensitive, results);
                 } else if (Files.isDirectory(searchPath)) {
                     if (Boolean.TRUE.equals(recursive)) {
                         try (var stream = Files.walk(searchPath)) {
-                            stream.filter(Files::isRegularFile)
+                            stream.filter(Files::isRegularFile).filter(includeFilter)
                                 .forEach(file -> searchFile(file, pattern, caseSensitive, results));
                         }
                     } else {
                         try (var stream = Files.newDirectoryStream(searchPath)) {
                             for (Path file : stream) {
-                                if (Files.isRegularFile(file)) {
+                                if (Files.isRegularFile(file) && includeFilter.test(file)) {
                                     searchFile(file, pattern, caseSensitive, results);
                                 }
                             }

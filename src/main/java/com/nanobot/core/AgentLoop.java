@@ -344,10 +344,10 @@ public class AgentLoop {
                 if (message != null) {
                     processedCount++;
                     final int msgNum = processedCount;
-                    logger.info("📨 [MSG-IN] #{}: channel={}, chatId={}, content='{}' (len={})",
+                    logger.info("📨 [MSG-IN] #{}: channel={}, sessionId={}, content='{}' (len={})",
                             msgNum,
                             message.getChannel(),
-                            message.getChatId(),
+                            message.getSessionId(),
                             message.getContent() != null ? message.getContent().substring(0, Math.min(80, message.getContent().length())) : "null",
                             message.getContent() != null ? message.getContent().length() : 0);
 
@@ -641,6 +641,20 @@ public class AgentLoop {
                     """);
         }
 
+        // ============ NANOBOT.md 项目记忆加载 ============
+        // 如果项目根目录存在 NANOBOT.md（通过 /init 生成），注入系统提示词
+        try {
+            java.nio.file.Path nanobotMd = java.nio.file.Paths.get("NANOBOT.md");
+            if (java.nio.file.Files.exists(nanobotMd)) {
+                String content = java.nio.file.Files.readString(nanobotMd);
+                systemPrompt.append("\n\n【项目上下文 — 来自 NANOBOT.md】\n")
+                        .append(content).append("\n");
+                logger.debug("Loaded NANOBOT.md ({} chars)", content.length());
+            }
+        } catch (Exception e) {
+            logger.debug("NANOBOT.md not found or unreadable: {}", e.getMessage());
+        }
+
         // ============ Rules 自动注入 ============
         // 如果有规则管理器，将规则合并到系统提示词中
         if (ruleManager != null) {
@@ -707,7 +721,7 @@ public class AgentLoop {
 
         // 创建流式回调（仅在流式模式启用时）
         Consumer<String> onDelta = null;
-        final String sessionId = context.getMessage().getChatId();
+        final String sessionId = context.getMessage().getSessionId();
 
         // 流式条件：streamMode=true 且（进度启用 或 已设置回调）
         // 捕获当前回调列表的快照，防止迭代期间列表变化
@@ -722,7 +736,7 @@ public class AgentLoop {
             onDelta = delta -> {
                 OutboundMessage.Builder builder = OutboundMessage.builder()
                         .channel(context.getMessage().getChannel())
-                        .chatId(sessionId)
+                        .sessionId(sessionId)
                         .content(delta)
                         .addMetadata("_stream_delta", true)
                         .addMetadata("_progress", true);
@@ -763,7 +777,7 @@ public class AgentLoop {
             if (streamMode && onDelta != null) {
                 // WebSocket 结束标记
                 if (connectionId != null) {
-                    OutboundMessage streamEnd = OutboundMessage.builder().channel(context.getMessage().getChannel()).chatId(sessionId).content("").connectionId(connectionId).addMetadata("_stream_end", true).build();
+                    OutboundMessage streamEnd = OutboundMessage.builder().channel(context.getMessage().getChannel()).sessionId(sessionId).content("").connectionId(connectionId).addMetadata("_stream_end", true).build();
                     publishProgress(streamEnd);
                 }
 
@@ -820,11 +834,11 @@ public class AgentLoop {
         }
 
         // 发送最终响应到消息总线
-        OutboundMessage response = OutboundMessage.builder().channel(context.getMessage().getChannel()).chatId(context.getMessage().getChatId()).content(content).requestId(requestId).build();
+        OutboundMessage response = OutboundMessage.builder().channel(context.getMessage().getChannel()).sessionId(context.getMessage().getSessionId()).content(content).requestId(requestId).build();
 
         try {
             messageBus.publishOutbound(response);
-            logger.info("Response sent for chatId: {}, requestId: {}, content length: {}", context.getMessage().getChatId(), requestId, content.length());
+            logger.info("Response sent for sessionId: {}, requestId: {}, content length: {}", context.getMessage().getSessionId(), requestId, content.length());
         } catch (Exception e) {
             logger.error("Failed to send response: {}", e.getMessage(), e);
         }
@@ -842,7 +856,7 @@ public class AgentLoop {
             content = "(无响应)";
         }
 
-        OutboundMessage response = OutboundMessage.builder().channel(message.getChannel()).chatId(message.getChatId()).content(content).build();
+        OutboundMessage response = OutboundMessage.builder().channel(message.getChannel()).sessionId(message.getSessionId()).content(content).build();
 
         try {
             messageBus.publishOutbound(response);

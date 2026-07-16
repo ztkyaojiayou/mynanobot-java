@@ -22,10 +22,11 @@ import java.util.concurrent.CompletableFuture;
 public class GlobTool implements Tool {
 
     private static final ObjectMapper mapper = new ObjectMapper();
+    private static final java.util.Set<String> IGNORED_DIRS = java.util.Set.of(
+            ".git", "node_modules", "__pycache__", ".venv", "venv",
+            ".idea", ".vscode", "target", "build", "dist", ".next");
 
-    public GlobTool() {
-        // Path validation is handled centrally by PathGuard in ToolRegistry.execute()
-    }
+    public GlobTool() {}
 
     @Override
     public String getName() {
@@ -34,7 +35,8 @@ public class GlobTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "Find files matching a glob pattern. Use ** for recursive, * for any characters.";
+        return "Find files matching a glob pattern (e.g. **/*.java, src/**/*.ts). "
+             + "Automatically skips .git, node_modules, __pycache__, target, and similar dirs.";
     }
 
     @Override
@@ -78,9 +80,13 @@ public class GlobTool implements Tool {
 
                 try (var stream = Files.walk(searchPath)) {
                     stream.filter(path -> {
-                        PathMatcher matcher = FileSystems.getDefault()
-                                .getPathMatcher("glob:" + pattern);
+                        // 跳过常见忽略目录
+                        if (Files.isDirectory(path) && IGNORED_DIRS.contains(
+                                path.getFileName().toString())) return false;
+                        // 匹配 glob 模式
                         try {
+                            PathMatcher matcher = FileSystems.getDefault()
+                                    .getPathMatcher("glob:" + pattern);
                             return matcher.matches(searchPath.relativize(path));
                         } catch (Exception e) {
                             return false;

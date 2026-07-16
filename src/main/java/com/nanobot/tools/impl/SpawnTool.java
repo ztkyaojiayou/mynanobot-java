@@ -31,10 +31,10 @@ public class SpawnTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "启动一个子 Agent 来执行独立子任务。"
-             + "当你需要同时处理多个独立任务，或某个任务可被拆分时使用。"
-             + "子 Agent 有不同能力：web_search(搜索)、summarization(总结)、code(编程)、calculation(计算)。"
-             + "如果子任务需要搜索，请在 task 中明确说明需要 web_search 能力。";
+        return "Launch a sub-agent to handle an independent task in parallel. "
+             + "Available capabilities: web_search, summarization, code, calculation. "
+             + "Use for complex multi-step work that can be decomposed. "
+             + "Each spawn runs independently and returns its result.";
     }
 
     @Override

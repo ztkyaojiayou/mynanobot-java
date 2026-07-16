@@ -3,7 +3,14 @@ package com.nanobot.v3.cli;
 import com.nanobot.NanobotRunner;
 import com.nanobot.bus.InboundMessage;
 import com.nanobot.bus.MessageBus;
+import com.nanobot.command.CommandContext;
+import com.nanobot.command.CommandRegistry;
+import com.nanobot.command.impl.ExitCommand;
+import com.nanobot.command.impl.HelpCommand;
+import com.nanobot.command.impl.InitCommand;
+import com.nanobot.command.impl.ModeCommand;
 import com.nanobot.core.AgentLoop;
+import com.nanobot.tools.impl.AskUserTool;
 import com.nanobot.v3.tui.MarkdownRenderer;
 import org.springframework.context.ConfigurableApplicationContext;
 
@@ -18,7 +25,10 @@ public class CliChannel {
 
     private final MessageBus messageBus;
     private final AgentLoop agentLoop;
-    private final String chatId;
+    private final String sessionId;
+    private final CommandRegistry commands;
+    private final CommandContext cmdCtx;
+
     private final ConfigurableApplicationContext appContext;
 
     /** 当前流式输出的 requestId（用于等待完成） */
@@ -27,8 +37,19 @@ public class CliChannel {
     public CliChannel(ConfigurableApplicationContext appContext) {
         this.messageBus = NanobotRunner.getMessageBus();
         this.agentLoop = NanobotRunner.getAgentLoop();
-        this.chatId = "cli-" + System.currentTimeMillis();
+        this.sessionId = "cli-" + System.currentTimeMillis();
         this.appContext = appContext;
+
+        // 初始化命令注册中心
+        var registry = NanobotRunner.getToolRegistry();
+        this.cmdCtx = new CommandContext(registry,
+                registry != null ? registry.getPermissionManager() : null,
+                appContext::close);
+        this.commands = new CommandRegistry();
+        this.commands.register(new ExitCommand());
+        this.commands.register(new ModeCommand());
+        this.commands.register(new HelpCommand(commands));
+        this.commands.register(new InitCommand(messageBus, sessionId));
     }
 
     public void start() {
@@ -38,17 +59,18 @@ public class CliChannel {
         }
 
         setupInteractivePermission();
-
+        setupAskUserHandler();
+        //监听响应并流式输出到控制台！
         agentLoop.addStreamResponseCallback(new AgentLoop.StreamResponseCallback() {
             @Override
             public void onStreamData(String sid, String reqId, String content) {
-                if (chatId.equals(sid) && currentRequestId != null && currentRequestId.equals(reqId))
+                if (sessionId.equals(sid) && currentRequestId != null && currentRequestId.equals(reqId))
                     System.out.print(MarkdownRenderer.renderStreaming(content));
             }
 
             @Override
             public void onStreamComplete(String sid, String reqId) {
-                if (chatId.equals(sid) && currentRequestId != null && currentRequestId.equals(reqId)) {
+                if (sessionId.equals(sid) && currentRequestId != null && currentRequestId.equals(reqId)) {
                     System.out.println();
                     currentRequestId = null;
                 }
@@ -59,6 +81,7 @@ public class CliChannel {
         System.out.println("输入消息开始对话，/exit 退出系统，/clear 清上下文");
         System.out.println();
 
+        //持续监听用户输入，这就是入口！！！
         try (Scanner scanner = new Scanner(System.in)) {
             while (true) {
                 System.out.print("> ");
@@ -66,11 +89,12 @@ public class CliChannel {
                 if (!scanner.hasNextLine()) break;
                 String line = scanner.nextLine().trim();
                 if (line.isEmpty()) continue;
-
+                //若是命令，直接处理
                 if (line.startsWith("/")) {
                     if (handleCommand(line)) break;
                     continue;
                 }
+                //若是常规对话，发送到消息总线
                 sendMessage(line);
             }
         }
@@ -95,26 +119,35 @@ public class CliChannel {
         });
     }
 
-    /** 处理 / 命令，返回 true 表示退出 */
+    /** 注入 AskUserTool 的 CLI 交互处理器 */
+    private void setupAskUserHandler() {
+        var registry = NanobotRunner.getToolRegistry();
+        if (registry == null) return;
+        var tool = registry.get("ask_user");
+        if (tool instanceof AskUserTool askTool) {
+            Scanner askScanner = new Scanner(System.in);
+            askTool.setInteractiveHandler(question -> {
+                System.out.println();
+                System.out.println("❓ " + question);
+                System.out.print("> ");
+                System.out.flush();
+                return askScanner.nextLine().trim();
+            });
+        }
+    }
+
+    /** 处理 / 命令，返回 true 表示退出循环 */
     private boolean handleCommand(String cmd) {
-        return switch (cmd.toLowerCase()) {
-            case "/exit", "/quit", "/q" -> {
-                System.out.println("正在关闭系统...");
-                new Thread(() -> {
-                    try { Thread.sleep(500); } catch (InterruptedException ignored) {}
-                    appContext.close();  // 优雅关闭 Spring Boot
-                }).start();
-                yield true;
-            }
-            case "/clear" -> {
-                System.out.println("上下文已清空（重启 CLI 或发送新消息即新会话）");
-                yield false;
-            }
-            default -> {
-                System.out.println("未知命令: " + cmd + " (可用: /exit, /clear)");
-                yield false;
-            }
-        };
+        String cmdName = cmd.length() > 1 ? cmd.substring(1).trim().split("\\s+")[0].toLowerCase() : "";
+
+        // /clear 需要访问 CliChannel 的 chatId，不便抽成独立 Command，保留 inline
+        if ("clear".equals(cmdName)) {
+            System.out.println("上下文已清空");
+            return false;
+        }
+
+        commands.execute(cmdCtx, cmd);
+        return "exit".equals(cmdName) || "q".equals(cmdName) || "quit".equals(cmdName);
     }
 
     /** 发送用户消息到 MessageBus */
@@ -124,7 +157,7 @@ public class CliChannel {
 
         try {
             messageBus.publishInbound(InboundMessage.builder()
-                    .chatId(chatId).senderId(chatId).content(content).channel("cli")
+                    .sessionId(sessionId).senderId(sessionId).content(content).channel("cli")
                     .metadata(java.util.Map.of("requestId", requestId, "streamMode", true))
                     .build());
 

@@ -34,7 +34,9 @@ public class ExecTool implements Tool {
     
     @Override
     public String getDescription() {
-        return "Execute a system command and return its output.";
+        return "Execute a system command and return its output. "
+             + "Default timeout 120s, max 600s. "
+             + "For long-running commands, increase the timeout parameter.";
     }
     
     @Override
@@ -61,7 +63,8 @@ public class ExecTool implements Tool {
     public CompletableFuture<Object> execute(Map<String, Object> params) {
         return CompletableFuture.supplyAsync(() -> {
             String command = (String) params.get("command");
-            Integer timeoutSec = (Integer) params.getOrDefault("timeout", 60);
+            int timeoutSec = Math.min(
+                    (Integer) params.getOrDefault("timeout", 120), 600); // 默认120s, 最大600s
             
             if (command == null || command.isBlank()) {
                 return "Error: command is required";
@@ -70,55 +73,62 @@ public class ExecTool implements Tool {
             try {
                 ProcessBuilder pb = new ProcessBuilder();
                 pb.command("cmd.exe", "/c", command);
-                pb.redirectErrorStream(true);
-                
+                pb.redirectErrorStream(false); // stderr 单独捕获
+
                 Process process = pb.start();
-                
-                StringBuilder output = new StringBuilder();
-                try (BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(process.getInputStream()))) {
-                    String line;
-                    long start = System.currentTimeMillis();
-                    while (System.currentTimeMillis() - start < timeoutSec * 1000L) {
-                        if (reader.ready()) {
-                            line = reader.readLine();
-                            if (line == null) break;
-                            output.append(line).append("\n");
-                        } else if (!process.isAlive()) {
-                            break;
-                        } else {
-                            Thread.sleep(50);
-                        }
-                    }
-                }
-                
-                if (process.isAlive()) {
+                long deadline = System.currentTimeMillis() + timeoutSec * 1000L;
+
+                // 并行读取 stdout 和 stderr
+                StringBuilder stdout = new StringBuilder();
+                StringBuilder stderr = new StringBuilder();
+                Thread stdoutThread = new Thread(() -> readStream(process.getInputStream(), stdout, deadline));
+                Thread stderrThread = new Thread(() -> readStream(process.getErrorStream(), stderr, deadline));
+                stdoutThread.start(); stderrThread.start();
+
+                boolean finished;
+                try {
+                    finished = process.waitFor(timeoutSec, java.util.concurrent.TimeUnit.SECONDS);
+                    stdoutThread.join(1000);
+                    stderrThread.join(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
                     process.destroy();
-                    return "Error: command timed out after " + timeoutSec + " seconds\n\nOutput:\n" + output;
+                    return "Error: command interrupted";
                 }
-                
+
+                if (!finished) {
+                    process.destroy();
+                    return "Error: command timed out after " + timeoutSec + "s\n\nStdout:\n" + stdout;
+                }
+
                 int exitCode = process.exitValue();
-                String result = output.toString();
+                StringBuilder result = new StringBuilder();
+                String out = stdout.toString().trim();
+                String err = stderr.toString().trim();
+                if (!out.isEmpty()) result.append(out);
+                if (!err.isEmpty()) result.append(result.isEmpty() ? "" : "\n").append("[stderr]\n").append(err);
+                if (result.isEmpty()) result.append("(no output)");
+                if (exitCode != 0) result.insert(0, "Exit code: " + exitCode + "\n\n");
+
+                return result.toString();
                 
-                if (exitCode != 0) {
-                    return "Exit code: " + exitCode + "\n\n" + result;
-                }
-                
-                return result.isEmpty() ? "(no output)" : result;
-                
-            } catch (IOException e) {
-                return "Error executing command: " + e.getMessage();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return "Error: command interrupted";
             } catch (Exception e) {
+                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
                 return "Error: " + e.getMessage();
             }
         });
     }
     
-    @Override
-    public boolean isReadOnly() {
-        return false;
+    @Override public boolean isReadOnly() { return false; }
+
+    private void readStream(java.io.InputStream in, StringBuilder sb, long deadline) {
+        try (var r = new java.io.BufferedReader(new java.io.InputStreamReader(in))) {
+            String line;
+            while (System.currentTimeMillis() < deadline) {
+                if (r.ready()) { line = r.readLine(); if (line == null) break; sb.append(line).append("\n"); }
+                else if (!Thread.currentThread().isInterrupted()) Thread.sleep(50);
+                else break;
+            }
+        } catch (Exception ignored) {}
     }
 }

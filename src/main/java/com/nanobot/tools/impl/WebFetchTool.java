@@ -97,7 +97,9 @@ public class WebFetchTool implements Tool {
     
     @Override
     public String getDescription() {
-        return "获取指定 URL 的网页内容，提取纯文本信息";
+        return "Fetch the content of a URL as plain text. "
+             + "Use after web_search to read full pages. "
+             + "Returns up to 3000 characters by default — use max_length to adjust.";
     }
     
     @Override

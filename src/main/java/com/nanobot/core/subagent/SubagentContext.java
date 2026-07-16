@@ -302,7 +302,7 @@ public class SubagentContext {
         // 复制关键信息
         if (turnContext.getMessage() != null) {
             context.setShared("sessionKey", turnContext.getSessionKey());
-            context.setShared("chatId", turnContext.getMessage().getChatId());
+            context.setShared("sessionId", turnContext.getMessage().getSessionId());
             context.setShared("channel", turnContext.getMessage().getChannel());
         }
         

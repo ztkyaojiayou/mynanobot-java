@@ -68,6 +68,7 @@ public class WebSearchTool implements Tool {
     
     // Bing Search API
     private static final String BING_API_URL = "https://api.bing.microsoft.com/v7.0/search";
+    private static final String DUCKDUCKGO_URL = "https://html.duckduckgo.com/html/";
     
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
@@ -175,7 +176,9 @@ public class WebSearchTool implements Tool {
     
     @Override
     public String getDescription() {
-        return "使用百度搜索网页内容，获取最新信息和知识";
+        return "Search the web via Baidu. Returns titles, URLs, and snippets. "
+             + "Use for recent events, documentation, or current information. "
+             + "Combine with web_fetch to read full pages from the results.";
     }
     
     @Override
@@ -258,6 +261,15 @@ public class WebSearchTool implements Tool {
                         .timeout(java.time.Duration.ofSeconds(30))
                         .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
                         .build();
+                } else if ("duckduckgo".equalsIgnoreCase(provider)) {
+                    // DuckDuckGo 免费公开接口（全球可用）
+                    url = DUCKDUCKGO_URL + "?q=" + encodedQuery;
+                    request = HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        .timeout(java.time.Duration.ofSeconds(30))
+                        .GET()
+                        .build();
                 } else if ("baidu_web".equalsIgnoreCase(provider)) {
                     // 使用百度搜索公开接口（国内可访问，无需 API Key）
                     url = BAIDU_WEB_URL + "?wd=" + encodedQuery + "&pn=0";
@@ -298,6 +310,8 @@ public class WebSearchTool implements Tool {
                         return parseBaiduResults(response.body(), limit, query);
                     } else if ("baidu_web".equalsIgnoreCase(provider)) {
                         return parseBaiduWebResults(response.body(), limit, query);
+                    } else if ("duckduckgo".equalsIgnoreCase(provider)) {
+                        return parseDuckDuckGoResults(response.body(), limit, query);
                     } else {
                         return parseBraveResults(response.body(), limit, query);
                     }
@@ -411,94 +425,79 @@ public class WebSearchTool implements Tool {
     }
     
     /**
-     * 解析百度搜索网页结果（HTML格式）
+     * 解析百度搜索网页结果（HTML格式） — 使用 Jsoup 通用解析，不依赖特定 class 名。
      */
     private String parseBaiduWebResults(String responseBody, int limit, String query) {
         try {
             StringBuilder result = new StringBuilder();
             result.append("搜索结果（").append(query).append("）：\n\n");
-            
-            // 使用简单的正则表达式提取搜索结果
-            // 匹配百度搜索结果的 HTML 结构
-            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
-                "<div class=\"result-op c-container xpath-log[^>]*>(.*?)</div>",
-                java.util.regex.Pattern.DOTALL
-            );
-            java.util.regex.Matcher matcher = pattern.matcher(responseBody);
-            
+
+            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parse(responseBody);
+            // 百度搜索结果通常在 h3 > a 中，提取所有带链接的 h3
+            var headings = doc.select("h3 a[href]");
             int count = 0;
-            while (matcher.find() && count < limit) {
-                String resultBlock = matcher.group(1);
-                
-                // 提取标题
-                java.util.regex.Pattern titlePattern = java.util.regex.Pattern.compile(
-                    "<h3[^>]*><a[^>]*>(.*?)</a></h3>",
-                    java.util.regex.Pattern.DOTALL
-                );
-                java.util.regex.Matcher titleMatcher = titlePattern.matcher(resultBlock);
-                String title = titleMatcher.find() ? cleanHtml(titleMatcher.group(1)) : "无标题";
-                
-                // 提取链接
-                java.util.regex.Pattern urlPattern = java.util.regex.Pattern.compile(
-                    "<h3[^>]*><a[^>]*href=\"([^\"]*)\"",
-                    java.util.regex.Pattern.DOTALL
-                );
-                java.util.regex.Matcher urlMatcher = urlPattern.matcher(resultBlock);
-                String url = urlMatcher.find() ? urlMatcher.group(1) : "";
-                // 处理百度的跳转链接
-                if (url.startsWith("/link?")) {
-                    url = "https://www.baidu.com" + url;
-                }
-                
-                // 提取摘要
-                java.util.regex.Pattern descPattern = java.util.regex.Pattern.compile(
-                    "<span class=\"content-right_8Zs40\">(.*?)</span>|" +
-                    "<div class=\"c-abstract[^>]*>(.*?)</div>|" +
-                    "<span class=\"c-showurl\">(.*?)</span>",
-                    java.util.regex.Pattern.DOTALL
-                );
-                java.util.regex.Matcher descMatcher = descPattern.matcher(resultBlock);
-                String description = "";
-                while (descMatcher.find()) {
-                    if (descMatcher.group(1) != null) {
-                        description = cleanHtml(descMatcher.group(1));
-                    } else if (descMatcher.group(2) != null) {
-                        description = cleanHtml(descMatcher.group(2));
-                    } else if (descMatcher.group(3) != null) {
-                        // 这是URL展示，跳过
+            for (var a : headings) {
+                if (count >= limit) break;
+                String title = a.text().trim();
+                String url = a.attr("href");
+                if (title.isEmpty() || title.length() < 2) continue;
+
+                // 提取摘要：h3 的父容器中找 text
+                String snippet = "";
+                var parent = a.parent(); // h3
+                if (parent != null) {
+                    var container = parent.parent();
+                    if (container != null) {
+                        snippet = container.text().replace(title, "").trim();
+                        // 截短
+                        if (snippet.length() > 200) snippet = snippet.substring(0, 200) + "...";
                     }
                 }
-                
-                result.append((count + 1)).append(". ").append(title).append("\n");
-                if (!url.isBlank()) {
-                    result.append("   链接: ").append(url).append("\n");
-                }
-                if (!description.isBlank()) {
-                    result.append("   摘要: ").append(description).append("\n");
-                }
+
+                result.append(++count).append(". ").append(title).append("\n");
+                if (!url.isEmpty()) result.append("   链接: ").append(url).append("\n");
+                if (!snippet.isEmpty()) result.append("   摘要: ").append(snippet).append("\n");
                 result.append("\n");
-                
-                count++;
             }
-            
-            if (count == 0) {
-                return "未找到相关搜索结果";
-            }
-            
-            // 添加实时日期标记
-            String currentDate = java.time.LocalDate.now().format(
-                java.time.format.DateTimeFormatter.ofPattern("yyyy年MM月dd日"));
-            result.append("---\n");
-            result.append("搜索时间：").append(currentDate).append("\n");
-            
-            return result.toString();
-            
+
+            return count > 0 ? result.toString() : "未找到相关搜索结果（百度可能已改版，可尝试切到 duckduckgo）";
         } catch (Exception e) {
             logger.error("Failed to parse Baidu web results", e);
             return "解析搜索结果失败：" + e.getMessage();
         }
     }
-    
+
+    /**
+     * 解析 DuckDuckGo HTML 搜索结果（免费，无需 API Key）
+     */
+    private String parseDuckDuckGoResults(String responseBody, int limit, String query) {
+        try {
+            StringBuilder result = new StringBuilder();
+            result.append("搜索结果（").append(query).append("）：\n\n");
+            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parse(responseBody);
+            var items = doc.select(".result__body");
+            int count = 0;
+            for (var item : items) {
+                if (count >= limit) break;
+                var titleEl = item.selectFirst(".result__title a");
+                var snippetEl = item.selectFirst(".result__snippet");
+                if (titleEl == null) continue;
+                String title = titleEl.text().trim();
+                String url = titleEl.attr("href");
+                String snippet = snippetEl != null ? snippetEl.text().trim() : "";
+                if (title.isEmpty()) continue;
+
+                result.append(++count).append(". ").append(title).append("\n");
+                if (!url.isEmpty()) result.append("   链接: ").append(url).append("\n");
+                if (!snippet.isEmpty()) result.append("   摘要: ").append(snippet).append("\n");
+                result.append("\n");
+            }
+            return count > 0 ? result.toString() : "未找到相关搜索结果";
+        } catch (Exception e) {
+            return "DuckDuckGo 搜索失败: " + e.getMessage();
+        }
+    }
+
     /**
      * 清理 HTML 标签
      */

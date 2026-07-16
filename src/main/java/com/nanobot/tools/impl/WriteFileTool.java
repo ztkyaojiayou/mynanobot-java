@@ -36,7 +36,9 @@ public class WriteFileTool implements Tool {
     
     @Override
     public String getDescription() {
-        return "Write content to a file. Creates new file or overwrites existing.";
+        return "Write content to a file, creating it if it doesn't exist, overwriting if it does. "
+             + "Parent directories are created automatically. "
+             + "After writing, do NOT re-read the file to verify — Write would have errored if it failed.";
     }
     
     @Override

@@ -8,26 +8,43 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 
 /**
- * Nanobot CLI 启动类（V3 — 命令行交互）。
+ * Nanobot CLI 启动类（V3 — 命令行交互，类 Claude Code 体验）。
  *
- * 启动: java -cp nanobot.jar com.nanobot.v3.NanobotCliApplication
- * CLI 模式下抑制所有 INFO/DEBUG 日志，控制台只显示对话内容。
+ * 启动: java -cp nanobot.jar com.nanobot.v3.NanobotCliApplication [--workspace /path]
+ * 不指定 --workspace 时自动取当前目录。
  */
 @SpringBootApplication(scanBasePackages = "com.nanobot")
 public class NanobotCliApplication {
 
     public static void main(String[] args) {
-        String[] cliArgs = new String[]{
-            "--logging.config=classpath:logback-cli.xml",
-            "--spring.main.banner-mode=off",
-            "--spring.profiles.active=cli"};
+        // 没有 --workspace / -w 时，自动取当前目录
+        boolean hasWorkspace = false;
+        for (String a : args) {
+            if ("--workspace".equals(a) || "-w".equals(a)
+                    || a.startsWith("--agents.defaults.workspace=")) {
+                hasWorkspace = true; break;
+            }
+        }
 
-        // 合并用户参数和 CLI 默认参数（用户参数优先）
-        String[] merged = new String[cliArgs.length + args.length];
-        System.arraycopy(cliArgs, 0, merged, 0, cliArgs.length);
-        System.arraycopy(args, 0, merged, cliArgs.length, args.length);
+        java.util.List<String> merged = new java.util.ArrayList<>();
+        if (!hasWorkspace) {
+            merged.add("--agents.defaults.workspace=" + System.getProperty("user.dir"));
+        }
+        merged.add("--logging.config=classpath:logback-cli.xml");
+        merged.add("--spring.main.banner-mode=off");
+        merged.add("--spring.profiles.active=cli");
+        merged.add("--spring.main.web-application-type=none"); // CLI 无需 Web 服务器
 
-        SpringApplication.run(NanobotCliApplication.class, merged);
+        // --workspace / -w → Spring Boot 属性格式
+        for (int i = 0; i < args.length; i++) {
+            if (("--workspace".equals(args[i]) || "-w".equals(args[i])) && i + 1 < args.length) {
+                merged.add("--agents.defaults.workspace=" + args[++i]);
+            } else {
+                merged.add(args[i]);
+            }
+        }
+
+        SpringApplication.run(NanobotCliApplication.class, merged.toArray(new String[0]));
     }
 
     @Bean

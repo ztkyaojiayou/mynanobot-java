@@ -4,6 +4,7 @@ import com.nanobot.bus.MessageBus;
 import com.nanobot.config.Config;
 import com.nanobot.config.ConfigLoader;
 import com.nanobot.core.AgentLoop;
+import com.nanobot.core.TaskStore;
 import com.nanobot.core.subagent.AgentCoordinator;
 import com.nanobot.cron.CronScheduler;
 import com.nanobot.identity.IdentityManager;
@@ -115,6 +116,15 @@ public class NanobotConfig {
 
         // 时间工具（解决模型训练数据日期偏差）
         toolRegistry.register(new GetCurrentTimeTool());
+
+        // AskUser 工具（LLM 可向用户提问）
+        toolRegistry.register(new AskUserTool());
+
+        // Task 追踪工具（LLM 自主分解追踪复杂任务）
+        TaskStore taskStore = new TaskStore();
+        toolRegistry.register(new TaskCreateTool(taskStore));
+        toolRegistry.register(new TaskListTool(taskStore));
+        toolRegistry.register(new TaskUpdateTool(taskStore));
 
         // 子 Agent spawn 工具（LLM 可调用 spawn 分解复杂任务）
         // 注: agentCoordinator 已在上面创建，这里通过 Spring 的依赖注入获取

@@ -224,7 +224,7 @@ public class NanobotWebSocketEndpoint {
         try {
             // 构建入站消息
             InboundMessage message = InboundMessage.builder()
-                .chatId(sessionId)
+                .sessionId(sessionId)
                 .content(content)
                 .channel(channel)
                 .build();
