@@ -39,14 +39,14 @@ import java.util.Map;
  * // 创建普通响应消息
  * OutboundMessage msg = OutboundMessage.builder()
  *     .channel("telegram")
- *     .chatId("123456")
+ *     .sessionId("123456")
  *     .content("Hello! How can I help you?")
  *     .build();
  *
  * // 创建带按钮的消息
  * OutboundMessage msgWithButtons = OutboundMessage.builder()
  *     .channel("telegram")
- *     .chatId("123456")
+ *     .sessionId("123456")
  *     .content("Choose an option:")
  *     .buttons(List.of(
  *         List.of("Option A", "action_a"),
@@ -74,7 +74,7 @@ public class OutboundMessage {
      * 即即sessionId
      * 消息要发送到的具体聊天会话。
      */
-    private String chatId;
+    private String sessionId;
 
     /**
      * 消息内容
@@ -149,16 +149,7 @@ public class OutboundMessage {
     private String connectionId;
 
     /**
-     * 会话 ID
-     *
-     * 关联的会话标识。
-     */
-    private String sessionId;
-
-    /**
-     * 请求 ID
-     *
-     * 用于精确匹配请求和响应。
+     * 请求 ID — 用于精确匹配请求和响应。
      */
     private String requestId;
 
@@ -169,14 +160,13 @@ public class OutboundMessage {
      */
     private OutboundMessage(Builder builder) {
         this.channel = builder.channel;
-        this.chatId = builder.chatId;
+        this.sessionId = builder.sessionId;
         this.content = builder.content;
         this.replyTo = builder.replyTo;
         this.media = builder.media != null ? List.copyOf(builder.media) : List.of();
         this.metadata = builder.metadata != null ? Map.copyOf(builder.metadata) : Map.of();
         this.buttons = builder.buttons != null ? List.copyOf(builder.buttons) : List.of();
         this.connectionId = builder.connectionId;
-        this.sessionId = builder.sessionId;
         this.requestId = builder.requestId;
     }
 
@@ -259,10 +249,10 @@ public class OutboundMessage {
     /**
      * 创建简单的文本消息
      */
-    public static OutboundMessage text(String channel, String chatId, String content) {
+    public static OutboundMessage text(String channel, String sessionId, String content) {
         return builder()
             .channel(channel)
-            .chatId(chatId)
+            .sessionId(sessionId)
             .content(content)
             .build();
     }
@@ -273,14 +263,14 @@ public class OutboundMessage {
      * 进度消息用于流式输出时实时显示内容。
      *
      * @param channel 目标通道
-     * @param chatId 目标聊天
+     * @param sessionId 目标聊天
      * @param delta 新增的内容片段
      * @return 进度消息
      */
-    public static OutboundMessage progress(String channel, String chatId, String delta) {
+    public static OutboundMessage progress(String channel, String sessionId, String delta) {
         return builder()
             .channel(channel)
-            .chatId(chatId)
+            .sessionId(sessionId)
             .content(delta)
             .metadata(Map.of("_progress", true))
             .build();
@@ -290,12 +280,12 @@ public class OutboundMessage {
      * 创建流式消息片段
      *
      * @param channel 目标通道
-     * @param chatId 目标聊天
+     * @param sessionId 目标聊天
      * @param delta 内容片段
      * @param isEnd 是否为最后一个片段
      * @return 流式消息
      */
-    public static OutboundMessage streamDelta(String channel, String chatId, String delta, boolean isEnd) {
+    public static OutboundMessage streamDelta(String channel, String sessionId, String delta, boolean isEnd) {
         var metadata = new HashMap<String, Object>();
         metadata.put("_stream_delta", true);
         if (isEnd) {
@@ -304,7 +294,7 @@ public class OutboundMessage {
 
         return builder()
             .channel(channel)
-            .chatId(chatId)
+            .sessionId(sessionId)
             .content(delta)
             .metadata(metadata)
             .build();
@@ -319,7 +309,7 @@ public class OutboundMessage {
     public Builder toBuilder() {
         return new Builder()
             .channel(this.channel)
-            .chatId(this.chatId)
+            .sessionId(this.sessionId)
             .content(this.content)
             .replyTo(this.replyTo)
             .media(this.media)
@@ -332,14 +322,13 @@ public class OutboundMessage {
 
     public static class Builder {
         private String channel;
-        private String chatId;
+        private String sessionId;
         private String content;
         private String replyTo;
         private List<String> media;
         private Map<String, Object> metadata;
         private List<List<String>> buttons;
         private String connectionId;
-        private String sessionId;
         private String requestId;
 
         public Builder channel(String channel) {
@@ -347,8 +336,8 @@ public class OutboundMessage {
             return this;
         }
 
-        public Builder chatId(String chatId) {
-            this.chatId = chatId;
+        public Builder sessionId(String sessionId) {
+            this.sessionId = sessionId;
             return this;
         }
 
@@ -390,11 +379,6 @@ public class OutboundMessage {
             return this;
         }
 
-        public Builder sessionId(String sessionId) {
-            this.sessionId = sessionId;
-            return this;
-        }
-
         public Builder requestId(String requestId) {
             this.requestId = requestId;
             return this;
@@ -409,7 +393,7 @@ public class OutboundMessage {
             if (channel == null || channel.isBlank()) {
                 throw new IllegalStateException("channel is required");
             }
-            // chatId 不再强制要求，支持系统消息等场景
+            // sessionId 不再强制要求，支持系统消息等场景
         }
     }
 
@@ -419,7 +403,7 @@ public class OutboundMessage {
     public String toString() {
         return "OutboundMessage{" +
             "channel='" + channel + '\'' +
-            ", chatId='" + chatId + '\'' +
+            ", sessionId='" + sessionId + '\'' +
             ", content='" + (content != null ? content.substring(0, Math.min(50, content.length())) + "..." : "null") + '\'' +
             ", isProgress=" + isProgress() +
             ", isStreamDelta=" + isStreamDelta() +

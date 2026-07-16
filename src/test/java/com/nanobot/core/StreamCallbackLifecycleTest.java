@@ -77,7 +77,7 @@ class StreamCallbackLifecycleTest {
     @Test
     @DisplayName("连续3轮SSE流式对话 — 每轮都应收到数据和完成信号")
     void testThreeConsecutiveStreamingRounds() throws Exception {
-        String chatId = "test-chat-" + System.currentTimeMillis();
+        String sessionId = "test-chat-" + System.currentTimeMillis();
 
         // 模拟 WebSocket 回调（始终存在）
         List<String> wsEvents = new ArrayList<>();
@@ -126,8 +126,8 @@ class StreamCallbackLifecycleTest {
             metadata.put("streamMode", true);
 
             InboundMessage message = InboundMessage.builder()
-                    .chatId(chatId)
-                    .senderId(chatId)
+                    .sessionId(sessionId)
+                    .senderId(sessionId)
                     .content("Test message " + round)
                     .channel("api")
                     .metadata(metadata)
@@ -161,7 +161,7 @@ class StreamCallbackLifecycleTest {
     @Test
     @DisplayName("callback sessionId/requestId 匹配验证")
     void testCallbackIdMatching() throws Exception {
-        String chatId = "match-test";
+        String sessionId = "match-test";
 
         for (int round = 1; round <= 3; round++) {
             String requestId = "match-req-" + round;
@@ -173,18 +173,18 @@ class StreamCallbackLifecycleTest {
             StreamResponseCallback cb = new StreamResponseCallback() {
                 @Override
                 public void onStreamData(String sid, String rid, String content) {
-                    if (chatId.equals(sid) && requestId.equals(rid)) {
+                    if (sessionId.equals(sid) && requestId.equals(rid)) {
                         matched[0] = true;
                     } else {
-                        System.out.println("  MISMATCH: expected(" + chatId + "," + requestId
+                        System.out.println("  MISMATCH: expected(" + sessionId + "," + requestId
                                 + ") got(" + sid + "," + rid + ")");
                     }
                 }
                 @Override
                 public void onStreamComplete(String sid, String rid) {
-                    System.out.println("  Complete: expected(" + chatId + "," + requestId
+                    System.out.println("  Complete: expected(" + sessionId + "," + requestId
                             + ") got(" + sid + "," + rid + ") match="
-                            + (chatId.equals(sid) && requestId.equals(rid)));
+                            + (sessionId.equals(sid) && requestId.equals(rid)));
                     latch.countDown();
                 }
             };
@@ -196,7 +196,7 @@ class StreamCallbackLifecycleTest {
             metadata.put("streamMode", true);
 
             messageBus.publishInbound(InboundMessage.builder()
-                    .chatId(chatId).senderId(chatId).content("test")
+                    .sessionId(sessionId).senderId(sessionId).content("test")
                     .channel("api").metadata(metadata).build());
 
             latch.await(10, TimeUnit.SECONDS);
@@ -208,7 +208,7 @@ class StreamCallbackLifecycleTest {
     @Test
     @DisplayName("emitter.complete 后异步清理 callback — 不应影响下一轮")
     void testAsyncCallbackCleanup() throws Exception {
-        String chatId = "cleanup-test";
+        String sessionId = "cleanup-test";
 
         // Round 1: 正常流程
         CountDownLatch round1Latch = new CountDownLatch(1);
@@ -232,7 +232,7 @@ class StreamCallbackLifecycleTest {
         meta1.put("requestId", "clean-1");
         meta1.put("streamMode", true);
         messageBus.publishInbound(InboundMessage.builder()
-                .chatId(chatId).senderId(chatId).content("r1")
+                .sessionId(sessionId).senderId(sessionId).content("r1")
                 .channel("api").metadata(meta1).build());
 
         round1Latch.await(10, TimeUnit.SECONDS);
@@ -257,7 +257,7 @@ class StreamCallbackLifecycleTest {
         meta2.put("requestId", "clean-2");
         meta2.put("streamMode", true);
         messageBus.publishInbound(InboundMessage.builder()
-                .chatId(chatId).senderId(chatId).content("r2")
+                .sessionId(sessionId).senderId(sessionId).content("r2")
                 .channel("api").metadata(meta2).build());
 
         round2Latch.await(10, TimeUnit.SECONDS);

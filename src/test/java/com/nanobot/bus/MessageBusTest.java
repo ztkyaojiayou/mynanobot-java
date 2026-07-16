@@ -45,7 +45,7 @@ class MessageBusTest {
         InboundMessage message = InboundMessage.builder()
                 .channel("test")
                 .senderId("user123")
-                .chatId("chat456")
+                .sessionId("chat456")
                 .content("Hello, World!")
                 .build();
 
@@ -59,7 +59,7 @@ class MessageBusTest {
         assertNotNull(consumed);
         assertEquals("test", consumed.getChannel());
         assertEquals("user123", consumed.getSenderId());
-        assertEquals("chat456", consumed.getChatId());
+        assertEquals("chat456", consumed.getSessionId());
         assertEquals("Hello, World!", consumed.getContent());
     }
 
@@ -69,7 +69,7 @@ class MessageBusTest {
         // 创建测试消息（带 requestId 用于精确匹配）
         OutboundMessage message = OutboundMessage.builder()
                 .channel("test")
-                .chatId("chat456")
+                .sessionId("chat456")
                 .content("Response message")
                 .requestId("req-001")
                 .build();
@@ -84,7 +84,7 @@ class MessageBusTest {
         // 验证消息内容
         assertNotNull(consumed);
         assertEquals("test", consumed.getChannel());
-        assertEquals("chat456", consumed.getChatId());
+        assertEquals("chat456", consumed.getSessionId());
         assertEquals("Response message", consumed.getContent());
     }
 
@@ -94,7 +94,7 @@ class MessageBusTest {
         InboundMessage message = InboundMessage.builder()
                 .channel("async")
                 .senderId("asyncUser")
-                .chatId("asyncChat")
+                .sessionId("asyncChat")
                 .content("Async message")
                 .build();
 
@@ -118,7 +118,7 @@ class MessageBusTest {
     void testPublishOutboundAsync() throws Exception {
         OutboundMessage message = OutboundMessage.builder()
                 .channel("async")
-                .chatId("asyncChat")
+                .sessionId("asyncChat")
                 .content("Async response")
                 .requestId("req-async")
                 .build();
@@ -145,14 +145,14 @@ class MessageBusTest {
         InboundMessage message1 = InboundMessage.builder()
                 .channel("telegram")
                 .senderId("user1")
-                .chatId("chat1")
+                .sessionId("chat1")
                 .content("test")
                 .build();
 
         InboundMessage message2 = InboundMessage.builder()
                 .channel("telegram")
                 .senderId("user1")
-                .chatId("chat1")
+                .sessionId("chat1")
                 .content("test")
                 .sessionKeyOverride("custom-key")
                 .build();
@@ -175,7 +175,7 @@ class MessageBusTest {
         InboundMessage message = InboundMessage.builder()
                 .channel("test")
                 .senderId("user")
-                .chatId("chat")
+                .sessionId("chat")
                 .content("")
                 .build();
 
@@ -185,7 +185,7 @@ class MessageBusTest {
         InboundMessage withContent = InboundMessage.builder()
                 .channel("test")
                 .senderId("user")
-                .chatId("chat")
+                .sessionId("chat")
                 .content("Hello")
                 .build();
 

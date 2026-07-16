@@ -34,7 +34,7 @@ import java.util.Optional;
  * InboundMessage msg = InboundMessage.builder()
  *     .channel("telegram")
  *     .senderId("user123")
- *     .chatId("chat456")
+ *     .sessionId("chat456")
  *     .content("Hello, bot!")
  *     .build();
  *
@@ -77,7 +77,7 @@ public class InboundMessage {
      * 标识消息所属的聊天会话（群组或私聊）。
      * 用于消息路由和会话管理。
      */
-    private String chatId;
+    private String sessionId;
 
     /**
      * 消息内容
@@ -130,7 +130,7 @@ public class InboundMessage {
      * - 线程内回复（thread-scoped sessions）
      * - 多通道统一会话
      *
-     * 如果为 null，则使用默认的会话密钥格式："{channel}:{chatId}"
+     * 如果为 null，则使用默认的会话密钥格式："{channel}:{sessionId}"
      */
     private String sessionKeyOverride;
 
@@ -155,7 +155,7 @@ public class InboundMessage {
     private InboundMessage(Builder builder) {
         this.channel = builder.channel;
         this.senderId = builder.senderId;
-        this.chatId = builder.chatId;
+        this.sessionId = builder.sessionId;
         this.content = builder.content;
         this.timestamp = builder.timestamp != null ? builder.timestamp : Instant.now();
         this.media = builder.media != null ? List.copyOf(builder.media) : List.of();
@@ -176,7 +176,7 @@ public class InboundMessage {
      *
      * 格式说明：
      * - 如果有 sessionKeyOverride：使用覆盖值
-     * - 否则：使用 "{channel}:{chatId}" 格式
+     * - 否则：使用 "{channel}:{sessionId}" 格式
      *
      * 示例：
      * - "telegram:123456789"
@@ -186,7 +186,7 @@ public class InboundMessage {
     public String getSessionKey() {
         return sessionKeyOverride != null
             ? sessionKeyOverride
-            : channel + ":" + chatId;
+            : channel + ":" + sessionId;
     }
 
     /**
@@ -229,7 +229,7 @@ public class InboundMessage {
         return new Builder()
             .channel(this.channel)
             .senderId(this.senderId)
-            .chatId(this.chatId)
+            .sessionId(this.sessionId)
             .content(this.content)
             .timestamp(this.timestamp)
             .media(this.media)
@@ -246,7 +246,7 @@ public class InboundMessage {
      * InboundMessage msg = InboundMessage.builder()
      *     .channel("telegram")
      *     .senderId("123456")
-     *     .chatId("789012")
+     *     .sessionId("789012")
      *     .content("Hello!")
      *     .media(List.of("/path/to/image.jpg"))
      *     .metadata(Map.of("messageId", "msg123"))
@@ -256,7 +256,7 @@ public class InboundMessage {
     public static class Builder {
         private String channel;
         private String senderId;
-        private String chatId;
+        private String sessionId;
         private String content;
         private Instant timestamp;
         private List<String> media;
@@ -274,8 +274,8 @@ public class InboundMessage {
             return this;
         }
 
-        public Builder chatId(String chatId) {
-            this.chatId = chatId;
+        public Builder sessionId(String sessionId) {
+            this.sessionId = sessionId;
             return this;
         }
 
@@ -330,8 +330,8 @@ public class InboundMessage {
             if (senderId == null || senderId.isBlank()) {
                 throw new IllegalStateException("senderId is required");
             }
-            if (chatId == null || chatId.isBlank()) {
-                throw new IllegalStateException("chatId is required");
+            if (sessionId == null || sessionId.isBlank()) {
+                throw new IllegalStateException("sessionId is required");
             }
         }
     }
@@ -343,7 +343,7 @@ public class InboundMessage {
         return "InboundMessage{" +
             "channel='" + channel + '\'' +
             ", senderId='" + senderId + '\'' +
-            ", chatId='" + chatId + '\'' +
+            ", sessionId='" + sessionId + '\'' +
             ", content='" + (content != null ? content.substring(0, Math.min(50, content.length())) + "..." : "null") + '\'' +
             ", media=" + (media != null ? media.size() : 0) + " files" +
             ", timestamp=" + timestamp +

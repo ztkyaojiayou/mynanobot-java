@@ -26,14 +26,14 @@ class SessionManagerTest {
         Map<String, Object> session = new HashMap<>();
         session.put("id", "telegram:chat123");
         session.put("channel", "telegram");
-        session.put("chatId", "chat123");
+        session.put("sessionId", "chat123");
         session.put("lastActive", Instant.now().toString());
         session.put("active", true);
         
         assertNotNull(session);
         assertEquals("telegram:chat123", session.get("id"));
         assertEquals("telegram", session.get("channel"));
-        assertEquals("chat123", session.get("chatId"));
+        assertEquals("chat123", session.get("sessionId"));
         assertTrue((Boolean) session.get("active"));
     }
 
@@ -41,9 +41,8 @@ class SessionManagerTest {
     @DisplayName("测试会话ID生成")
     void testSessionIdGeneration() {
         String channel = "discord";
-        String chatId = "channel456";
-        
-        String sessionId = channel + ":" + chatId;
+        String originalId = "channel456";
+        String sessionId = channel + ":" + originalId;
         
         assertEquals("discord:channel456", sessionId);
         assertTrue(sessionId.contains(":"));

@@ -76,8 +76,8 @@ public class MessageBus {
             return;
         }
         inboundQueue.put(message);
-        logger.info("📥 [PUB] chatId={}, content='{}', queueSize={}",
-                message.getChatId(),
+        logger.info("📥 [PUB] sessionId={}, content='{}', queueSize={}",
+                message.getSessionId(),
                 message.getContent() != null ? message.getContent().substring(0, Math.min(60, message.getContent().length())) : "null",
                 inboundQueue.size());
     }
@@ -112,10 +112,10 @@ public class MessageBus {
             logger.warn("MessageBus not running, ignoring outbound");
             return;
         }
-        if (message.getChatId() != null) {
-            sessionResponses.computeIfAbsent(message.getChatId(), k -> new java.util.LinkedList<>()).offer(message);
+        if (message.getSessionId() != null) {
+            sessionResponses.computeIfAbsent(message.getSessionId(), k -> new java.util.LinkedList<>()).offer(message);
         }
-        logger.debug("Published outbound: chatId={}", message.getChatId());
+        logger.debug("Published outbound: sessionId={}", message.getSessionId());
     }
 
     /**
@@ -123,8 +123,8 @@ public class MessageBus {
      */
     public void offerOutbound(OutboundMessage message) {
         if (!running.get()) return;
-        if (message.getChatId() != null) {
-            sessionResponses.computeIfAbsent(message.getChatId(), k -> new java.util.LinkedList<>()).offer(message);
+        if (message.getSessionId() != null) {
+            sessionResponses.computeIfAbsent(message.getSessionId(), k -> new java.util.LinkedList<>()).offer(message);
         }
     }
 
