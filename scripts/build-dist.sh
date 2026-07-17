@@ -3,8 +3,8 @@
 # 产物: dist/nanobot/ (nanobot.bat + nanobot + nanobot.jar + config.yaml + README.txt)
 
 set -e
-SCRIPT_DIR_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$SCRIPT_DIR_DIR"
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$SCRIPT_DIR"
 
 export JAVA_HOME="${JAVA_HOME:-D:/devSoftWare/jdk17/jdk-17.0.19+10}"
 export PATH="$JAVA_HOME/bin:$PATH"
@@ -17,7 +17,7 @@ echo "[1/3] Building fat JAR..."
 mvn package -DskipTests -q
 
 # 2. 创建 dist 目录
-DIST_DIR="$SCRIPT_DIR_DIR/dist/nanobot"
+DIST_DIR="$SCRIPT_DIR/dist/nanobot"
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 
@@ -26,11 +26,11 @@ echo "[2/3] Copying files..."
 cp target/nanobot-java-1.0.0-SNAPSHOT.jar "$DIST_DIR/nanobot.jar"
 
 # 通用启动脚本 (Linux/Mac/Git Bash)
-cat > "$DIST_DIR/nanobot" << 'SCRIPT_DIR'
+cat > "$DIST_DIR/nanobot" << 'SCRIPT'
 #!/bin/bash
 DIR="$(cd "$(dirname "$0")" && pwd)"
 java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "$DIR/nanobot.jar" "$@"
-SCRIPT_DIR
+SCRIPT
 chmod +x "$DIST_DIR/nanobot"
 
 # Windows 启动脚本
@@ -83,5 +83,4 @@ echo "They only need to:"
 echo "  1. Set apiKey in config.yaml"
 echo "  2. Add nanobot/ to PATH"
 echo "  3. Run: nanobot"
-SCRIPT_DIR
-chmod +x "$SCRIPT_DIR_DIR/scripts/build-dist.sh"
+chmod +x "$SCRIPT_DIR/scripts/build-dist.sh"
