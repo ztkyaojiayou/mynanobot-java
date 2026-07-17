@@ -4,170 +4,141 @@
 
 ## 环境准备
 
-- JDK 17+（项目使用 `D:/devSoftWare/jdk17/jdk-17.0.19+10`）
-- Maven 3.6+
-- Git Bash（Windows 下执行脚本）
+- **JDK 17+**（Windows: `D:/devSoftWare/jdk17/jdk-17.0.19+10`）
+- Maven 3.6+（仅开发/打包需要，使用者不需要）
+- Git Bash（Windows 下推荐，CMD 也支持）
 
 ```bash
-# 确认环境
-java -version   # openjdk 17.0.19
-mvn -v          # Apache Maven 3.x
+java -version   # openjdk 17.0.19+
 ```
 
 ---
 
-## 一、V3 CLI 模式（类 Claude Code）
+## 一、开发者部署（源码环境）
 
-在任何目录下直接对话，自动取当前目录为工作区。
-
-### 安装
+### 1.1 安装
 
 ```bash
-# 把项目目录加入 PATH（写入 ~/.bashrc 或 ~/.bash_profile）
+# 把 scripts 目录加入 PATH
 export PATH="/d/IdeaProjects/个人项目/ai-vibe-coding/nanobot-java/scripts:$PATH"
+# Windows CMD
+set PATH=D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\scripts;%PATH%
 ```
 
-### 使用
+### 1.2 V3 CLI 模式（类 Claude Code）
 
 ```bash
-# 进入工作目录，直接对话
+# 在任意目录直接对话
 cd /my-project
 nanobot
 
 # 指定工作区
 nanobot -w /another-project
 
-# 输出示例：
-# ╔══════════════════════════════════╗
-# ║       my-nanobot CLI 模式       ║
-# ║  基于 Java Agent 框架的 AI 助手  ║
-# ╚══════════════════════════════════╝
-# > 帮我分析当前项目
-# > /exit
+# 恢复历史会话
+nanobot --resume cli_cli-1784097347013
 ```
 
-### 命令
+**CLI 命令**：
 
 | 命令 | 说明 |
 |------|------|
-| `/exit` `/q` `/quit` | 退出 CLI |
-| `/clear` | 清空上下文 |
-| `/mode` | 查看/切换权限模式（plan \| default \| accept_edits \| bypass） |
+| `/exit` `/q` | 退出 |
+| `/clear` | 清上下文 |
+| `/mode plan\|default\|accept_edits\|bypass` | 切换权限模式 |
+| `/init` | 分析项目生成 NANOBOT.md |
+| `/resume` | 列出/恢复历史会话 |
 | `/help` | 帮助 |
 
-### 特点
-
-- 无端口，开多少终端都不冲突
-- 流式输出 + Markdown 渲染（代码块彩色、粗体、斜体）
-- 交互式权限确认（危险操作提示 y/N）
-- 零日志输出
-
----
-
-## 二、V2 Web 服务模式
-
-常驻 HTTP + WebSocket 服务，浏览器访问。
-
-### 启动
+### 1.3 V2 Web 服务模式
 
 ```bash
-# 默认端口 8080
-./scripts/start.sh
-
-# 自定义端口
-./scripts/start.sh --port 9090
-
-# 输出：
-# ═══════════════════════════════════════
-#   Nanobot 启动
-#   模式: v2
-#   端口: 8080
-# ═══════════════════════════════════════
-# [1/2] 编译中...
-# [2/2] 启动中...
-# Nanobot 已启动 (PID: 12345)
-# 访问: http://localhost:8080
-```
-
-### 停止 / 重启
-
-```bash
-./scripts/stop.sh       # 停止
-./restart.sh    # 重启
-```
-
-### API 端点
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/api/chat` | 同步聊天 |
-| `POST` | `/api/chat/stream` | 流式聊天（SSE） |
-| `GET` | `/api/sessions` | 会话列表 |
-| `GET` | `/api/sessions/{key}` | 会话详情 |
-| `DELETE` | `/api/sessions/{key}` | 删除会话 |
-| `GET` | `/health` | 健康检查 |
-| `WS` | `/ws` | WebSocket 聊天 |
-| `GET` | `/` | 聊天 Web UI |
-| `GET` | `/sessions.html` | 会话管理页 |
-
----
-
-## 三、多实例部署
-
-```bash
-# 项目 A
+# 启动
 ./scripts/start.sh --port 8080
+# 停止/重启
+./scripts/stop.sh
+./scripts/restart.sh
+```
 
-# 项目 B（不同端口）
-./scripts/start.sh --port 8081
+---
 
+## 二、分发给同事（无需源码、无需 Maven）
+
+### 2.1 打包
+
+```bash
+bash scripts/build-dist.sh
+```
+
+生成 `dist/nanobot/`：
+
+```
+dist/nanobot/
+├── nanobot.jar     25MB  (fat JAR，自包含所有依赖)
+├── nanobot.bat          (Windows CMD 启动)
+├── nanobot              (Linux/Mac/Git Bash 启动)
+├── config.yaml          配置模板
+└── README.txt           使用说明
+```
+
+### 2.2 同事部署
+
+**只需 3 步**：
+
+1. **JDK 17+**
+
+2. **填 API Key** — 编辑 `config.yaml`：
+   ```yaml
+   providers:
+     deepseek:
+       apiKey: "sk-your-key-here"
+   ```
+
+3. **加 PATH**，把 `nanobot/` 目录加入系统 PATH
+
+```bash
+# 使用
+cd /any-project
+nanobot
+```
+
+---
+
+## 三、多实例
+
+```bash
 # CLI 模式（无端口，无限制）
 nanobot              # 当前目录
 nanobot -w /proj-a   # 指定目录
+
+# Web 模式（需不同端口）
+./scripts/start.sh --port 8080
+./scripts/start.sh --port 8081
 ```
 
 ---
 
-## 四、直接 Java 启动（不用脚本）
-
-```bash
-# 编译
-JAVA_HOME=D:/devSoftWare/jdk17/jdk-17.0.19+10
-mvn compile
-
-# V2 Web 服务
-mvn spring-boot:run -Dspring-boot.run.mainClass=com.nanobot.v2.NanobotApplication
-
-# V3 CLI
-java -cp "target/classes:$(mvn -q dependency:build-classpath -DincludeScope=compile -Dmdep.outputFile=/dev/stdout)" \
-    com.nanobot.v3.NanobotCliApplication
-```
-
----
-
-## 五、配置
-
-核心配置文件：`src/main/resources/config/config.yaml`
+## 四、配置
 
 ```yaml
+# config.yaml（或 ~/.nanobot/config.yaml）
 agents:
   defaults:
-    workspace: ".nanobot/workspace"   # 工作区
-    model: "deepseek-chat"            # 模型
-    contextWindowTokens: 200000       # 上下文窗口
+    workspace: ".nanobot/workspace"
+    model: "deepseek-chat"
+    # 预算控制（0=不限）
+    maxTurns: 0
+    maxCost: 0
 
 providers:
   deepseek:
-    apiKey: "sk-xxx"                  # API Key
+    apiKey: "sk-xxx"
     apiBase: "https://api.deepseek.com"
 ```
 
-启动时可通过命令行覆盖：
+命令行覆盖（优先级最高）：
 
 ```bash
-# 覆盖工作区
---agents.defaults.workspace=/custom/path
-
-# 覆盖端口
---server.port=9090
+nanobot -w /custom/workspace
+nanobot --maxTurns=20 --maxCost=0.01
 ```
