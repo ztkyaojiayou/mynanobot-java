@@ -4,7 +4,12 @@ JAVA_HOME="${JAVA_HOME:-D:/devSoftWare/jdk17/jdk-17.0.19+10}"
 export JAVA_HOME
 export PATH="$JAVA_HOME/bin:$PATH"
 
-cd "$SCRIPT_DIR"
-[[ ! -f target/nanobot-cli.jar ]] && { echo "building..."; mvn package -DskipTests -q; }
+JAR="$SCRIPT_DIR/target/nanobot-cli.jar"
 
-java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar target/nanobot-cli.jar "$@"
+# 源码有更新？自动重新打包
+if [[ ! -f "$JAR" ]] || [[ -n "$(find "$SCRIPT_DIR/src/main/java" -name '*.java' -newer "$JAR" 2>/dev/null | head -1)" ]]; then
+    echo "(source changed, rebuilding...)"
+    (cd "$SCRIPT_DIR" && mvn package -DskipTests -q)
+fi
+
+java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "$JAR" "$@"
