@@ -35,6 +35,9 @@ public class CliChannel {
     /** 当前流式输出的 requestId（用于等待完成） */
     private volatile String currentRequestId;
 
+    /** 中断标志 — 用户在流式输出期间按 Enter 取消当前回复 */
+    private volatile boolean cancelled;
+
     /** 共享 Scanner — 整个 CLI 共用一个 System.in 读取器，避免多 Scanner 抢输入 */
     private final Scanner scanner = new Scanner(System.in);
 
@@ -92,7 +95,7 @@ public class CliChannel {
         });
 
         printBanner();
-        System.out.println("输入消息开始对话，/exit 退出系统，/clear 清上下文");
+        System.out.println("输入消息开始对话，/exit 退出系统，/clear 清上下文，Ctrl+C 中断当前回复");
         System.out.println();
 
         //持续监听用户输入，这就是入口！！！
@@ -175,6 +178,23 @@ public class CliChannel {
     private void sendMessage(String content) {
         String requestId = java.util.UUID.randomUUID().toString();
         currentRequestId = requestId;
+        cancelled = false;
+
+        // 后台监听线程：流式输出期间按 Enter 中断当前回复
+        Thread cancelMonitor = new Thread(() -> {
+            try {
+                while (currentRequestId != null && !cancelled) {
+                    if (System.in.available() > 0) {
+                        String line = scanner.nextLine();
+                        cancelled = true;
+                        currentRequestId = null;
+                    }
+                    Thread.sleep(200);
+                }
+            } catch (Exception ignored) {}
+        }, "CancelMonitor");
+        cancelMonitor.setDaemon(true);
+        cancelMonitor.start();
 
         try {
             messageBus.publishInbound(InboundMessage.builder()
@@ -182,20 +202,24 @@ public class CliChannel {
                     .metadata(java.util.Map.of("requestId", requestId, "streamMode", true))
                     .build());
 
-            // 等待流式完成（最多等5分钟）
+            // 等待流式完成（最多等5分钟，或按 Enter 取消）
             Thread.sleep(200);
             int waited = 0;
             while (currentRequestId != null && waited < 300_000) {
                 Thread.sleep(100);
                 waited += 100;
             }
-            if (currentRequestId != null) {
+            if (cancelled) {
+                System.out.println("\n[已中断]");
+            } else if (currentRequestId != null) {
                 System.out.println("\n[超时]");
                 currentRequestId = null;
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            System.err.println("发送中断");
+            currentRequestId = null;
+        } finally {
+            currentRequestId = null;
         }
     }
 
