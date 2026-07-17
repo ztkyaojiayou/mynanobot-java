@@ -5,8 +5,7 @@ set PATH=%JAVA_HOME%\bin;%PATH%
 
 if not exist "%SCRIPT_DIR%\target\classes\com\nanobot\v3\NanobotCliApplication.class" (
     echo compiling...
-    cd /d "%SCRIPT_DIR%" && call mvn compile -q -DskipTests
+    cd /d "%SCRIPT_DIR%" && call mvn compile -q -DskipTests && cd /d "%CD%"
 )
 
-rem 不 cd，保留用户当前目录作为工作区
 java "@%SCRIPT_DIR%\target\nanobot.args" %*
