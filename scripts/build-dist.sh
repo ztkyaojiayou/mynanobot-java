@@ -23,7 +23,7 @@ mkdir -p "$DIST_DIR"
 
 # 3. 复制文件
 echo "[2/3] Copying files..."
-cp target/nanobot-java-1.0.0-SNAPSHOT.jar "$DIST_DIR/nanobot.jar"
+cp target/nanobot-cli.jar "$DIST_DIR/nanobot.jar"
 
 # 通用启动脚本 (Linux/Mac/Git Bash)
 cat > "$DIST_DIR/nanobot" << 'SCRIPT'

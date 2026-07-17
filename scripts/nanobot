@@ -5,6 +5,6 @@ export JAVA_HOME
 export PATH="$JAVA_HOME/bin:$PATH"
 
 cd "$SCRIPT_DIR"
-[[ ! -f target/nanobot-java-1.0.0-SNAPSHOT.jar ]] && { echo "building..."; mvn package -DskipTests -q; }
+[[ ! -f target/nanobot-cli.jar ]] && { echo "building..."; mvn package -DskipTests -q; }
 
-java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar target/nanobot-java-1.0.0-SNAPSHOT.jar "$@"
+java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar target/nanobot-cli.jar "$@"

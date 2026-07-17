@@ -257,6 +257,7 @@
                         <configuration>
                             <mainClass>com.nanobot.v2.NanobotApplication</mainClass>
                             <layout>ZIP</layout>
+                            <finalName>nanobot-cli</finalName>
                         </configuration>
                     </execution>
                 </executions>
