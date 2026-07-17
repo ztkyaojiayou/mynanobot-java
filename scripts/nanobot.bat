@@ -3,10 +3,9 @@ set SCRIPT_DIR=%~dp0..
 set JAVA_HOME=D:/devSoftWare/jdk17/jdk-17.0.19+10
 set PATH=%JAVA_HOME%\bin;%PATH%
 
-cd /d "%SCRIPT_DIR%"
-if not exist "target\nanobot-java-1.0.0-SNAPSHOT.jar" (
+if not exist "%SCRIPT_DIR%\target\nanobot-java-1.0.0-SNAPSHOT.jar" (
     echo building...
-    call mvn package -DskipTests -q
+    pushd "%SCRIPT_DIR%" && call mvn package -DskipTests -q && popd
 )
 
-java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar target\nanobot-java-1.0.0-SNAPSHOT.jar %*
+java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "%SCRIPT_DIR%\target\nanobot-java-1.0.0-SNAPSHOT.jar" %*
