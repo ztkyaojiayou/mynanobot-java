@@ -117,7 +117,13 @@ public class CliChannel {
         var registry = NanobotRunner.getToolRegistry();
         if (registry == null || registry.getPermissionManager() == null) return;
 
+        // 当前 CLI 会话级别的"信任"标记（仅对本次进程有效）
+        var trusted = new java.util.concurrent.atomic.AtomicBoolean(false);
+
         registry.getPermissionManager().setInteractiveHandler((tool, params, reason) -> {
+            // 已信任则直接放行，不再询问
+            if (trusted.get()) return true;
+
             System.out.println();
             System.out.println("[!] 工具调用需要确认:");
             System.out.println("  工具: " + tool.getName());
@@ -127,8 +133,8 @@ public class CliChannel {
             System.out.flush();
             String input = scanner.nextLine().trim().toLowerCase();
             if ("a".equals(input)) {
-                registry.getPermissionManager().setMode(com.nanobot.security.PermissionMode.ACCEPT_EDITS);
-                System.out.println("  已切换至 ACCEPT_EDITS 模式，后续同类操作不再询问。");
+                trusted.set(true);
+                System.out.println("  已信任当前会话，后续不再询问（重启后失效）。");
                 return true;
             }
             return "y".equals(input) || "yes".equals(input);
