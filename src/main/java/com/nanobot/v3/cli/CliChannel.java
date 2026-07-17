@@ -123,9 +123,14 @@ public class CliChannel {
             System.out.println("  工具: " + tool.getName());
             System.out.println("  参数: " + params);
             System.out.println("  原因: " + reason);
-            System.out.print("  允许执行? [y/N] ");
+            System.out.print("  允许执行? [y=本次 / a=之后都放行 / N=拒绝] ");
             System.out.flush();
             String input = scanner.nextLine().trim().toLowerCase();
+            if ("a".equals(input)) {
+                registry.getPermissionManager().setMode(com.nanobot.security.PermissionMode.ACCEPT_EDITS);
+                System.out.println("  已切换至 ACCEPT_EDITS 模式，后续同类操作不再询问。");
+                return true;
+            }
             return "y".equals(input) || "yes".equals(input);
         });
     }
