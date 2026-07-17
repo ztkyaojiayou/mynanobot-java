@@ -129,15 +129,15 @@ public class CliChannel {
             System.out.println("  工具: " + tool.getName());
             System.out.println("  参数: " + params);
             System.out.println("  原因: " + reason);
-            System.out.print("  允许执行? [y=本次 / a=之后都放行 / N=拒绝] ");
+            System.out.print("  1=允许  2=之后都放行  3=拒绝  [1/2/3] ");
             System.out.flush();
-            String input = scanner.nextLine().trim().toLowerCase();
-            if ("a".equals(input)) {
+            String input = scanner.nextLine().trim();
+            if ("2".equals(input)) {
                 trusted.set(true);
-                System.out.println("  已信任当前会话，后续不再询问（重启后失效）。");
+                System.out.println("  已信任当前会话，后续不再询问。");
                 return true;
             }
-            return "y".equals(input) || "yes".equals(input);
+            return "1".equals(input);
         });
     }
 
