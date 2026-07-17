@@ -8,6 +8,11 @@ if not exist "%SCRIPT_DIR%\target\classes\com\nanobot\v3\NanobotCliApplication.c
     cd /d "%SCRIPT_DIR%" && call mvn compile -q -DskipTests
 )
 
+rem Generate classpath file if it doesn't exist
+if not exist "%SCRIPT_DIR%\target\classpath.txt" (
+    cd /d "%SCRIPT_DIR%" && call mvn dependency:build-classpath -DincludeScope=compile -Dmdep.outputFile=target\classpath.txt -q
+)
+
 cd /d "%SCRIPT_DIR%"
-for /f %%i in ('mvn -q dependency:build-classpath -DincludeScope=compile -Dmdep.outputFile=/dev/stdout 2^>nul') do set CP=target\classes;%%i
-java -cp "%CP%" com.nanobot.v3.NanobotCliApplication %*
+set /p CP=<target\classpath.txt
+java -cp "target\classes;%CP%" com.nanobot.v3.NanobotCliApplication %*
