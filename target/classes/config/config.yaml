@@ -1,0 +1,144 @@
+# Nanobot-Java 配置文件
+# =====================
+#
+# 复制到 .nanobot/config.yaml 并修改相应值
+
+# Agent 配置
+agents:
+  defaults:
+    workspace: ".nanobot/workspace"
+    
+    # 使用 DeepSeek 模型
+    model: "deepseek-chat"
+    
+    # 提供商设为 auto 自动检测
+    provider: "auto"
+    
+    # 最大输出 token 数
+    maxTokens: 8192
+    
+    # 上下文窗口大小
+    contextWindowTokens: 200000
+    
+    # 温度参数（0.0 - 2.0）
+    temperature: 0.7
+    
+    # 最大工具迭代次数
+    maxToolIterations: 100
+    
+    # 时区
+    timezone: "UTC"
+    
+    # 是否统一会话
+    unifiedSession: false
+    
+    # 系统提示词（支持多行）
+    # {date} 会被自动替换为当前日期
+    systemPrompt: |
+      你是 Nanobot，一个强大的 AI 助手。
+      
+      当前日期：{date}
+      
+      ## 核心指令
+      
+      1. **回答问题**：直接回答用户的问题，使用你已有的知识。
+      
+      2. **何时调用工具**：
+         - 当用户询问**最新信息**（如新闻、天气、当前事件）时，调用 `web_search` 工具
+         - 当用户需要**执行系统命令**时，调用 `exec` 工具
+         - 当用户需要**读取/写入文件**时，调用 `read_file`/`write_file` 工具
+         - 当用户需要**搜索文件内容**时，调用 `grep` 工具
+      
+      3. **何时不调用工具**：
+         - 对于常识性问题（如"什么是人工智能？"），直接回答
+         - 对于不需要最新信息的问题，直接回答
+         - 对于聊天对话，直接回答
+      
+      4. **重要限制**：
+         - **禁止调用 `web_fetch` 工具**：不要抓取外部网页内容
+         - 所有搜索结果都应来自 `web_search` 工具返回的摘要信息
+         - 如果搜索结果中的信息足够回答问题，就直接总结回答，不需要进一步获取网页内容
+      
+      ## 工具列表
+      - web_search: 网页搜索，用于获取最新信息（推荐使用）
+      - read_file: 读取文件内容
+      - write_file: 写入文件内容
+      - exec: 执行系统命令（谨慎使用）
+      - grep: 搜索文件内容
+      
+      ## 输出格式
+      - 如果不需要调用工具，直接用自然语言回答
+      - 如果需要调用工具，使用工具调用格式
+      
+      请用友好、专业的方式回答用户的问题。
+
+# LLM 提供商配置
+providers:
+  anthropic:
+    apiKey: ""
+  
+  openai:
+    apiKey: ""
+    apiBase: ""
+  
+  openrouter:
+    apiKey: ""
+    apiBase: "https://openrouter.ai/api/v1"
+  
+  deepseek:
+    apiKey: "sk-9fdb4ac6d1d646fb90fb93220234bc60"
+    apiBase: "https://api.deepseek.com"
+
+# 工具配置
+tools:
+  # @ToolDef 注解扫描的包路径（逗号分隔多个）
+  toolScanPackages: "com.nanobot.tools.impl"
+
+  # 是否限制工具只能访问工作空间
+  restrictToWorkspace: false
+  
+  exec:
+    # 是否启用命令执行
+    enable: true
+    # 执行超时（秒）
+    timeout: 60
+  
+  web:
+    enable: true
+    search:
+      # 搜索引擎提供商：baidu, baidu_web, brave, bing
+      # baidu_web: 使用百度搜索公开接口（国内可访问，无需 API Key）
+      # baidu: 使用百度搜索 API（需要 API Key）
+      # brave: 使用 Brave Search API（需要 API Key）
+      # bing: 使用 Bing Search API（需要 API Key）
+      provider: "baidu_web"
+      # 搜索 API Key（当使用 baidu/brave/bing 时需要配置）
+      apiKey: ""
+      maxResults: 5
+      timeout: 30
+
+# 通道配置
+channels:
+  # 是否发送进度消息
+  sendProgress: true
+  # 是否发送工具提示
+  sendToolHints: false
+  # 最大发送重试次数
+  sendMaxRetries: 3
+  
+  # HTTP/WebSocket 服务器配置
+  server:
+    # 是否启用服务器
+    enable: true
+    # 监听端口
+    port: 8080
+    # 绑定地址（localhost 仅允许本地访问）
+    host: "localhost"
+
+# 内存配置
+memory:
+  dream:
+    # Dream 执行间隔（小时）
+    intervalHours: 2
+    # 每批最大条目数
+    maxBatchSize: 20

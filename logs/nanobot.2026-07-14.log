@@ -1,0 +1,759 @@
+2026-07-14 17:52:57.867 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 10
+2026-07-14 17:52:57.870 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:52:57.878 [MessageBus-Async] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=asyncChat, content='Async message', queueSize=1
+2026-07-14 17:52:57.883 [main] INFO  com.nanobot.bus.MessageBus - MessageBus stopped
+2026-07-14 17:52:57.883 [main] INFO  com.nanobot.bus.MessageBus - MessageBus shutdown completed
+2026-07-14 17:52:57.894 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 10
+2026-07-14 17:52:57.894 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:52:57.995 [main] INFO  com.nanobot.bus.MessageBus - MessageBus stopped
+2026-07-14 17:52:57.995 [main] INFO  com.nanobot.bus.MessageBus - MessageBus shutdown completed
+2026-07-14 17:52:57.998 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 10
+2026-07-14 17:52:57.998 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:52:57.999 [main] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=chat456, content='Hello, World!', queueSize=1
+2026-07-14 17:52:57.999 [main] INFO  com.nanobot.bus.MessageBus - MessageBus stopped
+2026-07-14 17:52:57.999 [main] INFO  com.nanobot.bus.MessageBus - MessageBus shutdown completed
+2026-07-14 17:52:58.000 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 10
+2026-07-14 17:52:58.000 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:52:58.001 [main] INFO  com.nanobot.bus.MessageBus - MessageBus stopped
+2026-07-14 17:52:58.001 [main] INFO  com.nanobot.bus.MessageBus - MessageBus shutdown completed
+2026-07-14 17:52:58.003 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 10
+2026-07-14 17:52:58.004 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:52:58.007 [MessageBus-Async] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=async, chatId=asyncChat
+2026-07-14 17:52:58.008 [main] INFO  com.nanobot.bus.MessageBus - MessageBus stopped
+2026-07-14 17:52:58.008 [main] INFO  com.nanobot.bus.MessageBus - MessageBus shutdown completed
+2026-07-14 17:52:58.010 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 10
+2026-07-14 17:52:58.010 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:52:58.011 [main] INFO  com.nanobot.bus.MessageBus - MessageBus stopped
+2026-07-14 17:52:58.011 [main] INFO  com.nanobot.bus.MessageBus - MessageBus shutdown completed
+2026-07-14 17:52:58.013 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 10
+2026-07-14 17:52:58.013 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:52:58.013 [main] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=test, chatId=chat456
+2026-07-14 17:52:58.013 [main] INFO  com.nanobot.bus.MessageBus - MessageBus stopped
+2026-07-14 17:52:58.013 [main] INFO  com.nanobot.bus.MessageBus - MessageBus shutdown completed
+2026-07-14 17:52:58.028 [main] DEBUG c.nanobot.core.hook.impl.MetricsHook - Metrics updated for session test-session: SessionMetrics{tokens=150, iterations=1, toolCalls=0, errors=0, duration=0ms}
+2026-07-14 17:52:58.029 [main] INFO  c.nanobot.core.hook.impl.MetricsHook - Session test-session completed: tokens=150, duration=0ms, iterations=1, toolCalls=0
+2026-07-14 17:52:58.035 [main] DEBUG c.nanobot.core.hook.impl.MetricsHook - Metrics updated for session session-0: SessionMetrics{tokens=150, iterations=1, toolCalls=0, errors=0, duration=0ms}
+2026-07-14 17:52:58.036 [main] INFO  c.nanobot.core.hook.impl.MetricsHook - Session session-0 completed: tokens=150, duration=0ms, iterations=1, toolCalls=0
+2026-07-14 17:52:58.036 [main] DEBUG c.nanobot.core.hook.impl.MetricsHook - Metrics updated for session session-1: SessionMetrics{tokens=150, iterations=1, toolCalls=0, errors=0, duration=0ms}
+2026-07-14 17:52:58.036 [main] INFO  c.nanobot.core.hook.impl.MetricsHook - Session session-1 completed: tokens=150, duration=0ms, iterations=1, toolCalls=0
+2026-07-14 17:52:58.036 [main] DEBUG c.nanobot.core.hook.impl.MetricsHook - Metrics updated for session session-2: SessionMetrics{tokens=150, iterations=1, toolCalls=0, errors=0, duration=0ms}
+2026-07-14 17:52:58.036 [main] INFO  c.nanobot.core.hook.impl.MetricsHook - Session session-2 completed: tokens=150, duration=0ms, iterations=1, toolCalls=0
+2026-07-14 17:52:58.036 [main] DEBUG c.nanobot.core.hook.impl.MetricsHook - Metrics updated for session session-3: SessionMetrics{tokens=150, iterations=1, toolCalls=0, errors=0, duration=0ms}
+2026-07-14 17:52:58.036 [main] INFO  c.nanobot.core.hook.impl.MetricsHook - Session session-3 completed: tokens=150, duration=0ms, iterations=1, toolCalls=0
+2026-07-14 17:52:58.036 [main] DEBUG c.nanobot.core.hook.impl.MetricsHook - Metrics updated for session session-4: SessionMetrics{tokens=150, iterations=1, toolCalls=0, errors=0, duration=0ms}
+2026-07-14 17:52:58.037 [main] INFO  c.nanobot.core.hook.impl.MetricsHook - Session session-4 completed: tokens=150, duration=0ms, iterations=1, toolCalls=0
+2026-07-14 17:52:58.053 [main] DEBUG c.nanobot.core.hook.impl.MetricsHook - Metrics updated for session test-session: SessionMetrics{tokens=150, iterations=1, toolCalls=0, errors=0, duration=0ms}
+2026-07-14 17:52:58.053 [main] INFO  c.nanobot.core.hook.impl.MetricsHook - Session test-session completed: tokens=150, duration=0ms, iterations=1, toolCalls=0
+2026-07-14 17:52:58.061 [main] INFO  c.n.core.hook.impl.ValidationHook - Content validated and modified for session test-session
+2026-07-14 17:52:58.065 [main] INFO  c.n.core.hook.impl.ValidationHook - Content validated and modified for session test-session
+2026-07-14 17:52:58.081 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 100
+2026-07-14 17:52:58.081 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:52:58.245 [main] INFO  com.nanobot.config.ConfigLoader - Loading configuration from classpath: config/config.yaml
+2026-07-14 17:52:58.410 [main] INFO  com.nanobot.tools.ToolRegistry - ToolRegistry initialized
+2026-07-14 17:52:58.423 [main] INFO  com.nanobot.core.hook.HookLoader - No hooks configured, loading default hooks
+2026-07-14 17:52:58.424 [main] INFO  com.nanobot.core.hook.HookLoader - Loaded default hooks: logging, metrics
+2026-07-14 17:52:58.424 [main] INFO  com.nanobot.core.AgentLoop - Loaded 2 hooks
+2026-07-14 17:52:58.424 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:52:58.425 [main] INFO  com.nanobot.core.AgentLoop - AgentLoop started
+2026-07-14 17:52:58.425 [AgentLoop] INFO  com.nanobot.core.AgentLoop - AgentLoop main loop started (async mode)
+2026-07-14 17:52:58.428 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 1
+2026-07-14 17:52:58.433 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 2
+2026-07-14 17:52:58.433 [AgentLoop] INFO  com.nanobot.core.AgentLoop - 📨 [MSG-IN] #1: channel=api, chatId=test-chat-1784022778425, content='Test message 1' (len=14)
+2026-07-14 17:52:58.433 [main] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=test-chat-1784022778425, content='Test message 1', queueSize=1
+2026-07-14 17:52:58.434 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Processing message for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.437 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESTORE for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.438 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - No history found for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.438 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added user message: 14 chars
+2026-07-14 17:52:58.438 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Total messages in context: 1
+2026-07-14 17:52:58.439 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMPACT for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.439 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMMAND for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.439 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: BUILD for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.439 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Building context: useSearch=false
+2026-07-14 17:52:58.439 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RUN for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.439 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Stream mode object from metadata: type=java.lang.Boolean, value=true
+2026-07-14 17:52:58.439 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🚀 [DO-RUN] streamMode=true, requestId=req-1, callbacks=2, msgContent='Test message 1'
+2026-07-14 17:52:58.439 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - doRun stream setup: mode=true, sendProgress=true, callbacks=2, requestId=req-1
+2026-07-14 17:52:58.440 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - onDelta created: callbacks=2
+2026-07-14 17:52:58.440 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🤖 [LLM-CALL] Starting LLM for session=test-chat-1784022778425, requestId=req-1, msgs=1
+2026-07-14 17:52:58.441 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 调用开始 (迭代 0) =====
+2026-07-14 17:52:58.441 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:test-chat-1784022778425
+2026-07-14 17:52:58.442 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 消息数量: 1
+2026-07-14 17:52:58.442 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [0] role=user, content_length=14
+2026-07-14 17:52:58.443 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 提示词结束 =====
+2026-07-14 17:52:58.451 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应开始 =====
+2026-07-14 17:52:58.451 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:test-chat-1784022778425
+2026-07-14 17:52:58.451 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - PromptTokens: 0, CompletionTokens: 0
+2026-07-14 17:52:58.451 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应类型: 直接响应
+2026-07-14 17:52:58.452 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应内容长度: 18
+2026-07-14 17:52:58.452 [AgentLoop-worker] INFO  com.nanobot.core.AgentRunner - LLM 原始响应:
+Hello from nanobot
+2026-07-14 17:52:58.452 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应结束 =====
+2026-07-14 17:52:58.452 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - ✅ [LLM-DONE] session=test-chat-1784022778425, requestId=req-1, duration=12ms, resultLen=18
+2026-07-14 17:52:58.453 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: SAVE for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.453 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added assistant response to history: 18
+2026-07-14 17:52:58.453 [main] DEBUG com.nanobot.core.AgentLoop - Removed stream callback, remaining: 1
+2026-07-14 17:52:58.453 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 2
+2026-07-14 17:52:58.453 [main] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=test-chat-1784022778425, content='Test message 2', queueSize=1
+2026-07-14 17:52:58.453 [AgentLoop] INFO  com.nanobot.core.AgentLoop - 📨 [MSG-IN] #2: channel=api, chatId=test-chat-1784022778425, content='Test message 2' (len=14)
+2026-07-14 17:52:58.454 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Processing message for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.454 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESTORE for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.467 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Saved 2 new messages to session: api:test-chat-1784022778425
+2026-07-14 17:52:58.467 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESPOND for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.467 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=test-chat-1784022778425
+2026-07-14 17:52:58.467 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Response sent for chatId: test-chat-1784022778425, requestId: req-1, content length: 18
+2026-07-14 17:52:58.468 [AgentLoop-worker] DEBUG c.n.c.hook.CompositeHook$LoggingHook - Finalizing content for session api:test-chat-1784022778425
+2026-07-14 17:52:58.468 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=test-chat-1784022778425
+2026-07-14 17:52:58.468 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Message processed in 34ms, tokens: 0
+2026-07-14 17:52:58.470 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Loaded 2 messages from session: api:test-chat-1784022778425
+2026-07-14 17:52:58.471 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Restored 2 messages for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.471 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added user message: 14 chars
+2026-07-14 17:52:58.471 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Total messages in context: 3
+2026-07-14 17:52:58.471 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMPACT for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.471 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMMAND for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.471 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: BUILD for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.471 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Building context: useSearch=false
+2026-07-14 17:52:58.472 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RUN for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.472 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Stream mode object from metadata: type=java.lang.Boolean, value=true
+2026-07-14 17:52:58.472 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🚀 [DO-RUN] streamMode=true, requestId=req-2, callbacks=2, msgContent='Test message 2'
+2026-07-14 17:52:58.472 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - doRun stream setup: mode=true, sendProgress=true, callbacks=2, requestId=req-2
+2026-07-14 17:52:58.472 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - onDelta created: callbacks=2
+2026-07-14 17:52:58.472 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🤖 [LLM-CALL] Starting LLM for session=test-chat-1784022778425, requestId=req-2, msgs=3
+2026-07-14 17:52:58.472 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 调用开始 (迭代 0) =====
+2026-07-14 17:52:58.472 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:test-chat-1784022778425
+2026-07-14 17:52:58.472 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 消息数量: 3
+2026-07-14 17:52:58.472 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [0] role=user, content_length=14
+2026-07-14 17:52:58.472 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [1] role=assistant, content_length=18
+2026-07-14 17:52:58.472 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [2] role=user, content_length=14
+2026-07-14 17:52:58.472 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 提示词结束 =====
+2026-07-14 17:52:58.473 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应开始 =====
+2026-07-14 17:52:58.474 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:test-chat-1784022778425
+2026-07-14 17:52:58.474 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - PromptTokens: 0, CompletionTokens: 0
+2026-07-14 17:52:58.474 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应类型: 直接响应
+2026-07-14 17:52:58.474 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应内容长度: 18
+2026-07-14 17:52:58.474 [AgentLoop-worker] INFO  com.nanobot.core.AgentRunner - LLM 原始响应:
+Hello from nanobot
+2026-07-14 17:52:58.474 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应结束 =====
+2026-07-14 17:52:58.474 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - ✅ [LLM-DONE] session=test-chat-1784022778425, requestId=req-2, duration=2ms, resultLen=18
+2026-07-14 17:52:58.474 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: SAVE for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.474 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added assistant response to history: 18
+2026-07-14 17:52:58.474 [main] DEBUG com.nanobot.core.AgentLoop - Removed stream callback, remaining: 1
+2026-07-14 17:52:58.474 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 2
+2026-07-14 17:52:58.475 [main] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=test-chat-1784022778425, content='Test message 3', queueSize=1
+2026-07-14 17:52:58.475 [AgentLoop] INFO  com.nanobot.core.AgentLoop - 📨 [MSG-IN] #3: channel=api, chatId=test-chat-1784022778425, content='Test message 3' (len=14)
+2026-07-14 17:52:58.475 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Processing message for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.475 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESTORE for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.477 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Saved 2 new messages to session: api:test-chat-1784022778425
+2026-07-14 17:52:58.477 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESPOND for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.477 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=test-chat-1784022778425
+2026-07-14 17:52:58.477 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Response sent for chatId: test-chat-1784022778425, requestId: req-2, content length: 18
+2026-07-14 17:52:58.477 [AgentLoop-worker] DEBUG c.n.c.hook.CompositeHook$LoggingHook - Finalizing content for session api:test-chat-1784022778425
+2026-07-14 17:52:58.477 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=test-chat-1784022778425
+2026-07-14 17:52:58.477 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Message processed in 23ms, tokens: 0
+2026-07-14 17:52:58.480 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Loaded 4 messages from session: api:test-chat-1784022778425
+2026-07-14 17:52:58.480 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Restored 4 messages for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.480 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added user message: 14 chars
+2026-07-14 17:52:58.480 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Total messages in context: 5
+2026-07-14 17:52:58.480 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMPACT for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.480 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMMAND for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.481 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: BUILD for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.481 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Building context: useSearch=false
+2026-07-14 17:52:58.481 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RUN for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.481 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Stream mode object from metadata: type=java.lang.Boolean, value=true
+2026-07-14 17:52:58.481 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🚀 [DO-RUN] streamMode=true, requestId=req-3, callbacks=2, msgContent='Test message 3'
+2026-07-14 17:52:58.481 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - doRun stream setup: mode=true, sendProgress=true, callbacks=2, requestId=req-3
+2026-07-14 17:52:58.481 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - onDelta created: callbacks=2
+2026-07-14 17:52:58.481 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🤖 [LLM-CALL] Starting LLM for session=test-chat-1784022778425, requestId=req-3, msgs=5
+2026-07-14 17:52:58.481 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 调用开始 (迭代 0) =====
+2026-07-14 17:52:58.481 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:test-chat-1784022778425
+2026-07-14 17:52:58.482 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 消息数量: 5
+2026-07-14 17:52:58.482 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [0] role=user, content_length=14
+2026-07-14 17:52:58.482 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [1] role=assistant, content_length=18
+2026-07-14 17:52:58.482 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [2] role=user, content_length=14
+2026-07-14 17:52:58.482 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [3] role=assistant, content_length=18
+2026-07-14 17:52:58.482 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [4] role=user, content_length=14
+2026-07-14 17:52:58.482 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 提示词结束 =====
+2026-07-14 17:52:58.482 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应开始 =====
+2026-07-14 17:52:58.482 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:test-chat-1784022778425
+2026-07-14 17:52:58.482 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - PromptTokens: 0, CompletionTokens: 0
+2026-07-14 17:52:58.482 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应类型: 直接响应
+2026-07-14 17:52:58.482 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应内容长度: 18
+2026-07-14 17:52:58.482 [AgentLoop-worker] INFO  com.nanobot.core.AgentRunner - LLM 原始响应:
+Hello from nanobot
+2026-07-14 17:52:58.482 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应结束 =====
+2026-07-14 17:52:58.482 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - ✅ [LLM-DONE] session=test-chat-1784022778425, requestId=req-3, duration=1ms, resultLen=18
+2026-07-14 17:52:58.483 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: SAVE for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.483 [main] DEBUG com.nanobot.core.AgentLoop - Removed stream callback, remaining: 1
+2026-07-14 17:52:58.483 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added assistant response to history: 18
+2026-07-14 17:52:58.487 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 100
+2026-07-14 17:52:58.488 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:52:58.488 [main] INFO  com.nanobot.config.ConfigLoader - Loading configuration from classpath: config/config.yaml
+2026-07-14 17:52:58.494 [main] INFO  com.nanobot.tools.ToolRegistry - ToolRegistry initialized
+2026-07-14 17:52:58.495 [main] INFO  com.nanobot.core.hook.HookLoader - No hooks configured, loading default hooks
+2026-07-14 17:52:58.495 [main] INFO  com.nanobot.core.hook.HookLoader - Loaded default hooks: logging, metrics
+2026-07-14 17:52:58.495 [main] INFO  com.nanobot.core.AgentLoop - Loaded 2 hooks
+2026-07-14 17:52:58.496 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:52:58.497 [main] INFO  com.nanobot.core.AgentLoop - AgentLoop started
+2026-07-14 17:52:58.497 [AgentLoop] INFO  com.nanobot.core.AgentLoop - AgentLoop main loop started (async mode)
+2026-07-14 17:52:58.498 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Saved 2 new messages to session: api:test-chat-1784022778425
+2026-07-14 17:52:58.498 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESPOND for session: api:test-chat-1784022778425
+2026-07-14 17:52:58.498 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=test-chat-1784022778425
+2026-07-14 17:52:58.498 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Response sent for chatId: test-chat-1784022778425, requestId: req-3, content length: 18
+2026-07-14 17:52:58.498 [AgentLoop-worker] DEBUG c.n.c.hook.CompositeHook$LoggingHook - Finalizing content for session api:test-chat-1784022778425
+2026-07-14 17:52:58.498 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=test-chat-1784022778425
+2026-07-14 17:52:58.498 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Message processed in 23ms, tokens: 0
+2026-07-14 17:52:58.499 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 1
+2026-07-14 17:52:58.499 [main] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=match-test, content='test', queueSize=1
+2026-07-14 17:52:58.499 [AgentLoop] INFO  com.nanobot.core.AgentLoop - 📨 [MSG-IN] #1: channel=api, chatId=match-test, content='test' (len=4)
+2026-07-14 17:52:58.500 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Processing message for session: api:match-test
+2026-07-14 17:52:58.501 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESTORE for session: api:match-test
+2026-07-14 17:52:58.502 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - No history found for session: api:match-test
+2026-07-14 17:52:58.502 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added user message: 4 chars
+2026-07-14 17:52:58.502 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Total messages in context: 1
+2026-07-14 17:52:58.502 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMPACT for session: api:match-test
+2026-07-14 17:52:58.502 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMMAND for session: api:match-test
+2026-07-14 17:52:58.502 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: BUILD for session: api:match-test
+2026-07-14 17:52:58.502 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Building context: useSearch=false
+2026-07-14 17:52:58.502 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RUN for session: api:match-test
+2026-07-14 17:52:58.502 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Stream mode object from metadata: type=java.lang.Boolean, value=true
+2026-07-14 17:52:58.502 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🚀 [DO-RUN] streamMode=true, requestId=match-req-1, callbacks=1, msgContent='test'
+2026-07-14 17:52:58.502 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - doRun stream setup: mode=true, sendProgress=true, callbacks=1, requestId=match-req-1
+2026-07-14 17:52:58.502 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - onDelta created: callbacks=1
+2026-07-14 17:52:58.502 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🤖 [LLM-CALL] Starting LLM for session=match-test, requestId=match-req-1, msgs=1
+2026-07-14 17:52:58.502 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 调用开始 (迭代 0) =====
+2026-07-14 17:52:58.502 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:match-test
+2026-07-14 17:52:58.502 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 消息数量: 1
+2026-07-14 17:52:58.502 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [0] role=user, content_length=4
+2026-07-14 17:52:58.502 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 提示词结束 =====
+2026-07-14 17:52:58.503 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应开始 =====
+2026-07-14 17:52:58.503 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:match-test
+2026-07-14 17:52:58.503 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - PromptTokens: 0, CompletionTokens: 0
+2026-07-14 17:52:58.503 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应类型: 直接响应
+2026-07-14 17:52:58.504 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应内容长度: 18
+2026-07-14 17:52:58.504 [AgentLoop-worker] INFO  com.nanobot.core.AgentRunner - LLM 原始响应:
+Hello from nanobot
+2026-07-14 17:52:58.504 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应结束 =====
+2026-07-14 17:52:58.504 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - ✅ [LLM-DONE] session=match-test, requestId=match-req-1, duration=2ms, resultLen=18
+2026-07-14 17:52:58.512 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: SAVE for session: api:match-test
+2026-07-14 17:52:58.512 [main] DEBUG com.nanobot.core.AgentLoop - Removed stream callback, remaining: 0
+2026-07-14 17:52:58.512 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added assistant response to history: 18
+2026-07-14 17:52:58.512 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 1
+2026-07-14 17:52:58.512 [main] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=match-test, content='test', queueSize=1
+2026-07-14 17:52:58.512 [AgentLoop] INFO  com.nanobot.core.AgentLoop - 📨 [MSG-IN] #2: channel=api, chatId=match-test, content='test' (len=4)
+2026-07-14 17:52:58.513 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Processing message for session: api:match-test
+2026-07-14 17:52:58.513 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESTORE for session: api:match-test
+2026-07-14 17:52:58.516 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Saved 2 new messages to session: api:match-test
+2026-07-14 17:52:58.516 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESPOND for session: api:match-test
+2026-07-14 17:52:58.516 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=match-test
+2026-07-14 17:52:58.516 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Response sent for chatId: match-test, requestId: match-req-1, content length: 18
+2026-07-14 17:52:58.517 [AgentLoop-worker] DEBUG c.n.c.hook.CompositeHook$LoggingHook - Finalizing content for session api:match-test
+2026-07-14 17:52:58.517 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=match-test
+2026-07-14 17:52:58.517 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Message processed in 16ms, tokens: 0
+2026-07-14 17:52:58.519 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Loaded 2 messages from session: api:match-test
+2026-07-14 17:52:58.519 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Restored 2 messages for session: api:match-test
+2026-07-14 17:52:58.519 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added user message: 4 chars
+2026-07-14 17:52:58.519 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Total messages in context: 3
+2026-07-14 17:52:58.519 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMPACT for session: api:match-test
+2026-07-14 17:52:58.519 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMMAND for session: api:match-test
+2026-07-14 17:52:58.519 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: BUILD for session: api:match-test
+2026-07-14 17:52:58.520 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Building context: useSearch=false
+2026-07-14 17:52:58.520 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RUN for session: api:match-test
+2026-07-14 17:52:58.520 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Stream mode object from metadata: type=java.lang.Boolean, value=true
+2026-07-14 17:52:58.520 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🚀 [DO-RUN] streamMode=true, requestId=match-req-2, callbacks=1, msgContent='test'
+2026-07-14 17:52:58.520 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - doRun stream setup: mode=true, sendProgress=true, callbacks=1, requestId=match-req-2
+2026-07-14 17:52:58.520 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - onDelta created: callbacks=1
+2026-07-14 17:52:58.520 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🤖 [LLM-CALL] Starting LLM for session=match-test, requestId=match-req-2, msgs=3
+2026-07-14 17:52:58.520 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 调用开始 (迭代 0) =====
+2026-07-14 17:52:58.520 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:match-test
+2026-07-14 17:52:58.520 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 消息数量: 3
+2026-07-14 17:52:58.520 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [0] role=user, content_length=4
+2026-07-14 17:52:58.520 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [1] role=assistant, content_length=18
+2026-07-14 17:52:58.520 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [2] role=user, content_length=4
+2026-07-14 17:52:58.520 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 提示词结束 =====
+2026-07-14 17:52:58.520 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应开始 =====
+2026-07-14 17:52:58.521 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:match-test
+2026-07-14 17:52:58.521 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - PromptTokens: 0, CompletionTokens: 0
+2026-07-14 17:52:58.521 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应类型: 直接响应
+2026-07-14 17:52:58.521 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应内容长度: 18
+2026-07-14 17:52:58.521 [AgentLoop-worker] INFO  com.nanobot.core.AgentRunner - LLM 原始响应:
+Hello from nanobot
+2026-07-14 17:52:58.521 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应结束 =====
+2026-07-14 17:52:58.521 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - ✅ [LLM-DONE] session=match-test, requestId=match-req-2, duration=1ms, resultLen=18
+2026-07-14 17:52:58.521 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: SAVE for session: api:match-test
+2026-07-14 17:52:58.521 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added assistant response to history: 18
+2026-07-14 17:52:58.521 [main] DEBUG com.nanobot.core.AgentLoop - Removed stream callback, remaining: 0
+2026-07-14 17:52:58.521 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 1
+2026-07-14 17:52:58.521 [main] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=match-test, content='test', queueSize=1
+2026-07-14 17:52:58.521 [AgentLoop] INFO  com.nanobot.core.AgentLoop - 📨 [MSG-IN] #3: channel=api, chatId=match-test, content='test' (len=4)
+2026-07-14 17:52:58.522 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Processing message for session: api:match-test
+2026-07-14 17:52:58.522 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESTORE for session: api:match-test
+2026-07-14 17:52:58.524 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Saved 2 new messages to session: api:match-test
+2026-07-14 17:52:58.524 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESPOND for session: api:match-test
+2026-07-14 17:52:58.524 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=match-test
+2026-07-14 17:52:58.524 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Response sent for chatId: match-test, requestId: match-req-2, content length: 18
+2026-07-14 17:52:58.524 [AgentLoop-worker] DEBUG c.n.c.hook.CompositeHook$LoggingHook - Finalizing content for session api:match-test
+2026-07-14 17:52:58.524 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=match-test
+2026-07-14 17:52:58.524 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Message processed in 11ms, tokens: 0
+2026-07-14 17:52:58.527 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Loaded 4 messages from session: api:match-test
+2026-07-14 17:52:58.527 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Restored 4 messages for session: api:match-test
+2026-07-14 17:52:58.527 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added user message: 4 chars
+2026-07-14 17:52:58.527 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Total messages in context: 5
+2026-07-14 17:52:58.527 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMPACT for session: api:match-test
+2026-07-14 17:52:58.527 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMMAND for session: api:match-test
+2026-07-14 17:52:58.527 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: BUILD for session: api:match-test
+2026-07-14 17:52:58.527 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Building context: useSearch=false
+2026-07-14 17:52:58.527 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RUN for session: api:match-test
+2026-07-14 17:52:58.527 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Stream mode object from metadata: type=java.lang.Boolean, value=true
+2026-07-14 17:52:58.527 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🚀 [DO-RUN] streamMode=true, requestId=match-req-3, callbacks=1, msgContent='test'
+2026-07-14 17:52:58.527 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - doRun stream setup: mode=true, sendProgress=true, callbacks=1, requestId=match-req-3
+2026-07-14 17:52:58.527 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - onDelta created: callbacks=1
+2026-07-14 17:52:58.528 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🤖 [LLM-CALL] Starting LLM for session=match-test, requestId=match-req-3, msgs=5
+2026-07-14 17:52:58.528 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 调用开始 (迭代 0) =====
+2026-07-14 17:52:58.528 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:match-test
+2026-07-14 17:52:58.528 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 消息数量: 5
+2026-07-14 17:52:58.528 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [0] role=user, content_length=4
+2026-07-14 17:52:58.528 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [1] role=assistant, content_length=18
+2026-07-14 17:52:58.528 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [2] role=user, content_length=4
+2026-07-14 17:52:58.528 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [3] role=assistant, content_length=18
+2026-07-14 17:52:58.528 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [4] role=user, content_length=4
+2026-07-14 17:52:58.528 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 提示词结束 =====
+2026-07-14 17:52:58.528 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应开始 =====
+2026-07-14 17:52:58.528 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:match-test
+2026-07-14 17:52:58.528 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - PromptTokens: 0, CompletionTokens: 0
+2026-07-14 17:52:58.528 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应类型: 直接响应
+2026-07-14 17:52:58.528 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应内容长度: 18
+2026-07-14 17:52:58.528 [AgentLoop-worker] INFO  com.nanobot.core.AgentRunner - LLM 原始响应:
+Hello from nanobot
+2026-07-14 17:52:58.528 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应结束 =====
+2026-07-14 17:52:58.529 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - ✅ [LLM-DONE] session=match-test, requestId=match-req-3, duration=1ms, resultLen=18
+2026-07-14 17:52:58.529 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: SAVE for session: api:match-test
+2026-07-14 17:52:58.529 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added assistant response to history: 18
+2026-07-14 17:52:58.529 [main] DEBUG com.nanobot.core.AgentLoop - Removed stream callback, remaining: 0
+2026-07-14 17:52:58.531 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Saved 2 new messages to session: api:match-test
+2026-07-14 17:52:58.531 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESPOND for session: api:match-test
+2026-07-14 17:52:58.532 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=match-test
+2026-07-14 17:52:58.532 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 100
+2026-07-14 17:52:58.532 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Response sent for chatId: match-test, requestId: match-req-3, content length: 18
+2026-07-14 17:52:58.532 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:52:58.532 [AgentLoop-worker] DEBUG c.n.c.hook.CompositeHook$LoggingHook - Finalizing content for session api:match-test
+2026-07-14 17:52:58.532 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=match-test
+2026-07-14 17:52:58.532 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Message processed in 10ms, tokens: 0
+2026-07-14 17:52:58.533 [main] INFO  com.nanobot.config.ConfigLoader - Loading configuration from classpath: config/config.yaml
+2026-07-14 17:52:58.539 [main] INFO  com.nanobot.tools.ToolRegistry - ToolRegistry initialized
+2026-07-14 17:52:58.540 [main] INFO  com.nanobot.core.hook.HookLoader - No hooks configured, loading default hooks
+2026-07-14 17:52:58.540 [main] INFO  com.nanobot.core.hook.HookLoader - Loaded default hooks: logging, metrics
+2026-07-14 17:52:58.540 [main] INFO  com.nanobot.core.AgentLoop - Loaded 2 hooks
+2026-07-14 17:52:58.540 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:52:58.540 [main] INFO  com.nanobot.core.AgentLoop - AgentLoop started
+2026-07-14 17:52:58.540 [AgentLoop] INFO  com.nanobot.core.AgentLoop - AgentLoop main loop started (async mode)
+2026-07-14 17:52:58.541 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 1
+2026-07-14 17:52:58.548 [main] DEBUG c.n.c.subagent.SubagentCommunication - Registered parent-child relationship: parent -> child
+2026-07-14 17:52:58.551 [main] DEBUG c.n.c.subagent.SubagentCommunication - Shared state set: test = String
+2026-07-14 17:52:58.703 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message sent from a to b: test
+2026-07-14 17:52:58.706 [main] DEBUG c.n.c.subagent.SubagentCommunication - Registered parent-child relationship: parent -> child1
+2026-07-14 17:52:58.706 [main] DEBUG c.n.c.subagent.SubagentCommunication - Registered parent-child relationship: parent -> child2
+2026-07-14 17:52:58.707 [main] DEBUG c.n.c.subagent.SubagentCommunication - Broadcast message from parent to 2 children: broadcast
+2026-07-14 17:52:58.707 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message received by child1: broadcast
+2026-07-14 17:52:58.707 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message received by child2: broadcast
+2026-07-14 17:52:58.708 [main] DEBUG c.n.c.subagent.SubagentCommunication - Registered parent-child relationship: parent -> child
+2026-07-14 17:52:58.708 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message sent from child to parent: result
+2026-07-14 17:52:58.708 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message received by parent: result
+2026-07-14 17:52:58.709 [main] DEBUG c.n.c.subagent.SubagentCommunication - Registered parent-child relationship: parent -> child1
+2026-07-14 17:52:58.709 [main] DEBUG c.n.c.subagent.SubagentCommunication - Registered parent-child relationship: parent -> child2
+2026-07-14 17:52:58.711 [main] DEBUG c.n.c.subagent.SubagentCommunication - Unregistered parent-child relationship: parent -> child1
+2026-07-14 17:52:58.713 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message sent from client to server: request
+2026-07-14 17:52:58.713 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message received by server: request
+2026-07-14 17:52:58.713 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message sent from server to client: reply
+2026-07-14 17:52:58.713 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message received by client: reply
+2026-07-14 17:52:58.714 [main] DEBUG c.n.c.subagent.SubagentCommunication - Shared state set: config.apiKey = String
+2026-07-14 17:52:58.714 [main] DEBUG c.n.c.subagent.SubagentCommunication - Shared state set: config.timeout = Integer
+2026-07-14 17:52:58.717 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message sent from sender to receiver: test
+2026-07-14 17:52:58.718 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message received by receiver: test
+2026-07-14 17:53:09.147 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 10
+2026-07-14 17:53:09.151 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:53:09.155 [MessageBus-Async] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=asyncChat, content='Async message', queueSize=1
+2026-07-14 17:53:09.160 [main] INFO  com.nanobot.bus.MessageBus - MessageBus stopped
+2026-07-14 17:53:09.161 [main] INFO  com.nanobot.bus.MessageBus - MessageBus shutdown completed
+2026-07-14 17:53:09.171 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 10
+2026-07-14 17:53:09.172 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:53:09.288 [main] INFO  com.nanobot.bus.MessageBus - MessageBus stopped
+2026-07-14 17:53:09.288 [main] INFO  com.nanobot.bus.MessageBus - MessageBus shutdown completed
+2026-07-14 17:53:09.290 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 10
+2026-07-14 17:53:09.290 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:53:09.290 [main] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=chat456, content='Hello, World!', queueSize=1
+2026-07-14 17:53:09.290 [main] INFO  com.nanobot.bus.MessageBus - MessageBus stopped
+2026-07-14 17:53:09.290 [main] INFO  com.nanobot.bus.MessageBus - MessageBus shutdown completed
+2026-07-14 17:53:09.292 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 10
+2026-07-14 17:53:09.293 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:53:09.295 [main] INFO  com.nanobot.bus.MessageBus - MessageBus stopped
+2026-07-14 17:53:09.295 [main] INFO  com.nanobot.bus.MessageBus - MessageBus shutdown completed
+2026-07-14 17:53:09.297 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 10
+2026-07-14 17:53:09.297 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:53:09.301 [MessageBus-Async] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=async, chatId=asyncChat
+2026-07-14 17:53:09.302 [main] INFO  com.nanobot.bus.MessageBus - MessageBus stopped
+2026-07-14 17:53:09.303 [main] INFO  com.nanobot.bus.MessageBus - MessageBus shutdown completed
+2026-07-14 17:53:09.305 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 10
+2026-07-14 17:53:09.306 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:53:09.306 [main] INFO  com.nanobot.bus.MessageBus - MessageBus stopped
+2026-07-14 17:53:09.306 [main] INFO  com.nanobot.bus.MessageBus - MessageBus shutdown completed
+2026-07-14 17:53:09.308 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 10
+2026-07-14 17:53:09.308 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:53:09.308 [main] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=test, chatId=chat456
+2026-07-14 17:53:09.308 [main] INFO  com.nanobot.bus.MessageBus - MessageBus stopped
+2026-07-14 17:53:09.309 [main] INFO  com.nanobot.bus.MessageBus - MessageBus shutdown completed
+2026-07-14 17:53:09.321 [main] DEBUG c.nanobot.core.hook.impl.MetricsHook - Metrics updated for session test-session: SessionMetrics{tokens=150, iterations=1, toolCalls=0, errors=0, duration=0ms}
+2026-07-14 17:53:09.323 [main] INFO  c.nanobot.core.hook.impl.MetricsHook - Session test-session completed: tokens=150, duration=0ms, iterations=1, toolCalls=0
+2026-07-14 17:53:09.327 [main] DEBUG c.nanobot.core.hook.impl.MetricsHook - Metrics updated for session session-0: SessionMetrics{tokens=150, iterations=1, toolCalls=0, errors=0, duration=0ms}
+2026-07-14 17:53:09.327 [main] INFO  c.nanobot.core.hook.impl.MetricsHook - Session session-0 completed: tokens=150, duration=0ms, iterations=1, toolCalls=0
+2026-07-14 17:53:09.327 [main] DEBUG c.nanobot.core.hook.impl.MetricsHook - Metrics updated for session session-1: SessionMetrics{tokens=150, iterations=1, toolCalls=0, errors=0, duration=0ms}
+2026-07-14 17:53:09.327 [main] INFO  c.nanobot.core.hook.impl.MetricsHook - Session session-1 completed: tokens=150, duration=0ms, iterations=1, toolCalls=0
+2026-07-14 17:53:09.327 [main] DEBUG c.nanobot.core.hook.impl.MetricsHook - Metrics updated for session session-2: SessionMetrics{tokens=150, iterations=1, toolCalls=0, errors=0, duration=0ms}
+2026-07-14 17:53:09.328 [main] INFO  c.nanobot.core.hook.impl.MetricsHook - Session session-2 completed: tokens=150, duration=0ms, iterations=1, toolCalls=0
+2026-07-14 17:53:09.328 [main] DEBUG c.nanobot.core.hook.impl.MetricsHook - Metrics updated for session session-3: SessionMetrics{tokens=150, iterations=1, toolCalls=0, errors=0, duration=0ms}
+2026-07-14 17:53:09.328 [main] INFO  c.nanobot.core.hook.impl.MetricsHook - Session session-3 completed: tokens=150, duration=0ms, iterations=1, toolCalls=0
+2026-07-14 17:53:09.328 [main] DEBUG c.nanobot.core.hook.impl.MetricsHook - Metrics updated for session session-4: SessionMetrics{tokens=150, iterations=1, toolCalls=0, errors=0, duration=0ms}
+2026-07-14 17:53:09.328 [main] INFO  c.nanobot.core.hook.impl.MetricsHook - Session session-4 completed: tokens=150, duration=0ms, iterations=1, toolCalls=0
+2026-07-14 17:53:09.339 [main] DEBUG c.nanobot.core.hook.impl.MetricsHook - Metrics updated for session test-session: SessionMetrics{tokens=150, iterations=1, toolCalls=0, errors=0, duration=0ms}
+2026-07-14 17:53:09.339 [main] INFO  c.nanobot.core.hook.impl.MetricsHook - Session test-session completed: tokens=150, duration=0ms, iterations=1, toolCalls=0
+2026-07-14 17:53:09.346 [main] INFO  c.n.core.hook.impl.ValidationHook - Content validated and modified for session test-session
+2026-07-14 17:53:09.351 [main] INFO  c.n.core.hook.impl.ValidationHook - Content validated and modified for session test-session
+2026-07-14 17:53:09.362 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 100
+2026-07-14 17:53:09.363 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:53:09.546 [main] INFO  com.nanobot.config.ConfigLoader - Loading configuration from classpath: config/config.yaml
+2026-07-14 17:53:09.721 [main] INFO  com.nanobot.tools.ToolRegistry - ToolRegistry initialized
+2026-07-14 17:53:09.736 [main] INFO  com.nanobot.core.hook.HookLoader - No hooks configured, loading default hooks
+2026-07-14 17:53:09.737 [main] INFO  com.nanobot.core.hook.HookLoader - Loaded default hooks: logging, metrics
+2026-07-14 17:53:09.737 [main] INFO  com.nanobot.core.AgentLoop - Loaded 2 hooks
+2026-07-14 17:53:09.737 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:53:09.738 [main] INFO  com.nanobot.core.AgentLoop - AgentLoop started
+2026-07-14 17:53:09.739 [AgentLoop] INFO  com.nanobot.core.AgentLoop - AgentLoop main loop started (async mode)
+2026-07-14 17:53:09.742 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 1
+2026-07-14 17:53:09.746 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 2
+2026-07-14 17:53:09.747 [main] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=test-chat-1784022789739, content='Test message 1', queueSize=1
+2026-07-14 17:53:09.747 [AgentLoop] INFO  com.nanobot.core.AgentLoop - 📨 [MSG-IN] #1: channel=api, chatId=test-chat-1784022789739, content='Test message 1' (len=14)
+2026-07-14 17:53:09.748 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Processing message for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.754 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESTORE for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.757 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - No history found for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.757 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added user message: 14 chars
+2026-07-14 17:53:09.757 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Total messages in context: 1
+2026-07-14 17:53:09.758 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMPACT for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.758 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMMAND for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.758 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: BUILD for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.759 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Building context: useSearch=false
+2026-07-14 17:53:09.759 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RUN for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.759 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Stream mode object from metadata: type=java.lang.Boolean, value=true
+2026-07-14 17:53:09.759 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🚀 [DO-RUN] streamMode=true, requestId=req-1, callbacks=2, msgContent='Test message 1'
+2026-07-14 17:53:09.759 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - doRun stream setup: mode=true, sendProgress=true, callbacks=2, requestId=req-1
+2026-07-14 17:53:09.759 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - onDelta created: callbacks=2
+2026-07-14 17:53:09.759 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🤖 [LLM-CALL] Starting LLM for session=test-chat-1784022789739, requestId=req-1, msgs=1
+2026-07-14 17:53:09.761 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 调用开始 (迭代 0) =====
+2026-07-14 17:53:09.762 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:test-chat-1784022789739
+2026-07-14 17:53:09.762 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 消息数量: 1
+2026-07-14 17:53:09.762 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [0] role=user, content_length=14
+2026-07-14 17:53:09.763 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 提示词结束 =====
+2026-07-14 17:53:09.772 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应开始 =====
+2026-07-14 17:53:09.772 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:test-chat-1784022789739
+2026-07-14 17:53:09.772 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - PromptTokens: 0, CompletionTokens: 0
+2026-07-14 17:53:09.772 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应类型: 直接响应
+2026-07-14 17:53:09.772 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应内容长度: 18
+2026-07-14 17:53:09.772 [AgentLoop-worker] INFO  com.nanobot.core.AgentRunner - LLM 原始响应:
+Hello from nanobot
+2026-07-14 17:53:09.772 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应结束 =====
+2026-07-14 17:53:09.773 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - ✅ [LLM-DONE] session=test-chat-1784022789739, requestId=req-1, duration=14ms, resultLen=18
+2026-07-14 17:53:09.773 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: SAVE for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.773 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added assistant response to history: 18
+2026-07-14 17:53:09.773 [main] DEBUG com.nanobot.core.AgentLoop - Removed stream callback, remaining: 1
+2026-07-14 17:53:09.774 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 2
+2026-07-14 17:53:09.774 [main] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=test-chat-1784022789739, content='Test message 2', queueSize=1
+2026-07-14 17:53:09.774 [AgentLoop] INFO  com.nanobot.core.AgentLoop - 📨 [MSG-IN] #2: channel=api, chatId=test-chat-1784022789739, content='Test message 2' (len=14)
+2026-07-14 17:53:09.774 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Processing message for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.775 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESTORE for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.788 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Saved 2 new messages to session: api:test-chat-1784022789739
+2026-07-14 17:53:09.788 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESPOND for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.788 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=test-chat-1784022789739
+2026-07-14 17:53:09.789 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Response sent for chatId: test-chat-1784022789739, requestId: req-1, content length: 18
+2026-07-14 17:53:09.789 [AgentLoop-worker] DEBUG c.n.c.hook.CompositeHook$LoggingHook - Finalizing content for session api:test-chat-1784022789739
+2026-07-14 17:53:09.789 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=test-chat-1784022789739
+2026-07-14 17:53:09.789 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Message processed in 38ms, tokens: 0
+2026-07-14 17:53:09.792 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Loaded 2 messages from session: api:test-chat-1784022789739
+2026-07-14 17:53:09.793 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Restored 2 messages for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.793 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added user message: 14 chars
+2026-07-14 17:53:09.793 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Total messages in context: 3
+2026-07-14 17:53:09.793 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMPACT for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.793 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMMAND for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.794 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: BUILD for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.794 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Building context: useSearch=false
+2026-07-14 17:53:09.794 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RUN for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.794 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Stream mode object from metadata: type=java.lang.Boolean, value=true
+2026-07-14 17:53:09.794 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🚀 [DO-RUN] streamMode=true, requestId=req-2, callbacks=2, msgContent='Test message 2'
+2026-07-14 17:53:09.794 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - doRun stream setup: mode=true, sendProgress=true, callbacks=2, requestId=req-2
+2026-07-14 17:53:09.794 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - onDelta created: callbacks=2
+2026-07-14 17:53:09.794 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🤖 [LLM-CALL] Starting LLM for session=test-chat-1784022789739, requestId=req-2, msgs=3
+2026-07-14 17:53:09.794 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 调用开始 (迭代 0) =====
+2026-07-14 17:53:09.794 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:test-chat-1784022789739
+2026-07-14 17:53:09.795 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 消息数量: 3
+2026-07-14 17:53:09.795 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [0] role=user, content_length=14
+2026-07-14 17:53:09.795 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [1] role=assistant, content_length=18
+2026-07-14 17:53:09.795 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [2] role=user, content_length=14
+2026-07-14 17:53:09.795 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 提示词结束 =====
+2026-07-14 17:53:09.795 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应开始 =====
+2026-07-14 17:53:09.795 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:test-chat-1784022789739
+2026-07-14 17:53:09.796 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - PromptTokens: 0, CompletionTokens: 0
+2026-07-14 17:53:09.796 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应类型: 直接响应
+2026-07-14 17:53:09.796 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应内容长度: 18
+2026-07-14 17:53:09.796 [AgentLoop-worker] INFO  com.nanobot.core.AgentRunner - LLM 原始响应:
+Hello from nanobot
+2026-07-14 17:53:09.796 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应结束 =====
+2026-07-14 17:53:09.796 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - ✅ [LLM-DONE] session=test-chat-1784022789739, requestId=req-2, duration=2ms, resultLen=18
+2026-07-14 17:53:09.796 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: SAVE for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.796 [main] DEBUG com.nanobot.core.AgentLoop - Removed stream callback, remaining: 1
+2026-07-14 17:53:09.796 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added assistant response to history: 18
+2026-07-14 17:53:09.796 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 2
+2026-07-14 17:53:09.796 [main] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=test-chat-1784022789739, content='Test message 3', queueSize=1
+2026-07-14 17:53:09.796 [AgentLoop] INFO  com.nanobot.core.AgentLoop - 📨 [MSG-IN] #3: channel=api, chatId=test-chat-1784022789739, content='Test message 3' (len=14)
+2026-07-14 17:53:09.797 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Processing message for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.797 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESTORE for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.799 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Saved 2 new messages to session: api:test-chat-1784022789739
+2026-07-14 17:53:09.799 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESPOND for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.800 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=test-chat-1784022789739
+2026-07-14 17:53:09.800 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Response sent for chatId: test-chat-1784022789739, requestId: req-2, content length: 18
+2026-07-14 17:53:09.800 [AgentLoop-worker] DEBUG c.n.c.hook.CompositeHook$LoggingHook - Finalizing content for session api:test-chat-1784022789739
+2026-07-14 17:53:09.800 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=test-chat-1784022789739
+2026-07-14 17:53:09.800 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Message processed in 26ms, tokens: 0
+2026-07-14 17:53:09.801 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Loaded 4 messages from session: api:test-chat-1784022789739
+2026-07-14 17:53:09.801 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Restored 4 messages for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.801 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added user message: 14 chars
+2026-07-14 17:53:09.801 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Total messages in context: 5
+2026-07-14 17:53:09.801 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMPACT for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.801 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMMAND for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.801 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: BUILD for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.801 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Building context: useSearch=false
+2026-07-14 17:53:09.801 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RUN for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.802 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Stream mode object from metadata: type=java.lang.Boolean, value=true
+2026-07-14 17:53:09.802 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🚀 [DO-RUN] streamMode=true, requestId=req-3, callbacks=2, msgContent='Test message 3'
+2026-07-14 17:53:09.802 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - doRun stream setup: mode=true, sendProgress=true, callbacks=2, requestId=req-3
+2026-07-14 17:53:09.802 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - onDelta created: callbacks=2
+2026-07-14 17:53:09.802 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🤖 [LLM-CALL] Starting LLM for session=test-chat-1784022789739, requestId=req-3, msgs=5
+2026-07-14 17:53:09.802 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 调用开始 (迭代 0) =====
+2026-07-14 17:53:09.802 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:test-chat-1784022789739
+2026-07-14 17:53:09.802 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 消息数量: 5
+2026-07-14 17:53:09.802 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [0] role=user, content_length=14
+2026-07-14 17:53:09.802 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [1] role=assistant, content_length=18
+2026-07-14 17:53:09.802 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [2] role=user, content_length=14
+2026-07-14 17:53:09.802 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [3] role=assistant, content_length=18
+2026-07-14 17:53:09.803 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [4] role=user, content_length=14
+2026-07-14 17:53:09.803 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 提示词结束 =====
+2026-07-14 17:53:09.803 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应开始 =====
+2026-07-14 17:53:09.803 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:test-chat-1784022789739
+2026-07-14 17:53:09.803 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - PromptTokens: 0, CompletionTokens: 0
+2026-07-14 17:53:09.803 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应类型: 直接响应
+2026-07-14 17:53:09.803 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应内容长度: 18
+2026-07-14 17:53:09.803 [AgentLoop-worker] INFO  com.nanobot.core.AgentRunner - LLM 原始响应:
+Hello from nanobot
+2026-07-14 17:53:09.803 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应结束 =====
+2026-07-14 17:53:09.803 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - ✅ [LLM-DONE] session=test-chat-1784022789739, requestId=req-3, duration=1ms, resultLen=18
+2026-07-14 17:53:09.804 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: SAVE for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.804 [main] DEBUG com.nanobot.core.AgentLoop - Removed stream callback, remaining: 1
+2026-07-14 17:53:09.804 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added assistant response to history: 18
+2026-07-14 17:53:09.808 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 100
+2026-07-14 17:53:09.808 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:53:09.810 [main] INFO  com.nanobot.config.ConfigLoader - Loading configuration from classpath: config/config.yaml
+2026-07-14 17:53:09.814 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Saved 2 new messages to session: api:test-chat-1784022789739
+2026-07-14 17:53:09.814 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESPOND for session: api:test-chat-1784022789739
+2026-07-14 17:53:09.814 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=test-chat-1784022789739
+2026-07-14 17:53:09.814 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Response sent for chatId: test-chat-1784022789739, requestId: req-3, content length: 18
+2026-07-14 17:53:09.814 [AgentLoop-worker] DEBUG c.n.c.hook.CompositeHook$LoggingHook - Finalizing content for session api:test-chat-1784022789739
+2026-07-14 17:53:09.814 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=test-chat-1784022789739
+2026-07-14 17:53:09.814 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Message processed in 17ms, tokens: 0
+2026-07-14 17:53:09.816 [main] INFO  com.nanobot.tools.ToolRegistry - ToolRegistry initialized
+2026-07-14 17:53:09.817 [main] INFO  com.nanobot.core.hook.HookLoader - No hooks configured, loading default hooks
+2026-07-14 17:53:09.817 [main] INFO  com.nanobot.core.hook.HookLoader - Loaded default hooks: logging, metrics
+2026-07-14 17:53:09.817 [main] INFO  com.nanobot.core.AgentLoop - Loaded 2 hooks
+2026-07-14 17:53:09.817 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:53:09.818 [main] INFO  com.nanobot.core.AgentLoop - AgentLoop started
+2026-07-14 17:53:09.818 [AgentLoop] INFO  com.nanobot.core.AgentLoop - AgentLoop main loop started (async mode)
+2026-07-14 17:53:09.819 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 1
+2026-07-14 17:53:09.819 [main] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=match-test, content='test', queueSize=1
+2026-07-14 17:53:09.819 [AgentLoop] INFO  com.nanobot.core.AgentLoop - 📨 [MSG-IN] #1: channel=api, chatId=match-test, content='test' (len=4)
+2026-07-14 17:53:09.821 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Processing message for session: api:match-test
+2026-07-14 17:53:09.821 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESTORE for session: api:match-test
+2026-07-14 17:53:09.826 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Loaded 6 messages from session: api:match-test
+2026-07-14 17:53:09.827 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Restored 6 messages for session: api:match-test
+2026-07-14 17:53:09.827 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added user message: 4 chars
+2026-07-14 17:53:09.827 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Total messages in context: 7
+2026-07-14 17:53:09.827 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMPACT for session: api:match-test
+2026-07-14 17:53:09.827 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMMAND for session: api:match-test
+2026-07-14 17:53:09.827 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: BUILD for session: api:match-test
+2026-07-14 17:53:09.827 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Building context: useSearch=false
+2026-07-14 17:53:09.827 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RUN for session: api:match-test
+2026-07-14 17:53:09.827 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Stream mode object from metadata: type=java.lang.Boolean, value=true
+2026-07-14 17:53:09.827 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🚀 [DO-RUN] streamMode=true, requestId=match-req-1, callbacks=1, msgContent='test'
+2026-07-14 17:53:09.827 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - doRun stream setup: mode=true, sendProgress=true, callbacks=1, requestId=match-req-1
+2026-07-14 17:53:09.827 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - onDelta created: callbacks=1
+2026-07-14 17:53:09.827 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🤖 [LLM-CALL] Starting LLM for session=match-test, requestId=match-req-1, msgs=7
+2026-07-14 17:53:09.827 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 调用开始 (迭代 0) =====
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:match-test
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 消息数量: 7
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [0] role=user, content_length=4
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [1] role=assistant, content_length=18
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [2] role=user, content_length=4
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [3] role=assistant, content_length=18
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [4] role=user, content_length=4
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [5] role=assistant, content_length=18
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [6] role=user, content_length=4
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 提示词结束 =====
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应开始 =====
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:match-test
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - PromptTokens: 0, CompletionTokens: 0
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应类型: 直接响应
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应内容长度: 18
+2026-07-14 17:53:09.828 [AgentLoop-worker] INFO  com.nanobot.core.AgentRunner - LLM 原始响应:
+Hello from nanobot
+2026-07-14 17:53:09.828 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应结束 =====
+2026-07-14 17:53:09.828 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - ✅ [LLM-DONE] session=match-test, requestId=match-req-1, duration=1ms, resultLen=18
+2026-07-14 17:53:09.845 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: SAVE for session: api:match-test
+2026-07-14 17:53:09.845 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added assistant response to history: 18
+2026-07-14 17:53:09.847 [main] DEBUG com.nanobot.core.AgentLoop - Removed stream callback, remaining: 0
+2026-07-14 17:53:09.847 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 1
+2026-07-14 17:53:09.847 [main] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=match-test, content='test', queueSize=1
+2026-07-14 17:53:09.847 [AgentLoop] INFO  com.nanobot.core.AgentLoop - 📨 [MSG-IN] #2: channel=api, chatId=match-test, content='test' (len=4)
+2026-07-14 17:53:09.851 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Saved 2 new messages to session: api:match-test
+2026-07-14 17:53:09.851 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Processing message for session: api:match-test
+2026-07-14 17:53:09.852 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESPOND for session: api:match-test
+2026-07-14 17:53:09.852 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=match-test
+2026-07-14 17:53:09.852 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Response sent for chatId: match-test, requestId: match-req-1, content length: 18
+2026-07-14 17:53:09.852 [AgentLoop-worker] DEBUG c.n.c.hook.CompositeHook$LoggingHook - Finalizing content for session api:match-test
+2026-07-14 17:53:09.852 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=match-test
+2026-07-14 17:53:09.852 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Message processed in 31ms, tokens: 0
+2026-07-14 17:53:09.852 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESTORE for session: api:match-test
+2026-07-14 17:53:09.862 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Loaded 8 messages from session: api:match-test
+2026-07-14 17:53:09.863 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Restored 8 messages for session: api:match-test
+2026-07-14 17:53:09.863 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added user message: 4 chars
+2026-07-14 17:53:09.863 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Total messages in context: 9
+2026-07-14 17:53:09.863 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMPACT for session: api:match-test
+2026-07-14 17:53:09.863 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMMAND for session: api:match-test
+2026-07-14 17:53:09.863 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: BUILD for session: api:match-test
+2026-07-14 17:53:09.863 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Building context: useSearch=false
+2026-07-14 17:53:09.863 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RUN for session: api:match-test
+2026-07-14 17:53:09.863 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Stream mode object from metadata: type=java.lang.Boolean, value=true
+2026-07-14 17:53:09.863 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🚀 [DO-RUN] streamMode=true, requestId=match-req-2, callbacks=1, msgContent='test'
+2026-07-14 17:53:09.863 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - doRun stream setup: mode=true, sendProgress=true, callbacks=1, requestId=match-req-2
+2026-07-14 17:53:09.863 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - onDelta created: callbacks=1
+2026-07-14 17:53:09.863 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🤖 [LLM-CALL] Starting LLM for session=match-test, requestId=match-req-2, msgs=9
+2026-07-14 17:53:09.864 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 调用开始 (迭代 0) =====
+2026-07-14 17:53:09.864 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:match-test
+2026-07-14 17:53:09.864 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 消息数量: 9
+2026-07-14 17:53:09.864 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [0] role=user, content_length=4
+2026-07-14 17:53:09.864 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [1] role=assistant, content_length=18
+2026-07-14 17:53:09.864 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [2] role=user, content_length=4
+2026-07-14 17:53:09.864 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [3] role=assistant, content_length=18
+2026-07-14 17:53:09.864 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [4] role=user, content_length=4
+2026-07-14 17:53:09.864 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [5] role=assistant, content_length=18
+2026-07-14 17:53:09.864 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [6] role=user, content_length=4
+2026-07-14 17:53:09.864 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [7] role=assistant, content_length=18
+2026-07-14 17:53:09.864 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [8] role=user, content_length=4
+2026-07-14 17:53:09.864 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 提示词结束 =====
+2026-07-14 17:53:09.865 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应开始 =====
+2026-07-14 17:53:09.865 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:match-test
+2026-07-14 17:53:09.865 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - PromptTokens: 0, CompletionTokens: 0
+2026-07-14 17:53:09.865 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应类型: 直接响应
+2026-07-14 17:53:09.865 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应内容长度: 18
+2026-07-14 17:53:09.865 [AgentLoop-worker] INFO  com.nanobot.core.AgentRunner - LLM 原始响应:
+Hello from nanobot
+2026-07-14 17:53:09.865 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应结束 =====
+2026-07-14 17:53:09.865 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - ✅ [LLM-DONE] session=match-test, requestId=match-req-2, duration=1ms, resultLen=18
+2026-07-14 17:53:09.865 [main] DEBUG com.nanobot.core.AgentLoop - Removed stream callback, remaining: 0
+2026-07-14 17:53:09.865 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 1
+2026-07-14 17:53:09.865 [main] INFO  com.nanobot.bus.MessageBus - 📥 [PUB] chatId=match-test, content='test', queueSize=1
+2026-07-14 17:53:09.865 [AgentLoop] INFO  com.nanobot.core.AgentLoop - 📨 [MSG-IN] #3: channel=api, chatId=match-test, content='test' (len=4)
+2026-07-14 17:53:09.865 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: SAVE for session: api:match-test
+2026-07-14 17:53:09.865 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added assistant response to history: 18
+2026-07-14 17:53:09.866 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Processing message for session: api:match-test
+2026-07-14 17:53:09.866 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESTORE for session: api:match-test
+2026-07-14 17:53:09.869 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Saved 2 new messages to session: api:match-test
+2026-07-14 17:53:09.872 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESPOND for session: api:match-test
+2026-07-14 17:53:09.873 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=match-test
+2026-07-14 17:53:09.873 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Response sent for chatId: match-test, requestId: match-req-2, content length: 18
+2026-07-14 17:53:09.873 [AgentLoop-worker] DEBUG c.n.c.hook.CompositeHook$LoggingHook - Finalizing content for session api:match-test
+2026-07-14 17:53:09.873 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=match-test
+2026-07-14 17:53:09.874 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Message processed in 22ms, tokens: 0
+2026-07-14 17:53:09.879 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Loaded 10 messages from session: api:match-test
+2026-07-14 17:53:09.879 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Restored 10 messages for session: api:match-test
+2026-07-14 17:53:09.879 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added user message: 4 chars
+2026-07-14 17:53:09.879 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Total messages in context: 11
+2026-07-14 17:53:09.879 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMPACT for session: api:match-test
+2026-07-14 17:53:09.879 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: COMMAND for session: api:match-test
+2026-07-14 17:53:09.879 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: BUILD for session: api:match-test
+2026-07-14 17:53:09.879 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Building context: useSearch=false
+2026-07-14 17:53:09.879 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RUN for session: api:match-test
+2026-07-14 17:53:09.879 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Stream mode object from metadata: type=java.lang.Boolean, value=true
+2026-07-14 17:53:09.879 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🚀 [DO-RUN] streamMode=true, requestId=match-req-3, callbacks=1, msgContent='test'
+2026-07-14 17:53:09.879 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - doRun stream setup: mode=true, sendProgress=true, callbacks=1, requestId=match-req-3
+2026-07-14 17:53:09.880 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - onDelta created: callbacks=1
+2026-07-14 17:53:09.880 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - 🤖 [LLM-CALL] Starting LLM for session=match-test, requestId=match-req-3, msgs=11
+2026-07-14 17:53:09.880 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 调用开始 (迭代 0) =====
+2026-07-14 17:53:09.880 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:match-test
+2026-07-14 17:53:09.880 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 消息数量: 11
+2026-07-14 17:53:09.880 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [0] role=user, content_length=4
+2026-07-14 17:53:09.880 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [1] role=assistant, content_length=18
+2026-07-14 17:53:09.880 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [2] role=user, content_length=4
+2026-07-14 17:53:09.880 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [3] role=assistant, content_length=18
+2026-07-14 17:53:09.880 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [4] role=user, content_length=4
+2026-07-14 17:53:09.880 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [5] role=assistant, content_length=18
+2026-07-14 17:53:09.880 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [6] role=user, content_length=4
+2026-07-14 17:53:09.880 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [7] role=assistant, content_length=18
+2026-07-14 17:53:09.880 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [8] role=user, content_length=4
+2026-07-14 17:53:09.880 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [9] role=assistant, content_length=18
+2026-07-14 17:53:09.880 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - [10] role=user, content_length=4
+2026-07-14 17:53:09.880 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 提示词结束 =====
+2026-07-14 17:53:09.881 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应开始 =====
+2026-07-14 17:53:09.881 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 会话ID: api:match-test
+2026-07-14 17:53:09.881 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - PromptTokens: 0, CompletionTokens: 0
+2026-07-14 17:53:09.881 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应类型: 直接响应
+2026-07-14 17:53:09.881 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - 响应内容长度: 18
+2026-07-14 17:53:09.881 [AgentLoop-worker] INFO  com.nanobot.core.AgentRunner - LLM 原始响应:
+Hello from nanobot
+2026-07-14 17:53:09.881 [AgentLoop-worker] DEBUG com.nanobot.core.AgentRunner - ===== LLM 响应结束 =====
+2026-07-14 17:53:09.881 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - ✅ [LLM-DONE] session=match-test, requestId=match-req-3, duration=1ms, resultLen=18
+2026-07-14 17:53:09.881 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: SAVE for session: api:match-test
+2026-07-14 17:53:09.881 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Added assistant response to history: 18
+2026-07-14 17:53:09.881 [main] DEBUG com.nanobot.core.AgentLoop - Removed stream callback, remaining: 0
+2026-07-14 17:53:09.883 [main] INFO  com.nanobot.bus.MessageBus - MessageBus initialized with queue capacity: 100
+2026-07-14 17:53:09.883 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:53:09.885 [main] INFO  com.nanobot.config.ConfigLoader - Loading configuration from classpath: config/config.yaml
+2026-07-14 17:53:09.890 [AgentLoop-worker] DEBUG com.nanobot.session.SessionManager - Saved 2 new messages to session: api:match-test
+2026-07-14 17:53:09.890 [AgentLoop-worker] DEBUG com.nanobot.core.AgentLoop - Processing state: RESPOND for session: api:match-test
+2026-07-14 17:53:09.891 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=match-test
+2026-07-14 17:53:09.891 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Response sent for chatId: match-test, requestId: match-req-3, content length: 18
+2026-07-14 17:53:09.891 [AgentLoop-worker] DEBUG c.n.c.hook.CompositeHook$LoggingHook - Finalizing content for session api:match-test
+2026-07-14 17:53:09.891 [AgentLoop-worker] DEBUG com.nanobot.bus.MessageBus - Published outbound message: channel=api, chatId=match-test
+2026-07-14 17:53:09.891 [AgentLoop-worker] INFO  com.nanobot.core.AgentLoop - Message processed in 25ms, tokens: 0
+2026-07-14 17:53:09.891 [main] INFO  com.nanobot.tools.ToolRegistry - ToolRegistry initialized
+2026-07-14 17:53:09.892 [main] INFO  com.nanobot.core.hook.HookLoader - No hooks configured, loading default hooks
+2026-07-14 17:53:09.892 [main] INFO  com.nanobot.core.hook.HookLoader - Loaded default hooks: logging, metrics
+2026-07-14 17:53:09.892 [main] INFO  com.nanobot.core.AgentLoop - Loaded 2 hooks
+2026-07-14 17:53:09.892 [main] INFO  com.nanobot.bus.MessageBus - MessageBus started
+2026-07-14 17:53:09.892 [main] INFO  com.nanobot.core.AgentLoop - AgentLoop started
+2026-07-14 17:53:09.893 [AgentLoop] INFO  com.nanobot.core.AgentLoop - AgentLoop main loop started (async mode)
+2026-07-14 17:53:09.894 [main] DEBUG com.nanobot.core.AgentLoop - Added stream callback, total: 1
+2026-07-14 17:53:09.904 [main] DEBUG c.n.c.subagent.SubagentCommunication - Registered parent-child relationship: parent -> child
+2026-07-14 17:53:09.906 [main] DEBUG c.n.c.subagent.SubagentCommunication - Shared state set: test = String
+2026-07-14 17:53:10.109 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message sent from a to b: test
+2026-07-14 17:53:10.113 [main] DEBUG c.n.c.subagent.SubagentCommunication - Registered parent-child relationship: parent -> child1
+2026-07-14 17:53:10.113 [main] DEBUG c.n.c.subagent.SubagentCommunication - Registered parent-child relationship: parent -> child2
+2026-07-14 17:53:10.113 [main] DEBUG c.n.c.subagent.SubagentCommunication - Broadcast message from parent to 2 children: broadcast
+2026-07-14 17:53:10.113 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message received by child1: broadcast
+2026-07-14 17:53:10.113 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message received by child2: broadcast
+2026-07-14 17:53:10.115 [main] DEBUG c.n.c.subagent.SubagentCommunication - Registered parent-child relationship: parent -> child
+2026-07-14 17:53:10.115 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message sent from child to parent: result
+2026-07-14 17:53:10.116 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message received by parent: result
+2026-07-14 17:53:10.117 [main] DEBUG c.n.c.subagent.SubagentCommunication - Registered parent-child relationship: parent -> child1
+2026-07-14 17:53:10.118 [main] DEBUG c.n.c.subagent.SubagentCommunication - Registered parent-child relationship: parent -> child2
+2026-07-14 17:53:10.120 [main] DEBUG c.n.c.subagent.SubagentCommunication - Unregistered parent-child relationship: parent -> child1
+2026-07-14 17:53:10.121 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message sent from client to server: request
+2026-07-14 17:53:10.121 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message received by server: request
+2026-07-14 17:53:10.122 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message sent from server to client: reply
+2026-07-14 17:53:10.122 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message received by client: reply
+2026-07-14 17:53:10.123 [main] DEBUG c.n.c.subagent.SubagentCommunication - Shared state set: config.apiKey = String
+2026-07-14 17:53:10.123 [main] DEBUG c.n.c.subagent.SubagentCommunication - Shared state set: config.timeout = Integer
+2026-07-14 17:53:10.126 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message sent from sender to receiver: test
+2026-07-14 17:53:10.126 [main] DEBUG c.n.c.subagent.SubagentCommunication - Message received by receiver: test
