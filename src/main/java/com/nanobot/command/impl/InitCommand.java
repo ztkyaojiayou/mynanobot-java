@@ -47,7 +47,7 @@ public class InitCommand implements Command {
         Path projectRoot = resolveProjectRoot();
         Path outputPath = projectRoot.resolve(NANOBOT_FILENAME);
 
-        System.out.println("🔍 正在分析项目: " + projectRoot);
+        System.out.println("[分析] 正在分析项目: " + projectRoot);
 
         // ── 1. 收集项目元数据（纯 Java，零权限） ──
         StringBuilder projectInfo = new StringBuilder();
@@ -60,25 +60,25 @@ public class InitCommand implements Command {
         LLMProvider provider = NanobotRunner.getProvider();
         if (provider != null) {
             try {
-                System.out.println("🤖 正在通过大模型分析并生成 NANOBOT.md...");
+                System.out.println("[LLM] 正在通过大模型分析并生成 NANOBOT.md...");
                 String content = generateWithLLM(provider, projectInfo.toString());
                 Files.writeString(outputPath, content);
-                System.out.println("✅ 已生成: " + outputPath.toAbsolutePath() + " (" + content.length() + " 字符)");
+                System.out.println("[OK] 已生成: " + outputPath.toAbsolutePath() + " (" + content.length() + " 字符)");
                 return false;
             } catch (Exception e) {
-                System.out.println("⚠️  LLM 生成失败 (" + e.getMessage() + ")，回退到模板模式...");
+                System.out.println("[!]  LLM 生成失败 (" + e.getMessage() + ")，回退到模板模式...");
             }
         } else {
-            System.out.println("⚠️  未检测到 LLM 配置，使用模板模式...");
+            System.out.println("[!]  未检测到 LLM 配置，使用模板模式...");
         }
 
         // ── 3. 模板生成（LLM 不可用时的兜底） ──
         try {
             String content = generateFromTemplate(projectInfo.toString());
             Files.writeString(outputPath, content);
-            System.out.println("✅ 已生成: " + outputPath.toAbsolutePath() + "（模板模式，" + content.length() + " 字符）");
+            System.out.println("[OK] 已生成: " + outputPath.toAbsolutePath() + "（模板模式，" + content.length() + " 字符）");
         } catch (IOException e) {
-            System.err.println("❌ 写入失败: " + e.getMessage());
+            System.err.println("[ERR] 写入失败: " + e.getMessage());
         }
 
         return false;

@@ -119,7 +119,7 @@ public class CliChannel {
 
         registry.getPermissionManager().setInteractiveHandler((tool, params, reason) -> {
             System.out.println();
-            System.out.println("⚠️  工具调用需要确认:");
+            System.out.println("[!] 工具调用需要确认:");
             System.out.println("  工具: " + tool.getName());
             System.out.println("  参数: " + params);
             System.out.println("  原因: " + reason);
