@@ -9,6 +9,7 @@ import com.nanobot.command.impl.ExitCommand;
 import com.nanobot.command.impl.HelpCommand;
 import com.nanobot.command.impl.InitCommand;
 import com.nanobot.command.impl.ModeCommand;
+import com.nanobot.command.impl.ResumeCommand;
 import com.nanobot.core.AgentLoop;
 import com.nanobot.tools.impl.AskUserTool;
 import com.nanobot.v3.tui.MarkdownRenderer;
@@ -38,9 +39,14 @@ public class CliChannel {
     private final Scanner scanner = new Scanner(System.in);
 
     public CliChannel(ConfigurableApplicationContext appContext) {
+        this(appContext, null);
+    }
+
+    /** @param initialSessionId 恢复会话时传入，null=新建 */
+    public CliChannel(ConfigurableApplicationContext appContext, String initialSessionId) {
         this.messageBus = NanobotRunner.getMessageBus();
         this.agentLoop = NanobotRunner.getAgentLoop();
-        this.sessionId = "cli-" + System.currentTimeMillis();
+        this.sessionId = initialSessionId != null ? initialSessionId : "cli-" + System.currentTimeMillis();
         this.appContext = appContext;
 
         // 初始化命令注册中心
@@ -55,6 +61,9 @@ public class CliChannel {
         this.commands.register(new ModeCommand());
         this.commands.register(new HelpCommand(commands));
         this.commands.register(new InitCommand());
+        this.commands.register(new ResumeCommand(() -> {
+            System.out.println("提示: 使用 --resume <key> 启动参数恢复指定会话");
+        }));
     }
 
     public void start() {

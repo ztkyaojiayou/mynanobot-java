@@ -16,7 +16,16 @@ import org.springframework.context.annotation.Bean;
 @SpringBootApplication(scanBasePackages = "com.nanobot")
 public class NanobotCliApplication {
 
+    private static String resumeSessionId = null;
+
     public static void main(String[] args) {
+        // --resume <sessionId>: 恢复指定会话
+        for (int i = 0; i < args.length; i++) {
+            if ("--resume".equals(args[i]) && i + 1 < args.length) {
+                resumeSessionId = args[i + 1];
+            }
+        }
+
         // 没有 --workspace / -w 时，自动取当前目录
         boolean hasWorkspace = false;
         for (String a : args) {
@@ -52,7 +61,7 @@ public class NanobotCliApplication {
     public ApplicationRunner startCli(ConfigurableApplicationContext ctx) {
         return args -> new Thread(() -> {
             try { Thread.sleep(1500); } catch (InterruptedException ignored) {}
-            new CliChannel(ctx).start();
+            new CliChannel(ctx, resumeSessionId).start();
         }, "CLI-Main").start();
     }
 }

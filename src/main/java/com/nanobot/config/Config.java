@@ -165,9 +165,17 @@ public class Config {
         /** 温度参数 */
         private float temperature = 0.7f;
 
-        /** 最大工具迭代次数 */
+        /** 最大工具迭代次数（即 maxTurns） */
         @JsonProperty("maxToolIterations")
         private int maxToolIterations = 100;
+
+        /** 最大对话轮次（别名，优先级高于 maxToolIterations；0=不限） */
+        @JsonProperty("maxTurns")
+        private int maxTurns = 0;
+
+        /** 最大费用（美元），0=不限 */
+        @JsonProperty("maxCost")
+        private double maxCost = 0;
 
         /** 最大工具结果字符数 */
         @JsonProperty("maxToolResultChars")

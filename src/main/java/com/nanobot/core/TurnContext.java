@@ -91,6 +91,12 @@ public class TurnContext {
     private final float temperature;
     
     /** 最大迭代次数 */
+    /** 最大对话轮次（0=不限，优先级高于 maxIterations） */
+    private final int maxTurns;
+
+    /** 最大费用（美元），0=不限 */
+    private final double maxCost;
+
     private final int maxIterations;
     
     // ==================== 运行时状态 ====================
@@ -151,6 +157,8 @@ public class TurnContext {
         this.model = builder.model;
         this.maxTokens = builder.maxTokens;
         this.temperature = builder.temperature;
+        this.maxTurns = builder.maxTurns;
+        this.maxCost = builder.maxCost;
         this.maxIterations = builder.maxIterations;
         this.state = TurnState.RESTORE;
         this.iteration = new AtomicInteger(0);
@@ -174,9 +182,22 @@ public class TurnContext {
             float temperature,
             int maxIterations,
             List<com.fasterxml.jackson.databind.JsonNode> toolDefinitions) {
-        
+        return create(message, model, maxTokens, temperature, maxIterations, toolDefinitions, 0, 0);
+    }
+
+    /** 创建上下文（带预算控制） */
+    public static TurnContext create(
+            InboundMessage message,
+            String model,
+            int maxTokens,
+            float temperature,
+            int maxIterations,
+            List<com.fasterxml.jackson.databind.JsonNode> toolDefinitions,
+            int maxTurns,
+            double maxCost) {
+
         String sessionKey = message.getSessionKey();
-        
+
         return TurnContext.builder()
             .message(message)
             .sessionKey(sessionKey)
@@ -185,6 +206,8 @@ public class TurnContext {
             .temperature(temperature)
             .maxIterations(maxIterations)
             .toolDefinitions(toolDefinitions)
+            .maxTurns(maxTurns)
+            .maxCost(maxCost)
             .build();
     }
     
@@ -313,6 +336,21 @@ public class TurnContext {
     /**
      * 添加 Token 使用
      */
+    /** 获取有效的最大轮次 */
+    public int getMaxTurns() { return maxTurns; }
+
+    /** 获取最大费用预算 */
+    public double getMaxCost() { return maxCost; }
+
+    /**
+     * 计算累计费用（DeepSeek 定价: $0.14/1M input, $0.28/1M output）
+     */
+    public double getCumulativeCost() {
+        int prompt = getPromptTokens();
+        int completion = getCompletionTokens();
+        return prompt / 1_000_000.0 * 0.14 + completion / 1_000_000.0 * 0.28;
+    }
+
     public void addUsage(int promptTokens, int completionTokens) {
         usage.merge("promptTokens", promptTokens, Integer::sum);
         usage.merge("completionTokens", completionTokens, Integer::sum);
@@ -360,7 +398,12 @@ public class TurnContext {
         private String model;
         private int maxTokens = 8192;
         private float temperature = 0.7f;
+        private int maxTurns = 0;
+        private double maxCost = 0;
         private int maxIterations = 100;
+
+        public Builder maxTurns(int v) { this.maxTurns = v; return this; }
+        public Builder maxCost(double v) { this.maxCost = v; return this; }
         private List<com.fasterxml.jackson.databind.JsonNode> toolDefinitions;
         
         public Builder message(InboundMessage message) {

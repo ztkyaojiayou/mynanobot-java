@@ -401,7 +401,8 @@ public class AgentLoop {
             Config.AgentDefaults defaults = config.getAgents().getDefaults();
 
             TurnContext context = TurnContext.create(message, defaults.getModel(), defaults.getMaxTokens(), defaults.getTemperature(), defaults.getMaxToolIterations(),
-                    planMode ? registry.getDefinitions(true) : registry.getDefinitions());
+                    planMode ? registry.getDefinitions(true) : registry.getDefinitions(),
+                    defaults.getMaxTurns(), defaults.getMaxCost());
 
             // 状态机处理
             String result = processStates(context);

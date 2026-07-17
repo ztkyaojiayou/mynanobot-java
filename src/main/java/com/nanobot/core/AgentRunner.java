@@ -2,6 +2,7 @@ package com.nanobot.core;
 
 import com.nanobot.providers.LLMProvider;
 import com.nanobot.providers.LLMResponse;
+import com.nanobot.tools.Tool;
 import com.nanobot.tools.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -169,12 +170,25 @@ public class AgentRunner {
             return callLLMWithoutTools(context, messages, onDelta);
         }
 
-        // 检查最大迭代
-        if (iteration >= context.getMaxIterations()) {
-            logger.warn("Max iterations reached for session: {}", context.getSessionKey());
+        // 检查 maxTurns（优先）或 maxToolIterations
+        int maxTurns = context.getMaxTurns();
+        if (maxTurns > 0 && iteration >= maxTurns) {
+            logger.warn("Max turns ({}) reached: {}", maxTurns, context.getSessionKey());
             return CompletableFuture.completedFuture(
-                "抱歉，我已经达到了最大处理次数限制。请重新开始或简化您的请求。"
-            );
+                "已到达最大轮次限制（" + maxTurns + "）。请简化请求或增加限制。");
+        }
+        if (maxTurns <= 0 && iteration >= context.getMaxIterations()) {
+            logger.warn("Max iterations reached: {}", context.getSessionKey());
+            return CompletableFuture.completedFuture(
+                "抱歉，已达到最大处理次数限制。请重新开始或简化您的请求。");
+        }
+
+        // 检查 maxCost（费用预算）
+        double maxCost = context.getMaxCost();
+        if (maxCost > 0 && context.getCumulativeCost() >= maxCost) {
+            logger.warn("Max cost (${}) exceeded: ${}", maxCost, context.getCumulativeCost());
+            return CompletableFuture.completedFuture(
+                "已超出费用预算（$" + String.format("%.4f", maxCost) + "）。当前累计: $" + String.format("%.4f", context.getCumulativeCost()));
         }
 
         // 检查取消
@@ -377,52 +391,55 @@ public class AgentRunner {
     /**
      * 执行工具调用
      */
+    /**
+     * 执行工具调用 — 只读工具并行，写工具保持顺序。
+     * 所有工具通过 runAsync 提交到线程池并发执行，allOf 等待全部完成。
+     * 结果按原始 tool_calls 顺序追加到 messages，保证 LLM 看到的顺序正确。
+     */
     private CompletableFuture<Void> executeTools(
             TurnContext context,
             List<Map<String, Object>> messages,
             List<LLMResponse.ToolCallRequest> toolCalls) {
-        
-        logger.debug("Executing {} tool calls", toolCalls.size());
-        
-        // 记录开始时间
-        context.setResponse(context.getResponse());
-        
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
-        
-        for (LLMResponse.ToolCallRequest call : toolCalls) {
-            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+
+        int readCount = (int) toolCalls.stream().filter(tc -> {
+            Tool t = registry.get(tc.getName());
+            return t != null && t.isReadOnly();
+        }).count();
+        logger.info("Executing {} tool calls ({} read-only → parallel, {} write → serial-after-reads)",
+                toolCalls.size(), readCount, toolCalls.size() - readCount);
+
+        // 提交所有工具到线程池并行执行，结果收集到有序数组
+        String[] results = new String[toolCalls.size()];
+        CompletableFuture<?>[] futures = new CompletableFuture<?>[toolCalls.size()];
+
+        for (int i = 0; i < toolCalls.size(); i++) {
+            final int idx = i;
+            LLMResponse.ToolCallRequest call = toolCalls.get(i);
+            futures[i] = CompletableFuture.runAsync(() -> {
                 String toolName = call.getName();
-                Map<String, Object> params = call.getArguments();
-                
-                // 执行工具（带重试机制）
-                Object result = executeToolWithRetry(toolName, params, call.getId());
-                
-                // 处理结果
+                Object result = executeToolWithRetry(toolName, call.getArguments(), call.getId());
                 String resultStr = result != null ? result.toString() : "";
-                
-                // 截断过长的结果
                 if (resultStr.length() > maxToolResultChars) {
-                    resultStr = resultStr.substring(0, maxToolResultChars) + 
-                             "\n\n[结果已截断，超出最大长度限制]";
+                    resultStr = resultStr.substring(0, maxToolResultChars)
+                            + "\n\n[结果已截断，超出最大长度限制]";
                 }
-                
-                // 添加结果消息（DeepSeek 格式：工具结果不需要 name 字段）
+                results[idx] = resultStr; // 按索引写入，保证顺序
+            }, toolExecutor);
+        }
+
+        // 等待全部完成
+        return CompletableFuture.allOf(futures).thenRun(() -> {
+            for (int i = 0; i < toolCalls.size(); i++) {
                 messages.add(Map.of(
                     "role", "tool",
-                    "tool_call_id", call.getId(),
-                    "content", resultStr
+                    "tool_call_id", toolCalls.get(i).getId(),
+                    "content", results[i] != null ? results[i] : "Error: no result"
                 ));
-            }, toolExecutor);
-            
-            futures.add(future);
-        }
-        
-        // 等待所有工具执行完成
-        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-            .exceptionally(error -> {
-                logger.error("Tool execution failed: {}", error.getMessage());
-                return null;
-            });
+            }
+        }).exceptionally(error -> {
+            logger.error("Tool execution failed: {}", error.getMessage());
+            return null;
+        });
     }
     
     /**

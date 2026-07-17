@@ -144,6 +144,7 @@ public class NanobotConfig {
 
         // 子 Agent spawn 工具
         toolRegistry.register(new SpawnTool(agentCoordinator));
+        toolRegistry.register(new SpawnCheckTool());
 
         // 自动扫描 @ToolDef 注解的工具（包路径可通过 config.tools.toolScanPackages 配置）
         String scanPkgs = config.getTools().getToolScanPackages();
