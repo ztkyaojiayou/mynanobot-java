@@ -1,15 +1,10 @@
 #!/bin/bash
-# nanobot CLI — 在任何目录下运行，自动取当前目录为工作区
-# 安装: export PATH="/d/IdeaProjects/个人项目/ai-vibe-coding/nanobot-java/scripts:$PATH"
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 JAVA_HOME="${JAVA_HOME:-D:/devSoftWare/jdk17/jdk-17.0.19+10}"
 export JAVA_HOME
 export PATH="$JAVA_HOME/bin:$PATH"
 
-# 首次使用需要打包 JAR
-if [[ ! -f "$SCRIPT_DIR/target/nanobot-cli.jar" ]]; then
-    echo "(首次运行，正在打包...)"
-    (cd "$SCRIPT_DIR" && mvn package -DskipTests -q)
-fi
+cd "$SCRIPT_DIR"
+[[ ! -f target/nanobot-java-1.0.0-SNAPSHOT.jar ]] && { echo "building..."; mvn package -DskipTests -q; }
 
-java -jar "$SCRIPT_DIR/target/nanobot-cli.jar" "$@"
+java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar target/nanobot-java-1.0.0-SNAPSHOT.jar "$@"

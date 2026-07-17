@@ -256,38 +256,12 @@
                         </goals>
                         <configuration>
                             <mainClass>com.nanobot.v2.NanobotApplication</mainClass>
+                            <layout>ZIP</layout>
                         </configuration>
                     </execution>
                 </executions>
             </plugin>
 
-            <!-- Maven Assembly Plugin — 打包 CLI 独立 JAR (含所有依赖) -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <version>3.6.0</version>
-                <configuration>
-                    <archive>
-                        <manifest>
-                            <mainClass>com.nanobot.v3.NanobotCliApplication</mainClass>
-                        </manifest>
-                    </archive>
-                    <descriptorRefs>
-                        <descriptorRef>jar-with-dependencies</descriptorRef>
-                    </descriptorRefs>
-                    <finalName>nanobot-cli</finalName>
-                    <appendAssemblyId>false</appendAssemblyId>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>make-cli-jar</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>single</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
         </plugins>
     </build>
 </project>

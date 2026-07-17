@@ -1,0 +1,17 @@
+com\nanobot\core\subagent\SubagentCommunicationTest.class
+com\nanobot\session\SessionManagerTest.class
+com\nanobot\core\StreamCallbackLifecycleTest$6.class
+com\nanobot\core\StreamCallbackLifecycleTest$2.class
+com\nanobot\v1\channel\WebSocketFrameTest.class
+com\nanobot\core\StreamCallbackLifecycleTest$5.class
+com\nanobot\core\StreamCallbackLifecycleTest.class
+com\nanobot\memory\DreamTest.class
+com\nanobot\core\StreamCallbackLifecycleTest$1.class
+com\nanobot\core\hook\MetricsHookTest.class
+com\nanobot\core\hook\ValidationHookTest.class
+com\nanobot\core\StreamCallbackLifecycleTest$3.class
+com\nanobot\bus\MessageBusTest.class
+com\nanobot\core\StreamCallbackLifecycleTest$4.class
+com\nanobot\cron\CronSchedulerTest.class
+com\nanobot\tools\ToolRegistryTest.class
+com\nanobot\memory\ConsolidatorTest.class
