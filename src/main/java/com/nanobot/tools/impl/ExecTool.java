@@ -72,7 +72,15 @@ public class ExecTool implements Tool {
             
             try {
                 ProcessBuilder pb = new ProcessBuilder();
-                pb.command("cmd.exe", "/c", command);
+                // 根据命令类型选择 Shell：PowerShell 用 -Command，其余用 cmd /c
+                String cmd = command.toLowerCase().trim();
+                if (cmd.startsWith("powershell ") || cmd.startsWith("powershell\t")) {
+                    pb.command("powershell.exe", "-NoProfile", "-Command", command.substring(11));
+                } else if (cmd.startsWith("pwsh ") || cmd.startsWith("pwsh\t")) {
+                    pb.command("pwsh.exe", "-NoProfile", "-Command", command.substring(5));
+                } else {
+                    pb.command("cmd.exe", "/c", command);
+                }
                 pb.redirectErrorStream(false); // stderr 单独捕获
 
                 Process process = pb.start();
