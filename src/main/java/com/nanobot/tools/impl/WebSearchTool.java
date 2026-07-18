@@ -68,7 +68,7 @@ public class WebSearchTool implements Tool {
     
     // Bing Search API
     private static final String BING_API_URL = "https://api.bing.microsoft.com/v7.0/search";
-    private static final String DUCKDUCKGO_URL = "https://html.duckduckgo.com/html/";
+    private static final String DUCKDUCKGO_URL = "https://lite.duckduckgo.com/lite/";
     
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
@@ -475,21 +475,33 @@ public class WebSearchTool implements Tool {
             StringBuilder result = new StringBuilder();
             result.append("搜索结果（").append(query).append("）：\n\n");
             org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parse(responseBody);
-            var items = doc.select(".result__body");
+
             int count = 0;
-            for (var item : items) {
+            // lite.duckduckgo.com 格式：每个结果是 <a> 链接 + 后续 <td> 摘要
+            var links = doc.select("a.result-link, a[rel=nofollow]");
+            if (links.isEmpty()) links = doc.select("table tr td a[href^=http]");
+
+            for (var a : links) {
                 if (count >= limit) break;
-                var titleEl = item.selectFirst(".result__title a");
-                var snippetEl = item.selectFirst(".result__snippet");
-                if (titleEl == null) continue;
-                String title = titleEl.text().trim();
-                String url = titleEl.attr("href");
-                String snippet = snippetEl != null ? snippetEl.text().trim() : "";
-                if (title.isEmpty()) continue;
+                String title = a.text().trim();
+                String url = a.attr("href");
+                if (title.isEmpty() || title.length() < 2) continue;
+
+                // 提取摘要：找最近的包含 text 的兄弟元素
+                String snippet = "";
+                var row = a.parent();
+                if (row != null) {
+                    var nextRow = row.parent() != null ? row.parent().nextElementSibling() : null;
+                    if (nextRow != null) {
+                        snippet = nextRow.text().trim();
+                        if (snippet.length() > 200) snippet = snippet.substring(0, 200) + "...";
+                    }
+                }
 
                 result.append(++count).append(". ").append(title).append("\n");
                 if (!url.isEmpty()) result.append("   链接: ").append(url).append("\n");
-                if (!snippet.isEmpty()) result.append("   摘要: ").append(snippet).append("\n");
+                if (!snippet.isEmpty() && !snippet.equals(title))
+                    result.append("   摘要: ").append(snippet).append("\n");
                 result.append("\n");
             }
             return count > 0 ? result.toString() : "未找到相关搜索结果";
