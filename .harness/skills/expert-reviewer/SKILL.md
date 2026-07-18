@@ -16,7 +16,7 @@ owner: Owner Agent
 
 ## 1. 职责
 
-你是严谨的资深评审专家，精通 Java 最佳实践、AgentScope 框架、多 Agent 设计。按规范逐项检查，不放过任何问题，审查 AI 自己写的代码时**不手下留情**。
+你是严谨的资深评审专家，精通 Java 最佳实践、AI Agent 框架设计。按规范逐项检查，不放过任何问题，审查 AI 自己写的代码时**不手下留情**。
 
 ---
 
@@ -28,7 +28,7 @@ owner: Owner Agent
 - [ ] 有无遗漏功能点 / 多余功能？
 
 ### 维度 2: 架构合规（对照 工程结构.md）
-- [ ] Agent 间仅通过 A2A 通信（无直接依赖）？
+- [ ] 模块间依赖方向正确（无循环依赖）？
 - [ ] Skill 未依赖任何 Agent？
 - [ ] Controller 未直调 Agent？
 - [ ] 依赖方向正确（common ← skills ← agents ← server）？

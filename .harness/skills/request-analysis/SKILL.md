@@ -57,12 +57,12 @@ owner: Owner Agent
 - 必须复用哪些现有协议 / 模型 / 统一治理能力
 
 ### Step 8: 契约影响
-- REST 是否变化
-- A2A 是否变化
-- 数据模型 / Redis / ReMe 是否变化
+- REST API 是否变化
+- CLI 命令是否变化
+- 数据模型 / 存储 Schema 是否变化
 
 ### Step 9: 标注影响面
-- 涉及模块 / Agent / Skill
+- 涉及模块（core/tools/providers/security/...）
 - 涉及外部 API
 - 涉及的 wiki 文档（业务模型 / 接口协议 / 数据模型）
 
@@ -113,7 +113,7 @@ created: <date>
 
 ## 契约影响
 - REST: …
-- A2A: …
+- CLI 命令: …
 - 数据模型: …
 
 ## 影响面

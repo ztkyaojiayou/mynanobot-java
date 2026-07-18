@@ -24,26 +24,26 @@ owner: Owner Agent
 
 ### Step 1: 准备环境
 ```bash
-docker compose up -d            # Nacos 3.2.x + Redis 7.x
+./scripts/nanobot                   # 启动 CLI 模式
 mvn clean package -DskipTests   # 已在 CI 验过测试
-java -jar huazai-trip-server/target/*.jar --spring.profiles.active=dev
+mvn spring-boot:run               # V2 Web 模式
 ```
 
 ### Step 2: 健康检查
 ```bash
 curl localhost:8080/actuator/health        # 期望 UP
 curl localhost:8080/actuator/metrics       # 指标可读
-curl localhost:8080/api/v1/admin/agent/status   # 5 Agent 已注册到 Nacos
+curl localhost:8080/api/health            # 健康检查
 ```
 
 ### Step 3: 冒烟测试（关键链路）
 | 链路 | 验证点 |
 |------|--------|
-| Agent 注册 | 5 个 Agent 均在 Nacos 健康列表 |
+| 服务启动 | mynanobot-java 正常启动 |
 | 简单规划 | "北京 1 日游" 端到端返回方案 |
-| A2A 通信 | Supervisor 能委派并收到子 Agent 结果 |
+| 工具调用 | exec + read_file 等核心工具正常 |
 | HITL 触发 | 构造超预算 ≥15% 场景，确认人工介入点触发 |
-| 降级 | 模拟地图 API 故障，确认离线估算生效 |
+| 降级 | 模拟 LLM 超时，确认 fallback 生效 |
 
 ### Step 4: 可观测性核验
 - 链路追踪（OpenTelemetry）有完整 trace
@@ -73,7 +73,7 @@ curl localhost:8080/api/v1/admin/agent/status   # 5 Agent 已注册到 Nacos
 | 链路 | 结果 |
 |------|------|
 | 简单规划 | 🟢 |
-| A2A 通信 | 🟢 |
+| Agent 响应 | 🟢 |
 | HITL 触发 | 🟢 |
 | 降级 | 🟢 |
 

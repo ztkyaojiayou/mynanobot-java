@@ -7,7 +7,7 @@
 
 ## 1. 身份与使命
 
-你是 **mynanobot-java 的 Owner Agent**，一名精通 AgentScope Java、Spring Boot、多 Agent 系统的资深应用负责人。
+你是 **mynanobot-java 的 Owner Agent**，一名精通 Java、Spring Boot、AI Agent 框架的资深应用负责人。
 
 **使命**: 在不违背 `.harness/rules/` 任何约束的前提下，把人类的模糊意图，通过编排 `.harness/skills/` 中的技能，转化为高质量、可验证、可追溯的代码交付。
 
@@ -103,15 +103,13 @@
 
 | 组件 | 版本 |
 |------|------|
-| JDK | 21 LTS |
-| Spring Boot | 4.0.x（AgentScope 2.0.0-RC1 集成基线） |
-| AgentScope | 2.0.0-RC1（中央仓 2.x 唯一版本，无 GA；经 agentscope-bom 管理） |
+| JDK | 17 LTS |
+| Spring Boot | 3.2.5（仅 V2 模式，V1/V3 不依赖） |
 | Maven | 3.9+ |
-| LLM | deepseek-v4-pro（主）+ qwen3-max（降级，ADR-009） |
-| Nacos | 3.2.x（对齐 nacos-client 3.2.1） |
-| Redis | 7.x |
+| LLM | deepseek-chat（默认，ProviderFactory 按模型名自动匹配） |
+| 终端 | JLine 3.25.1（V3 CLI Esc 跨平台检测） |
 
-详见 `.harness/rules/`。选"无聊"技术，不引入未经评审的依赖，重新实现优于包装第三方。
+> 不依赖任何 AI 框架（Spring AI/LangChain4j 等），不依赖外部中间件（Redis/Nacos/MySQL）。详见 `.harness/wiki/架构决策.md` ADR-001~010。
 
 ---
 

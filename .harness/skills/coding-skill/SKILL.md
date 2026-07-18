@@ -34,7 +34,7 @@ owner: Owner Agent
 
 ### Step 2: 确认实现位置
 - 对照 `工程结构.md` 确定模块、包、类的归属
-- 优先复用 `huazai-trip-common` 与已有 `huazai-trip-skills`
+- 优先复用已有模块和工具
 
 ### Step 3: TDD 小循环（核心业务逻辑默认遵循）
 1. 从 `change.md` 提取 AC、边界、降级路径

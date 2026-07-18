@@ -46,7 +46,7 @@ owner: Owner Agent
 - 若 ② 阶段尚未先写失败测试，应先补 Red 测试再完善其余测试
 
 ### Step 4: Mock 原则
-- Mock 外部依赖（LLM、地图 API、小红书 API、Redis）
+- Mock 外部依赖（LLM API、Web Search、File System）
 - **禁止 Mock 自己写的业务类**（那样测的是 Mock 不是逻辑）
 - 用 Stub 提供可控的故障场景（超时、异常、空返回）
 

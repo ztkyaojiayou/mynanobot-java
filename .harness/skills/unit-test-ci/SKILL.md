@@ -28,7 +28,7 @@ stage-1  编译检查
   mvn pmd:check                 # 静态分析 + 重复代码
 
 stage-2  架构约束
-  mvn test -pl huazai-trip-tests -Dtest=ArchitectureConstraints
+  mvn test
   # Agent 不互相依赖 · Skill 不依赖 Agent · Controller 不直调 Agent · 依赖方向正确
 
 stage-3  单元测试 + 覆盖率
@@ -41,7 +41,7 @@ stage-4  安全扫描
   git-secrets / 扫描硬编码密钥
 
 stage-5  集成测试（PR 时）
-  mvn verify -pl huazai-trip-tests -Dtest="*IT"
+  mvn test
 ```
 
 ---
