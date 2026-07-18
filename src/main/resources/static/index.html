@@ -115,7 +115,10 @@
             const el = document.getElementById('sessionList');
             try {
                 const res = await fetch(API);
-                const sessions = await res.json();
+                let sessions = await res.json();
+                // 去重（防止同一会话出现两次）
+                const seen = new Set();
+                sessions = sessions.filter(s => seen.has(s.key) ? false : seen.add(s.key));
                 if (!sessions.length) { el.innerHTML = '<div style="padding:20px;color:#8b949e;text-align:center;">暂无历史会话</div>'; return; }
                 el.innerHTML = sessions.map(s => `
                     <div class="session-item${s.key===sessionId?' active':''}" onclick="switchSession('${s.key}')">
