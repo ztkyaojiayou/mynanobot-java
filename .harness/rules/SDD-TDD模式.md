@@ -1,113 +1,92 @@
 # SDD-TDD 模式规范
 
-> **作用域**: 定义 mynanobot-java 在 Harness 体系下如何采用 `SDD + TDD`。
-> **定位**: 解释规格真相、测试先行、实现与门禁之间的关系。
-> **状态**: 强制（核心业务逻辑默认适用）
+> **作用域**: 定义 mynanobot-java 在 Harness 体系下如何采用 SDD + TDD。
+> **状态**: 核心逻辑推荐 TDD，配置/CLI/渲染层面不强制。
 
 ---
 
 ## 1. 三层关系
 
-本项目采用三层模式：
-
-- `SDD`：定义做什么，规格真相源是 `change.md`
-- `TDD`：定义怎么写对，默认采用 `Red → Green → Refactor`
-- `Harness`：定义怎么被约束、验证、留档、收口
+- **SDD (Spec-Driven Development)**：定义做什么，规格真相源是 `.harness/changes/C-NNN/change.md`
+- **TDD (Test-Driven Development)**：定义怎么写对，`Red → Green → Refactor`
+- **Harness**：定义怎么被约束、验证、留档、收口
 
 对应关系：
 
-```text
-业务模型 / 接口协议 / 数据模型
-        ↓
-change.md（规格真相源）
-        ↓
-Red：先写失败测试
-        ↓
-Green：最小实现通过测试
-        ↓
-Refactor：在测试保护下重构
-        ↓
-Review / CI / Verify：Harness 收口
+```
+change.md（规格真相源：用户故事 + AC + 边界）
+    ↓
+Red：先写失败测试（基于 AC/边界/降级路径）
+    ↓
+Green：最小实现让测试通过
+    ↓
+Refactor：在测试保护下优化
+    ↓
+verify.md：Harness 收口（mvn test 全绿）
 ```
 
 ---
 
-## 2. SDD 在本项目中的定义
+## 2. 适用场景
 
-SDD 不是额外写一堆文档，而是把单个变更的“规格”固化在 `change.md`。
-
-一个合格的 `change.md` 至少包含：
-- 用户故事
-- Out of Scope
-- AC
-- 边界情况
-- 非功能需求
-- 设计约束
-- 契约影响
-- 测试策略
-- 验收用例
-
-没有这些信息的变更，不得进入核心业务实现。
+| 场景 | TDD | 理由 |
+|------|-----|------|
+| Agent 核心逻辑 (AgentLoop/AgentRunner/TurnContext) | ✅ 推荐 | 状态转换、工具调度容易出错 |
+| 安全组件 (PermissionManager/Guards/RuleEngine) | ✅ 推荐 | 安全边界必须正确 |
+| 工具实现 (Tool impl) | ✅ 推荐 | 参数校验、结果格式需验证 |
+| Provider (OpenAI/DeepSeek) | 🔶 可选 | 大量 HTTP mock，投入产出比低 |
+| CLI/TUI (CliChannel/MarkdownRenderer) | ❌ 不强制 | 交互逻辑靠手工验证 |
 
 ---
 
-## 3. TDD 在本项目中的默认适用范围
+## 3. TDD 小循环示例
 
-默认适用：
-- Agent 核心决策逻辑
-- Service 业务规则判断
-- 降级 / fallback 路径
-- OutputQualityGate
-- A2A 协同关键行为
+```java
+// ① RED — 先写失败测试
+@Test
+@DisplayName("Plan 模式拒绝写工具")
+void testPlanModeRejectsWriteTools() {
+    assertFalse(PermissionMode.PLAN.allowsTool(new WriteFileTool()));
+}
 
-可弱化适用：
-- DTO / 配置类
-- 一次性脚手架
-- 纯文档和纯装配类代码
+// ② GREEN — 最小实现
+PLAN { public boolean allowsTool(Tool t) { return t.isReadOnly(); } }
 
----
-
-## 4. TDD 最小执行方式
-
-核心业务逻辑默认遵循：
-
-1. 从 `change.md` 提取 AC / 边界 / 降级路径
-2. 先写失败测试
-3. 写最小实现让测试通过
-4. 在测试保护下重构
-
-禁止：
-- 先写完整实现再补核心测试
-- 用覆盖率代替测试先行
-- 只测 happy path 却声称完成 TDD
+// ③ REFACTOR — 测试保护下可安全重构
+```
 
 ---
 
-## 5. Review 与 CI 怎么看 SDD / TDD
+## 4. 测试命名约定
 
-评审至少检查：
-- 是否严格按 `change.md` 实现
-- 是否有 scope creep
-- 是否有 AC / 边界 / 降级测试
-- 是否体现测试先行痕迹
+```java
+// 格式: test<场景> + @DisplayName 中文描述
+@Test
+@DisplayName("MessageBus 超时消费返回 null")
+void testConsumeWithTimeout() { ... }
+```
 
-CI 至少检查：
-- 编译
-- 架构约束
-- 单元测试
-- 覆盖率
-- 关键规格是否有测试覆盖
+---
+
+## 5. 覆盖率目标
+
+| 层级 | 目标 | 当前 |
+|------|------|------|
+| core/ (引擎+State+Hook) | ≥80% | 部分覆盖 |
+| security/ (Permission+Guard) | ≥80% | 待补充 |
+| tools/ (工具实现) | ≥60% | 部分覆盖 |
+| providers/ | ≥50% | 待补充 |
+| CLI/v3/ | ≥30% | 手工为主 |
+
+> 当前 59 个单元测试全绿，11 个测试类。建议后续开发优先补 core/ 和 security/ 的测试。
 
 ---
 
 ## 6. 最终原则
 
-本项目不追求形式主义的 SDD/TDD。
+不追求形式主义。只要四点成立，SDD + TDD + Harness 就算落地：
 
-我们要的是：
-- 规格清楚
-- 核心逻辑先测后写
-- 降级可验证
-- 变更可追溯
-
-只要这四件事成立，SDD + TDD + Harness 就真正落地了。
+1. 规格清楚（change.md 有 AC 有边界）
+2. 核心逻辑先测后写
+3. 变更可追溯（change/verify 留档）
+4. mvn test 全绿

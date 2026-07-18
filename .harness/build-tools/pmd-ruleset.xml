@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ruleset name="huazai-trip-plan-rules"
+         xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+
+    <description>
+        huazai-trip-plan 统一 PMD 规则集（C-002 质量门禁）。
+        覆盖常见坏味道与潜在缺陷（errorprone / bestpractices / multithreading / performance / design）。
+        门禁判定：仅 priority 小于等于 2（P1/P2，严重缺陷）使构建失败，由 maven-pmd-plugin 的 failurePriority 控制；
+        其余作为报告项。剔除与 Spring/Lombok/本项目约定冲突的噪声规则。
+        规则名以 PMD 7.x 为准（已剔除 7.x 移除/改名的旧规则名，保证 0 ruleset 告警）。
+    </description>
+
+    <!-- 潜在缺陷（空 catch、误用、NPE 风险、资源泄漏等）—— 真正的 bug 源 -->
+    <rule ref="category/java/errorprone.xml">
+        <!-- 对 DTO/常量类低价值或与本项目约定冲突，剔除以降噪（均为 PMD7 有效规则名） -->
+        <exclude name="AvoidLiteralsInIfCondition"/>
+        <exclude name="AvoidFieldNameMatchingMethodName"/>
+        <exclude name="AvoidDuplicateLiterals"/>
+        <exclude name="MissingSerialVersionUID"/>
+    </rule>
+
+    <!-- 最佳实践 -->
+    <rule ref="category/java/bestpractices.xml">
+        <!-- 日志门面策略由编码规范 §2.2 约定，PMD 不强制 SLF4J 守卫 -->
+        <exclude name="GuardLogStatement"/>
+    </rule>
+
+    <!-- 并发与状态（编码规范 §6） -->
+    <rule ref="category/java/multithreading.xml"/>
+
+    <!-- 性能 -->
+    <rule ref="category/java/performance.xml"/>
+
+    <!-- 设计：长度/复杂度由 Checkstyle 统一守护，这里剔除以避免双重口径，只取高价值缺陷型规则 -->
+    <rule ref="category/java/design.xml">
+        <exclude name="LawOfDemeter"/>
+        <exclude name="LoosePackageCoupling"/>
+        <exclude name="TooManyMethods"/>
+        <exclude name="ExcessiveImports"/>
+        <exclude name="AvoidCatchingGenericException"/>
+        <exclude name="CyclomaticComplexity"/>
+        <exclude name="CognitiveComplexity"/>
+        <exclude name="NPathComplexity"/>
+        <exclude name="NcssCount"/>
+    </rule>
+</ruleset>
