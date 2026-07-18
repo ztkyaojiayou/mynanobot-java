@@ -94,7 +94,7 @@
             <span class="model">DeepSeek-chat</span>
         </div>
         <div class="messages" id="messages">
-            <div class="empty-chat">开始对话吧 ✨</div>
+            <div class="empty-chat">准备好了，让我们开始吧</div>
         </div>
         <div class="input-area">
             <input type="text" id="inputMessage" placeholder="输入消息..." autocomplete="off">
@@ -135,7 +135,7 @@
         function newSession() {
             sessionId = 'web-' + Date.now();
             isNewSession = true;
-            document.getElementById('messages').innerHTML = '<div class="empty-chat">开始对话吧 ✨</div>';
+            document.getElementById('messages').innerHTML = '<div class="empty-chat">准备好了，让我们开始吧</div>';
             document.getElementById('currentSessionName').textContent = '新对话';
             loadSessions();
         }
