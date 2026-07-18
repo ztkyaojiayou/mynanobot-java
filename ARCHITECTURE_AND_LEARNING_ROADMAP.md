@@ -911,6 +911,10 @@ getSystemPrompt(currentDate) =
 
 **SpawnTool**：主 Agent 通过 `spawn` 工具动态创建子 Agent 并分配任务。
 
+---
+
+### 2.16 核心接口设计
+
 #### Tool 接口
 
 工具是 Agent 与外部世界交互的核心方式：
@@ -1019,9 +1023,7 @@ public class MCPToolWrapper implements Tool {
 
 ---
 
-## 二、架构说明（续）
-
-### 2.6 MCP (Model Context Protocol) 系统
+### 2.17 MCP (Model Context Protocol) 系统
 
 **MCP**（Model Context Protocol）是由 Cursor 编辑器提出的标准化协议，用于连接 AI Agent 与外部工具/服务。Nanobot 通过 MCP 支持，可以动态加载和使用第三方工具，而无需修改核心代码。
 
@@ -1098,7 +1100,7 @@ public class MCPToolWrapper implements Tool {
 
 ---
 
-### 2.7 Skills 技能系统
+### 2.18 Skills 技能系统
 
 **Skills** 是参考 Claude Code 设计的可复用技能系统，允许用户定义可复用的工作流、指令集和领域知识。Skills 可以通过斜杠命令手动调用，也可以根据对话场景自动触发。
 
@@ -1234,7 +1236,7 @@ List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
 
 ---
 
-### 2.8 Rules 规则系统
+### 2.19 Rules 规则系统
 
 **Rules** 是参考 Claude Code 的设计理念实现的全局规则系统，通过自然语言指令定义 Agent 的行为规范。规则告诉模型"在这个项目中你应该遵循什么规范"。
 
@@ -1365,7 +1367,7 @@ String systemPrompt = "你是一个 AI Agent。\n\n" + rulesPrompt;
 
 ---
 
-### 2.16 安全系统详解
+### 2.20 安全系统详解
 
 **PermissionMode 四种模式**：
 
@@ -1404,7 +1406,7 @@ Tool 调用
 
 ---
 
-### 2.17 内置工具一览
+### 2.21 内置工具一览
 
 **文件工具**：
 
