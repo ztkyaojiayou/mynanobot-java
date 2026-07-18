@@ -138,7 +138,7 @@ public class NanobotConfig {
         // Web 工具
         if (config.getTools().getWeb().isEnable()) {
             String searchProvider = config.getTools().getWeb().getSearch().getProvider();
-            String searchApiKey = config.getTools().getWeb().getSearch().getApiKey();
+            String searchApiKey = config.getTools().getWeb().getSearch().getActiveApiKey();
             toolRegistry.register(new WebSearchTool(searchProvider, searchApiKey));
         }
 
