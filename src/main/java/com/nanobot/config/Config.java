@@ -375,14 +375,33 @@ public class Config {
         /** 搜索提供商 */
         private String provider = "duckduckgo";
 
-        /** API 密钥 */
+        /** API 密钥（通用，向后兼容） */
         private String apiKey = "";
+
+        /** 各 provider 独立 Key（优先于 apiKey） */
+        @JsonProperty("baidu")
+        private String baiduKey = "";
+        @JsonProperty("bing")
+        private String bingKey = "";
+        @JsonProperty("brave")
+        private String braveKey = "";
 
         /** 最大结果数 */
         private int maxResults = 5;
 
         /** 超时（秒） */
         private int timeout = 30;
+
+        /** 根据当前 provider 取对应的 Key */
+        public String getActiveApiKey() {
+            String key = switch (provider != null ? provider.toLowerCase() : "") {
+                case "baidu" -> baiduKey;
+                case "bing" -> bingKey;
+                case "brave" -> braveKey;
+                default -> apiKey;
+            };
+            return (key != null && !key.isBlank()) ? key : apiKey;
+        }
     }
 
     /**

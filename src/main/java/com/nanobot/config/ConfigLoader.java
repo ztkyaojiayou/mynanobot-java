@@ -256,12 +256,14 @@ public class ConfigLoader {
         if (sp.getDeepseek().isConfigured()) cp.getDeepseek().setApiKey(sp.getDeepseek().getApiKey());
         if (sp.getOpenai().isConfigured()) cp.getOpenai().setApiKey(sp.getOpenai().getApiKey());
 
-        // Web search key
+        // Web search keys（per-provider + 通用回退）
         if (secret.getTools() != null && secret.getTools().getWeb() != null) {
-            String searchKey = secret.getTools().getWeb().getSearch().getApiKey();
-            if (searchKey != null && !searchKey.isBlank()) {
-                config.getTools().getWeb().getSearch().setApiKey(searchKey);
-            }
+            var ss = secret.getTools().getWeb().getSearch();
+            var cs = config.getTools().getWeb().getSearch();
+            if (ss.getBaiduKey() != null && !ss.getBaiduKey().isBlank()) cs.setBaiduKey(ss.getBaiduKey());
+            if (ss.getBingKey() != null && !ss.getBingKey().isBlank()) cs.setBingKey(ss.getBingKey());
+            if (ss.getBraveKey() != null && !ss.getBraveKey().isBlank()) cs.setBraveKey(ss.getBraveKey());
+            if (ss.getApiKey() != null && !ss.getApiKey().isBlank()) cs.setApiKey(ss.getApiKey());
         }
     }
     
