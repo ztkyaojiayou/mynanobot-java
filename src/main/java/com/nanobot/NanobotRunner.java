@@ -85,51 +85,68 @@ public class NanobotRunner implements ApplicationRunner {
     public void run(ApplicationArguments args) throws Exception {
         logger.info("Initializing Nanobot components...");
 
-        // 1. 加载配置
-        config = ConfigLoader.load();
-        var errors = config.validate();
+        config = initConfig();
+        identityManager = initIdentity();
+        ruleManager = initRules();
+        skillManager = initSkills();
+        provider = initProvider();
+        dream = initDream();
+        verifySpringBeans();
+        registerShutdownHook();
+
+        logger.info("Nanobot components initialized successfully");
+        logger.info("Model: {}", config.getAgents().getDefaults().getModel());
+    }
+
+    private Config initConfig() {
+        Config c = ConfigLoader.load();
+        var errors = c.validate();
         if (!errors.isEmpty()) {
             logger.error("Configuration errors:");
             errors.forEach(e -> logger.error("  - {}", e));
             throw new IllegalStateException("Invalid configuration");
         }
-        logger.info("Configuration loaded");
+        return c;
+    }
 
-        // 2. 初始化身份管理器
-        identityManager = new IdentityManager(config);
-        identityManager.load();
-        logger.info("Identity files loaded");
+    private IdentityManager initIdentity() {
+        var m = new IdentityManager(config);
+        m.load();
+        return m;
+    }
 
-        // 3. 初始化规则管理器
-        ruleManager = new RuleManager(config);
-        ruleManager.loadRules();
-        logger.info("Loaded {} rules", ruleManager.getRegistry().size());
+    private RuleManager initRules() {
+        var m = new RuleManager(config);
+        m.loadRules();
+        logger.info("Loaded {} rules", m.getRegistry().size());
+        return m;
+    }
 
-        // 4. 初始化技能管理器
-        skillManager = new SkillManager(config);
-        skillManager.loadSkills();
-        logger.info("Loaded {} skills", skillManager.getRegistry().size());
+    private SkillManager initSkills() {
+        var m = new SkillManager(config);
+        m.loadSkills();
+        logger.info("Loaded {} skills", m.getRegistry().size());
+        return m;
+    }
 
-        // 5. 初始化 LLM 提供商（策略工厂，按 model 前缀自动匹配）
-        provider = new ProviderFactory().create(config);
+    private LLMProvider initProvider() {
+        return new ProviderFactory().create(config);
+    }
 
-        // 6. 初始化长期记忆系统
+    private Dream initDream() {
         int maxMemories = config.getMemory().getDream().getMaxMemories();
-        dream = new Dream(provider, maxMemories);
+        Dream d = new Dream(provider, maxMemories);
         Path baseDir = Paths.get(".nanobot").toAbsolutePath().normalize();
-        dream.loadFromMemoryFile(baseDir);
-        logger.info("Dream long-term memory initialized");
+        d.loadFromMemoryFile(baseDir);
+        return d;
+    }
 
-        // 7. AgentLoop / ToolRegistry / SessionManager / MessageBus
-        //    由 Spring Bean (NanobotConfig) 统一创建和管理
-        //    通过 @Autowired setter 注入到静态字段
+    private void verifySpringBeans() {
         logger.info("AgentLoop injected from Spring: {}", agentLoop != null ? "OK" : "MISSING");
         logger.info("MessageBus injected from Spring: {}", messageBus != null ? "OK" : "MISSING");
+    }
 
-        logger.info("Nanobot components initialized successfully");
-        logger.info("Model: {}", config.getAgents().getDefaults().getModel());
-
-        // 注册关闭钩子
+    private void registerShutdownHook() {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("Shutting down Nanobot...");
             shutdown();
