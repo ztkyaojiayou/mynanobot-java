@@ -1365,6 +1365,95 @@ String systemPrompt = "你是一个 AI Agent。\n\n" + rulesPrompt;
 
 ---
 
+### 2.16 安全系统详解
+
+**PermissionMode 四种模式**：
+
+| 模式 | 只读工具 | 文件编辑 | Shell | 场景 |
+|------|---------|---------|-------|------|
+| `PLAN` | ✅ 放行 | ❌ 拒绝 | ❌ 拒绝 | 代码审查、出计划 |
+| `DEFAULT` | ✅ 放行 | 🔶 需确认 | 🔶 需确认 | 日常使用 |
+| `ACCEPT_EDITS` | ✅ 放行 | ✅ 放行 | 🔶 需确认 | 信任的编码会话 |
+| `BYPASS` | ✅ 放行 | ✅ 放行 | ✅ 放行 | 完全信任的自动化 |
+
+**权限检查管道**（4 步顺序执行）：
+
+```
+Tool 调用
+  → 1. PreToolUseHook 链 (deny/allow/modify/passthrough)
+  → 2. Guards 守卫 (PathGuard → CommandGuard → NetworkGuard，永远执行)
+  → 3. RuleEngine 规则 (deny → ask → allow 优先级链)
+  → 4. PermissionMode 判定 (PLAN/DEFAULT/ACCEPT_EDITS/BYPASS)
+  → execute() 或 deny
+```
+
+**Guard 守卫层**（Strategy 模式）：
+
+| Guard | 检查内容 | 适用工具 |
+|-------|---------|---------|
+| `PathGuard` | 文件路径必须在工作区内 | read_file, write_file, glob, grep 等 |
+| `CommandGuard` | Shell 命令黑/白名单过滤 | exec |
+| `NetworkGuard` | URL SSRF 防护，IP 范围过滤 | web_fetch, web_search |
+
+**RuleEngine**：`deny规则` > `ask规则`（需交互确认） > `allow规则` > `默认(模式判定)`
+
+**交互式权限确认**（CLI 模式）：
+- `1=允许` 执行本次
+- `2=之后都放行` 当前进程内信任，不再询问
+- `3=拒绝`
+
+---
+
+### 2.17 内置工具一览
+
+**文件工具**：
+
+| 工具 | 只读 | 说明 |
+|------|------|------|
+| `read_file` | ✅ | 读取文件内容（支持行范围） |
+| `write_file` | ❌ | 创建或覆盖文件 |
+| `edit_file` | ❌ | 精确字符串替换编辑 |
+| `list_dir` | ✅ | 列目录（支持递归，path 默认 `.`） |
+| `glob` | ✅ | 通配符文件搜索（pattern 默认 `*`） |
+| `grep` | ✅ | 文件内容搜索（path 默认 `.`） |
+
+**Shell 工具**：
+
+| 工具 | 只读 | 说明 |
+|------|------|------|
+| `exec` | ❌ | 执行 shell 命令。自动检测 PowerShell/pwsh，避免 cmd /c 吃掉转义符 |
+
+**Web 工具**：
+
+| 工具 | 只读 | 说明 |
+|------|------|------|
+| `web_search` | ✅ | 网页搜索（支持百度/Brave/Bing） |
+| `web_fetch` | ✅ | 抓取网页内容转 Markdown |
+
+**任务工具**：
+
+| 工具 | 只读 | 说明 |
+|------|------|------|
+| `task_create` | ❌ | 创建任务（对标 Claude Code） |
+| `task_list` | ✅ | 列出任务，支持状态过滤 |
+| `task_update` | ❌ | 更新任务状态/依赖 |
+
+**交互工具**：
+
+| 工具 | 只读 | 说明 |
+|------|------|------|
+| `ask_user` | ✅ | LLM 在关键决策点向用户提问 |
+| `get_current_time` | ✅ | 获取当前时间 |
+
+**子 Agent 工具**：
+
+| 工具 | 只读 | 说明 |
+|------|------|------|
+| `spawn` | ❌ | 动态创建子 Agent 执行任务 |
+| `spawn_check` | ✅ | 检查子 Agent 任务状态 |
+
+---
+
 ## 三、新手学习路线
 
 ### 3.1 学习阶段规划
