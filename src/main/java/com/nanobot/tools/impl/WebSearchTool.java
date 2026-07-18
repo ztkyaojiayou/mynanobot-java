@@ -250,8 +250,9 @@ public class WebSearchTool implements Tool {
                     url = BAIDU_API_URL;
                     Map<String, Object> body = new java.util.LinkedHashMap<>();
                     body.put("messages", java.util.List.of(Map.of("role", "user", "content", query)));
-                    body.put("search_source", "baidu_search_v2");
+                    body.put("model", "ernie-4.5-turbo-32k");
                     body.put("stream", false);
+                    body.put("enable_deep_search", true);
                     String jsonBody = objectMapper.writeValueAsString(body);
                     request = HttpRequest.newBuilder()
                         .uri(URI.create(url))
