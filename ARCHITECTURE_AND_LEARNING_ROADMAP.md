@@ -2489,7 +2489,7 @@ CMD ["java", "-jar", "app.jar"]
 
 ## 十、调试与日志
 
-### 7.1 日志配置
+### 10.1 日志配置
 
 日志配置文件：`src/main/resources/logback.xml`
 
@@ -2499,7 +2499,7 @@ CMD ["java", "-jar", "app.jar"]
 - `WARN` - 警告
 - `ERROR` - 错误
 
-### 7.2 调试技巧
+### 10.2 调试技巧
 
 1. 设置断点跟踪状态机转换
 2. 查看消息队列的入队出队
@@ -2510,7 +2510,7 @@ CMD ["java", "-jar", "app.jar"]
 
 ## 十一、扩展建议
 
-### 7.1 添加新工具
+### 11.1 添加新工具
 
 ```java
 public class WeatherTool implements Tool {
@@ -2537,7 +2537,7 @@ public class WeatherTool implements Tool {
 toolRegistry.register(new WeatherTool());
 ```
 
-### 7.2 添加新提供商
+### 11.2 添加新提供商
 
 ```java
 public class AnthropicProvider implements LLMProvider {
@@ -2551,7 +2551,7 @@ public class AnthropicProvider implements LLMProvider {
 }
 ```
 
-### 7.3 配置 MCP 服务器
+### 11.3 配置 MCP 服务器
 
 MCP 允许动态加载第三方工具，无需修改代码：
 
@@ -2563,7 +2563,7 @@ mcp_servers:
     tool_timeout: 30
 ```
 
-### 7.4 添加自定义 MCP 客户端
+### 11.4 添加自定义 MCP 客户端
 
 ```java
 public class CustomMCPClient implements MCPClient {
