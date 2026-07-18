@@ -41,6 +41,139 @@ mvn spring-boot:run
 
 ---
 
+## 使用指南
+
+### 日常对话
+
+```bash
+> 帮我用 Java 写一个单例模式
+> 这段代码有什么问题？
+> 运行一下测试看看有没有报错
+> 帮我把明文密码改成 BCrypt 加密
+```
+
+### Plan Mode（推荐工作流）
+
+```bash
+> /plan                           # 进入规划模式（只读）
+📋 已进入规划模式
+
+> 实现用户注销功能，包括清除 JWT 和 Session 失效
+
+AI：(只读探索项目 → 出计划)
+  ## 需求理解：在现有认证系统增加注销端点...
+  ## 影响范围：AuthController, JwtUtil, SecurityConfig
+  ## 实现步骤：1. JwtUtil 黑名单 → 2. POST /logout → ...
+
+> /plan approve                   # 审批通过，开始执行
+✅ 计划已审批，进入执行模式...
+AI：(按计划逐步实现 → 跑测试 → 完成)
+```
+
+### 权限管理
+
+```
+> /mode plan          只读模式，适合探索不熟悉的项目
+> /mode default       默认模式，写操作需确认
+> /mode accept_edits  编辑放行，Shell 执行仍需确认
+> /mode bypass        全部放行（谨慎使用）
+```
+
+### 会话管理
+
+```bash
+> /resume                        # 查看最近 5 个会话
+> /resume cli-1784128421194      # 恢复到指定会话
+> /clear                         # 清空当前上下文
+```
+
+**Web 界面**：Spring Boot 模式下访问 `/sessions.html`，可查看详情、重命名、删除会话。
+
+### 项目初始化
+
+```bash
+> /init                          # AI 分析项目 → 生成 NANOBOT.md
+# NANOBOT.md 会每次对话自动加载，可手动编辑补充编码规范
+```
+
+---
+
+## 部署
+
+### 环境要求
+
+| 依赖 | 版本 |
+|------|------|
+| JDK | 17+ |
+| Maven | 3.9+ |
+| Node.js | 18+（仅 Claude Code 需要） |
+
+### 全局安装（推荐）
+
+```bash
+# 把 scripts/ 加到 PATH，在任何目录下使用
+export PATH="/path/to/mynanobot-java/scripts:$PATH"
+
+# 现在可以在任意项目目录启动
+cd /any/project
+nanobot
+
+# 指定工作目录
+nanobot --workspace /path/to/project
+```
+
+### 打包部署
+
+```bash
+# 打包 fat JAR
+mvn clean package -DskipTests
+
+# 直接运行
+java -jar target/nanobot-cli.jar
+
+# 或通过脚本（自动检测源码更新并重建）
+./scripts/nanobot
+```
+
+### 分发部署
+
+```bash
+# 一键生成分发包
+./scripts/build-dist.sh
+# → dist/nanobot/ 目录，复制到目标机器即可使用
+```
+
+### Docker
+
+```bash
+# 编译
+mvn clean package -DskipTests
+
+# 构建镜像
+docker build -t nanobot -f- . <<'EOF'
+FROM openjdk:17-jdk-slim
+WORKDIR /app
+COPY target/nanobot-cli.jar app.jar
+ENV DEEPSEEK_API_KEY=your-api-key
+CMD ["java", "-jar", "app.jar"]
+EOF
+
+# 运行
+docker run -d --name nanobot -e DEEPSEEK_API_KEY=your-key nanobot
+```
+
+### Windows
+
+```cmd
+REM 设置 API Key
+set DEEPSEEK_API_KEY=your-api-key
+
+REM 启动
+scripts\nanobot.bat
+```
+
+---
+
 ## 核心特性
 
 | 特性 | 说明 |
@@ -118,6 +251,36 @@ src/main/java/com/nanobot/
 | `/clear` | 清空当前上下文 |
 | `/exit` (`/q`) | 退出 |
 | `Esc` | 中断当前流式回复 |
+
+---
+
+## 配置
+
+项目默认配置在 `src/main/resources/config/config.yaml`，可通过 `~/.nanobot/config.yaml` 覆盖。
+
+```yaml
+agents:
+  defaults:
+    model: "deepseek-chat"      # ProviderFactory 自动匹配 Provider
+    maxTokens: 8192
+    temperature: 0.7
+    maxToolIterations: 100
+
+providers:
+  deepseek:
+    apiKey: ""                  # 留空则读 DEEPSEEK_API_KEY 环境变量
+    apiBase: "https://api.deepseek.com"
+  openai:
+    apiKey: ""                  # 留空则读 OPENAI_API_KEY 环境变量
+
+tools:
+  exec:
+    enable: true                # 生产环境建议关闭
+  web:
+    enable: true
+    search:
+      provider: "baidu_web"
+```
 
 ---
 
