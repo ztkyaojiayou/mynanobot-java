@@ -295,9 +295,9 @@
             h = h.replace(/```[a-z]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
 
             // 2. 块级元素（行首匹配，在 newline 转换之前）
-            h = h.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-            h = h.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-            h = h.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+            h = h.replace(/^###\s*(.+)$/gm, '<h3>$1</h3>');
+            h = h.replace(/^##\s*(.+)$/gm, '<h2>$1</h2>');
+            h = h.replace(/^#\s*(.+)$/gm, '<h1>$1</h1>');
             h = h.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
             h = h.replace(/^---$/gm, '<hr>');
             // 无序列表
