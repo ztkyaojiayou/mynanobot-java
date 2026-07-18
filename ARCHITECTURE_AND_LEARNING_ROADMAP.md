@@ -216,9 +216,262 @@ Loop 工程 (Loop 级):
 
 ---
 
-## 三、架构说明
+## 三、nanobot CLI 实战指南（对标 Claude Code）
 
-### 3.1 整体架构分层
+> **阅读目标**：掌握 nanobot CLI 的日常使用方式、常用命令和最佳实践，像使用 Claude Code 一样高效。
+
+### 3.1 启动与环境
+
+```bash
+# 安装：把 scripts/ 目录加到 PATH
+export PATH="/path/to/nanobot-java/scripts:$PATH"
+
+# 在任意项目目录下启动
+cd /your/project
+nanobot
+
+# 指定工作目录
+nanobot --workspace /path/to/project
+
+# 恢复之前的会话
+nanobot --resume cli-1234567890
+```
+
+启动后进入交互界面：
+
+```
+╔══════════════════════════════════╗
+║       my-nanobot CLI 模式       ║
+║  基于 Java 的 AI Agent助手      ║
+╚══════════════════════════════════╝
+输入消息开始对话，/exit 退出系统，/clear 清上下文，Esc 中断当前回复
+
+>
+```
+
+---
+
+### 3.2 命令速查
+
+| 命令 | 别名 | 功能 | 示例 |
+|------|------|------|------|
+| `/help` | — | 列出所有可用命令 | `/help` |
+| `/init` | — | 分析项目生成 NANOBOT.md | `/init` |
+| `/mode plan` | `/plan` | 进入规划模式（只读分析+出计划） | `/plan` |
+| `/plan approve` | — | 审批计划并切换到执行模式 | `/plan approve` |
+| `/mode default` | — | 默认模式（读放行，写需确认） | `/mode default` |
+| `/mode accept_edits` | — | 接受编辑模式（读+文件编辑放行） | `/mode accept_edits` |
+| `/mode bypass` | — | 绕过模式（全部放行，谨慎使用） | `/mode bypass` |
+| `/resume` | — | 列出最近 5 个会话 | `/resume` |
+| `/resume <key>` | — | 恢复到指定会话 | `/resume cli-1234567890` |
+| `/clear` | — | 清空当前会话上下文 | `/clear` |
+| `/exit` | `/q`, `/quit` | 退出 CLI | `/exit` |
+| `Esc` | — | 中断当前流式回复 | 按 `Esc` 键 |
+
+---
+
+### 3.3 核心工作流
+
+#### 工作流 1：自由对话（Vibe Coding）
+
+最直接的使用方式：描述需求 → AI 生成代码 → 验证结果 → 不满意就继续改。
+
+```
+> 帮我写一个用户登录接口，Spring Boot + JWT
+
+AI: 分析项目结构 → 生成 LoginController + JwtUtil + 配置
+    → 流式输出到终端
+
+> 端口改成 9090
+
+AI: 修改 application.yml 中的 server.port
+
+> 帮我跑一下测试看看有没有问题
+
+AI: 执行 mvn test → 分析结果 → 两个测试失败
+    → 修复 → 再跑 → 全部通过
+```
+
+**适用场景**：原型开发、简单功能、一次性脚本。
+
+#### 工作流 2：Plan Mode（Spec Coding 风格）
+
+推荐的正规流程：先出计划 → 审批 → 执行。避免 AI 在理解不清时直接改代码。
+
+```
+> /plan
+📋 已进入规划模式 — LLM 将只读分析并出计划，不会修改代码
+
+> 实现用户注销功能，包括：清除 JWT、失效 Session、前端跳转
+
+AI 使用只读工具探索项目:
+  - list_dir 了解目录结构
+  - read_file 查看现有认证相关代码
+  - grep 搜索 JWT 和 Session 用法
+
+AI 输出计划:
+  ## 需求理解
+  在现有认证系统上增加注销端点，清除 JWT token...
+
+  ## 影响范围
+  - AuthController.java — 新增 POST /logout
+  - JwtUtil.java — 新增 invalidate 方法
+  - SecurityConfig.java — 注册 logout 端点免认证
+
+  ## 实现步骤
+  1. JwtUtil 增加黑名单机制
+  2. AuthController 新增 /logout
+  3. SecurityConfig 放行 /logout
+  4. 写测试验证
+
+  ## 注意事项
+  - JWT 无状态，需要内存黑名单或 Redis
+  - 确认后请回复 /plan approve 开始执行
+
+> /plan approve
+✅ 计划已审批，进入执行模式...
+（AI 开始按计划逐步实现）
+```
+
+**适用场景**：复杂功能、跨文件改动、需要审批的正式需求。
+
+#### 工作流 3：探索式开发
+
+先让 AI 了解项目，再逐步深入。
+
+```
+> /init                    # 第一步：生成项目记忆
+🔍 正在分析项目...
+🤖 正在通过大模型分析并生成 NANOBOT.md...
+✅ 已生成: /Users/xxx/my-project/NANOBOT.md
+
+> 这个项目的认证是怎么实现的？
+                            # AI 读取 NANOBOT.md + grep 相关代码
+                            # 给出清晰的架构说明
+
+> 有没有安全漏洞？          # AI 根据上下文做安全审查
+
+> 帮我把明文密码改成 BCrypt  # AI 已理解项目结构，直接精准修改
+```
+
+**适用场景**：接手新项目、代码审查、技术债务评估。
+
+---
+
+### 3.4 权限模式选择指南
+
+```
+信任度低 ←──────────────────────────────→ 信任度高
+
+  PLAN        DEFAULT      ACCEPT_EDITS    BYPASS
+  (只读)      (默认)       (编辑放行)      (全放行)
+
+  /plan       /mode        /mode           /mode
+              default      accept_edits    bypass
+```
+
+| 场景 | 推荐模式 | 原因 |
+|------|---------|------|
+| 刚接手不熟悉的项目 | `PLAN` | 先读后改，避免盲目修改 |
+| 日常开发 | `DEFAULT` | 读自动放行，写操作需确认 |
+| 信任的编码会话 | `ACCEPT_EDITS` | 跳过文件编辑确认，Shell 仍需确认 |
+| CI/CD 自动化 | `BYPASS` | 完全信任，无人值守 |
+| 不确定 AI 会做什么 | `PLAN` | 先让它出计划看看 |
+
+**权限确认快捷键**（DEFAULT 模式下触发写操作时）：
+
+```
+[!] 工具调用需要确认:
+  工具: exec
+  参数: {command=mvn test}
+  原因: Shell 命令执行需要您的确认
+  1=允许  2=之后都放行  3=拒绝  [1/2/3]
+```
+
+- `1` — 只允许这一次
+- `2` — 当前进程内信任，后续不再询问（相当于临时 `ACCEPT_EDITS`）
+- `3` — 拒绝
+
+---
+
+### 3.5 会话管理
+
+```
+> /resume                  # 查看历史会话
+最近会话（/resume <key> 恢复）:
+  cli-1784128421194          12 条消息  07-16 14:30
+  cli-1784207282340           5 条消息  07-15 09:12
+
+> /resume cli-1784128421194  # 恢复指定会话
+已切换到会话: cli-1784128421194
+
+> /clear                    # 清空当前上下文
+上下文已清空
+```
+
+**Web 界面**：启动 V2 Spring Boot 模式后访问 `http://localhost:8080/sessions.html`，可以：
+- 查看所有会话的消息数和最后活动时间
+- **点击会话名称可重命名**（输入后回车保存）
+- 点击"查看"浏览完整消息历史
+- 删除不需要的会话
+
+---
+
+### 3.6 NANOBOT.md — 项目的 AI 记忆文件
+
+`/init` 命令会在项目根目录生成 `NANOBOT.md`，后续每次对话 AI 都会自动加载它。
+
+```markdown
+# nanobot-java 项目概述
+这是一个基于 Java 17 的 AI Agent 框架...
+
+## 技术栈
+- Java 17, Maven, Spring Boot 3.2
+- Jackson, SLF4J + Logback
+
+## 构建和运行
+mvn compile
+mvn test
+./scripts/nanobot
+```
+
+**手动编辑建议**：
+- 补充编码规范（如"用 4 空格缩进""所有 public 方法要有 Javadoc"）
+- 添加常用命令（如"数据库迁移：mvn flyway:migrate"）
+- 写清楚目录用途（如"src/main/gen/ 是自动生成的，不要手动改"）
+
+**效果**：AI 会严格按照 NANOBOT.md 中的规范工作，不需要每次都重复交代。
+
+---
+
+### 3.7 实用技巧
+
+**1. 善用 Esc 中断**：AI 生成的内容跑偏了，按 `Esc` 立即停止再重新提问。
+
+**2. 先 /init 再干活**：进入新项目第一件事就是 `/init`，让 AI 先理解项目。
+
+**3. 复杂需求用 Plan Mode**：
+```
+/plan
+  → AI 探索 + 出计划
+  → 你审查计划
+  → 不满意？直接说"第三步不对，应该先改接口再改实现"
+  → AI 更新计划
+/plan approve
+  → AI 开始执行
+```
+
+**4. 分步执行**：不要一次性描述过于复杂的需求。拆成 2-3 步，每步验证后继续。
+
+**5. 利用历史会话**：重要的工作用 `/resume` 恢复上下文，不怕断线。
+
+**6. 信任加速**：频繁执行同类操作时，用 `2=之后都放行` 避免反复确认。
+
+---
+
+## 四、架构说明
+
+### 4.1 整体架构分层
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -270,7 +523,7 @@ Loop 工程 (Loop 级):
             ╚══════════════════════════════════════╝
 ```
 
-### 3.2 核心组件职责
+### 4.2 核心组件职责
 
 | 组件 | 职责 | 文件位置 |
 |------|------|----------|
@@ -307,7 +560,7 @@ Loop 工程 (Loop 级):
 
 > 📖 完整安全模块文档: [docs/features.md](docs/features.md)
 
-### 3.3 定时任务系统 (CronScheduler)
+### 4.3 定时任务系统 (CronScheduler)
 
 **功能说明**：基于 cron 表达式的定时任务调度器，支持在指定时间执行任务。
 
@@ -340,7 +593,7 @@ scheduler.schedule("0 * * * *", () -> {
 - `-` : 指定范围
 - `/` : 步长
 
-### 3.4 记忆压缩系统 (Consolidator)
+### 4.4 记忆压缩系统 (Consolidator)
 
 **功能说明**：当对话历史超过 token 预算时，自动压缩历史消息，保留关键信息。
 
@@ -368,7 +621,7 @@ boolean needsConsolidation(List<Map<String, Object>> messages)
 int getCurrentUsage(List<Map<String, Object>> messages)
 ```
 
-### 3.5 长期记忆系统 (Dream)
+### 4.5 长期记忆系统 (Dream)
 
 **功能说明**：实现 AI Agent 的长期记忆功能，允许 Agent 存储和检索长期信息。
 
@@ -403,7 +656,7 @@ CompletableFuture<MemoryEntry> consolidate(MemoryEntry newMemory)
 void cleanup()
 ```
 
-### 3.6 多通道接入系统 (ChannelServer)
+### 4.6 多通道接入系统 (ChannelServer)
 
 **功能说明**：提供 HTTP 和 WebSocket 通道的统一管理，允许客户端通过多种方式与 Agent 交互。
 
@@ -453,7 +706,7 @@ ChannelServer server = new ChannelServer(messageBus, 8080);
 server.start();
 ```
 
-### 3.7 状态机流程（已重构为 State 模式）
+### 4.7 状态机流程（已重构为 State 模式）
 
 `AgentLoop` 采用 **State 模式** 管理消息处理，每个状态对应一个独立的 `AgentState` 实现类：
 
@@ -484,7 +737,7 @@ RestoreState CompactSt CommandSt BuildSt  RunSt   SaveSt  RespondSt
 | SAVE | ok | RESPOND | 保存会话状态 |
 | RESPOND | ok | DONE | 发送响应 |
 
-### 3.8 核心消息处理全链路详解
+### 4.8 核心消息处理全链路详解
 
 > **本节目标**：完整梳理一条用户消息从进入系统到生成响应的全链路，理解每一层的职责、数据流转和关键代码路径。
 
@@ -861,7 +1114,7 @@ chatStream(messages, tools, onDelta)
 
 ---
 
-### 3.9 模块结构
+### 4.9 模块结构
 
 ```
 nanobot-java/
@@ -927,7 +1180,7 @@ nanobot-java/
 └── pom.xml
 ```
 
-### 3.10 命令系统 (Command)
+### 4.10 命令系统 (Command)
 
 **设计模式**：Command 模式。所有 CLI/WebSocket/HTTP 命令通过 `CommandRegistry` 统一分发。
 
@@ -974,7 +1227,7 @@ nanobot-java/
 
 ---
 
-### 3.11 身份系统 (Identity)
+### 4.11 身份系统 (Identity)
 
 **三件套**：`.nanobot/` 目录下的三个 Markdown 文件，控制 Agent 的行为和个性。
 
@@ -1000,7 +1253,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 3.12 V3 CLI 模式 (CliChannel)
+### 4.12 V3 CLI 模式 (CliChannel)
 
 **入口**：`NanobotCliApplication` → Spring Boot 容器 → `CliChannel.start()`
 
@@ -1039,7 +1292,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 3.13 V2 Spring Boot 模式
+### 4.13 V2 Spring Boot 模式
 
 **入口**：`NanobotApplication` → 内嵌 Tomcat + Spring MVC
 
@@ -1065,7 +1318,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 3.14 V1 独立模式
+### 4.14 V1 独立模式
 
 **入口**：`Nanobot.java`，手动组装所有组件，无需 Spring。
 
@@ -1081,7 +1334,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 3.15 子 Agent 系统 (Subagent)
+### 4.15 子 Agent 系统 (Subagent)
 
 **核心组件**：
 
@@ -1119,7 +1372,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 3.16 核心接口设计
+### 4.16 核心接口设计
 
 #### Tool 接口
 
@@ -1229,7 +1482,7 @@ public class MCPToolWrapper implements Tool {
 
 ---
 
-### 3.17 MCP (Model Context Protocol) 系统
+### 4.17 MCP (Model Context Protocol) 系统
 
 **MCP**（Model Context Protocol）是由 Cursor 编辑器提出的标准化协议，用于连接 AI Agent 与外部工具/服务。Nanobot 通过 MCP 支持，可以动态加载和使用第三方工具，而无需修改核心代码。
 
@@ -1306,7 +1559,7 @@ public class MCPToolWrapper implements Tool {
 
 ---
 
-### 3.18 Skills 技能系统
+### 4.18 Skills 技能系统
 
 **Skills** 是参考 Claude Code 设计的可复用技能系统，允许用户定义可复用的工作流、指令集和领域知识。Skills 可以通过斜杠命令手动调用，也可以根据对话场景自动触发。
 
@@ -1442,7 +1695,7 @@ List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
 
 ---
 
-### 3.19 Rules 规则系统
+### 4.19 Rules 规则系统
 
 **Rules** 是参考 Claude Code 的设计理念实现的全局规则系统，通过自然语言指令定义 Agent 的行为规范。规则告诉模型"在这个项目中你应该遵循什么规范"。
 
@@ -1573,7 +1826,7 @@ String systemPrompt = "你是一个 AI Agent。\n\n" + rulesPrompt;
 
 ---
 
-### 3.20 安全系统详解
+### 4.20 安全系统详解
 
 **PermissionMode 四种模式**：
 
@@ -1612,7 +1865,7 @@ Tool 调用
 
 ---
 
-### 3.21 内置工具一览
+### 4.21 内置工具一览
 
 **文件工具**：
 
@@ -1662,9 +1915,9 @@ Tool 调用
 
 ---
 
-## 四、新手学习路线
+## 五、新手学习路线
 
-### 4.1 学习阶段规划
+### 5.1 学习阶段规划
 
 | 阶段 | 目标 | 时间 | 关键知识点 |
 |------|------|------|-----------|
@@ -1673,7 +1926,7 @@ Tool 调用
 | **Phase 3** | 深入核心机制 | 3-5 天 | LLM 调用、会话管理、钩子系统 |
 | **Phase 4** | 扩展开发 | 3-5 天 | 自定义工具、新提供商、通道扩展 |
 
-### 4.2 Phase 1：环境搭建与入门
+### 5.2 Phase 1：环境搭建与入门
 
 **目标**：搭建开发环境，了解项目结构，成功运行项目
 
@@ -1713,7 +1966,7 @@ scripts\nanobot.bat                  # Windows
 mvn spring-boot:run
 ```
 
-### 4.3 Phase 2：核心组件理解
+### 5.3 Phase 2：核心组件理解
 
 **目标**：理解状态机、消息总线、工具系统的设计
 
@@ -1741,7 +1994,7 @@ mvn spring-boot:run
 2. 添加一个简单的自定义工具
 3. 调试状态机转换过程
 
-### 4.4 Phase 3：深入核心机制
+### 5.4 Phase 3：深入核心机制
 
 **目标**：理解 LLM 调用、会话管理、钩子系统
 
@@ -1769,7 +2022,7 @@ mvn spring-boot:run
 2. 添加会话压缩逻辑
 3. 实现一个监控钩子
 
-### 4.5 Phase 4：扩展开发
+### 5.5 Phase 4：扩展开发
 
 **目标**：能够扩展新功能
 
@@ -1795,7 +2048,7 @@ mvn spring-boot:run
 
 ---
 
-## 五、关键技术选型
+## 六、关键技术选型
 
 | 功能 | 技术方案 | 理由 |
 |------|---------|------|
@@ -1812,7 +2065,7 @@ mvn spring-boot:run
 
 ---
 
-## 六、配置说明
+## 七、配置说明
 
 ### 5.1 配置文件位置
 
@@ -1886,7 +2139,7 @@ channels:
 
 ---
 
-## 七、编译、启动与部署
+## 八、编译、启动与部署
 
 ### 6.1 环境要求
 
@@ -2007,7 +2260,7 @@ docker run -d \
 
 ---
 
-## 八、调试与日志
+## 九、调试与日志
 
 ### 7.1 日志配置
 
@@ -2028,7 +2281,7 @@ docker run -d \
 
 ---
 
-## 九、扩展建议
+## 十、扩展建议
 
 ### 7.1 添加新工具
 
@@ -2096,7 +2349,7 @@ public class CustomMCPClient implements MCPClient {
 
 ---
 
-## 十、常见问题
+## 十一、常见问题
 
 ### Q1：如何配置 API Key？
 
@@ -2128,7 +2381,7 @@ A：主要依赖：
 
 ---
 
-## 十一、学习资源
+## 十二、学习资源
 
 1. **官方文档**：`docs/` 目录下的文档
 2. **架构分析**：`nanobot_architecture_analysis.md`
@@ -2137,7 +2390,7 @@ A：主要依赖：
 
 ---
 
-## 十二、总结
+## 十三、总结
 
 Nanobot-Java 的核心价值在于：
 
