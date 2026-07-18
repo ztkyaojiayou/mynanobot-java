@@ -239,7 +239,7 @@ public class WebSearchTool implements Tool {
                         .uri(URI.create(url))
                         .header("Ocp-Apim-Subscription-Key", apiKey)
                         .header("Accept", "application/json")
-                        .timeout(java.time.Duration.ofSeconds(30))
+                        .timeout(java.time.Duration.ofSeconds(60))
                         .GET()
                         .build();
                 } else if ("baidu".equalsIgnoreCase(provider)) {
@@ -258,7 +258,7 @@ public class WebSearchTool implements Tool {
                         .uri(URI.create(url))
                         .header("Content-Type", "application/json")
                         .header("Authorization", "Bearer " + apiKey)
-                        .timeout(java.time.Duration.ofSeconds(30))
+                        .timeout(java.time.Duration.ofSeconds(60))
                         .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
                         .build();
                 } else if ("duckduckgo".equalsIgnoreCase(provider)) {
@@ -267,7 +267,7 @@ public class WebSearchTool implements Tool {
                     request = HttpRequest.newBuilder()
                         .uri(URI.create(url))
                         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                        .timeout(java.time.Duration.ofSeconds(30))
+                        .timeout(java.time.Duration.ofSeconds(60))
                         .GET()
                         .build();
                 } else if ("baidu_web".equalsIgnoreCase(provider)) {
@@ -279,7 +279,7 @@ public class WebSearchTool implements Tool {
                         .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                         .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
                         .header("Accept-Encoding", "gzip, deflate")
-                        .timeout(java.time.Duration.ofSeconds(30))
+                        .timeout(java.time.Duration.ofSeconds(60))
                         .GET()
                         .build();
                 } else {
@@ -292,7 +292,7 @@ public class WebSearchTool implements Tool {
                         .uri(URI.create(url))
                         .header("Accept", "application/json")
                         .header("X-Subscription-Token", apiKey)
-                        .timeout(java.time.Duration.ofSeconds(30))
+                        .timeout(java.time.Duration.ofSeconds(60))
                         .GET()
                         .build();
                 }
