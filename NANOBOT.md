@@ -1,4 +1,3 @@
-```markdown
 # NANOBOT.md
 
 ## 项目概述
@@ -11,10 +10,11 @@ Nanobot-Java 是一个基于 Java 17 的 AI Agent 核心实现，手搓实现了
 |------|------|------|------|
 | 语言 | Java | 17 (LTS) | 核心开发语言 |
 | 构建 | Maven | - | 依赖管理和构建 |
+| 框架 | Spring Boot | 3.2.5 | V2 Web / WebSocket |
+| 终端 | JLine 3 | 3.25.1 | 跨平台原始按键 (Esc) |
 | JSON | Jackson | 2.17.2 | JSON/YAML 序列化 |
 | 日志 | SLF4J + Logback | 2.0.9 / 1.4.11 | 日志门面和实现 |
 | 测试 | JUnit 5 | 5.10.1 | 单元测试 |
-| 框架 | Spring Boot | 3.2.5 | Web / WebSocket / Actuator |
 | 代码简化 | Lombok | 1.18.30 | 减少样板代码 |
 | HTML 解析 | Jsoup | 1.17.2 | 网页抓取工具 |
 
@@ -25,23 +25,27 @@ src/
 ├── main/java/com/nanobot/
 │   ├── bus/               # 消息总线 — 异步消息队列，解耦生产者和消费者
 │   ├── config/            # 配置加载和强类型配置类
+│   ├── command/           # 命令系统 (/exit, /help, /init, /mode, /plan, /resume)
 │   ├── core/              # 核心引擎
-│   │   ├── AgentLoop      # 消息处理状态机引擎
-│   │   ├── AgentRunner    # LLM 调用循环核心
-│   │   └── hook/          # Agent 生命周期钩子
+│   │   ├── AgentLoop      # 消息处理状态机 (State 模式)
+│   │   ├── AgentRunner    # LLM 调用循环 + 工具执行
+│   │   ├── TaskStore      # 会话级任务追踪
+│   │   ├── state/         # State 处理器 (8 个实现类)
+│   │   ├── hook/          # Agent 生命周期钩子链
+│   │   └── subagent/      # 子 Agent 通信
 │   ├── cron/              # 定时任务调度器
-│   ├── identity/          # 身份管理
-│   ├── mcp/               # MCP 管理器
-│   ├── memory/            # 记忆系统 (Dream, MemoryStore)
-│   ├── providers/         # LLM 提供商抽象和实现 (OpenAI, DeepSeek)
+│   ├── identity/          # 身份管理 (SOUL/IDENTITY/USER)
+│   ├── mcp/               # MCP 协议客户端
+│   ├── memory/            # 记忆系统 (Dream, MemoryStore, Consolidator)
+│   ├── providers/         # LLM 提供商 + ProviderFactory 策略工厂
 │   ├── rules/             # 规则管理器
-│   ├── security/          # 安全组件 (权限、命令/网络/路径守卫)
-│   ├── session/           # 会话管理器
+│   ├── security/          # 安全层 (PermissionManager + Guard + RuleEngine)
+│   ├── session/           # 会话管理 + SessionStore 存储分离
 │   ├── skill/             # 技能管理器
-│   ├── tools/             # 工具注册中心和内置工具实现
-│   ├── v1/                # CLI 入口 (Nanobot)
-│   ├── v2/                # Spring Boot HTTP/SSE + WebSocket 入口
-│   └── v3/                # CLI 交互入口 (类 Claude Code 体验)
+│   ├── tools/             # 工具系统 (17 个内置工具 + MCP)
+│   ├── v1/                # V1 独立模式 (ChannelServer + 手动帧解析)
+│   ├── v2/                # V2 Spring Boot (REST/SSE/WebSocket)
+│   └── v3/                # V3 CLI (JLine 终端 + Markdown 渲染)
 ├── main/resources/
 │   ├── application.yml    # Spring Boot 配置
 │   ├── config/config.yaml # Nanobot 业务配置
@@ -59,52 +63,41 @@ docs/                      # 项目文档
 # 编译
 mvn clean compile
 
-# 运行测试
+# 测试
 mvn test
 
-# 打包 (生成可执行 fat JAR)
-mvn clean package
+# V3 CLI 模式（推荐）
+./scripts/nanobot                    # Mac/Linux
+java -jar target/nanobot-cli.jar     # 或直接运行 JAR
 
-# 运行 V2 (HTTP/SSE + WebSocket)
-java -jar target/nanobot-java-1.0.0-SNAPSHOT.jar
-
-# 运行 V1 (CLI)
-java -cp target/nanobot-java-1.0.0-SNAPSHOT.jar com.nanobot.v1.Nanobot
-
-# 运行 V3 (CLI 交互，类 Claude Code)
-java -cp target/nanobot-java-1.0.0-SNAPSHOT.jar com.nanobot.v3.NanobotCliApplication [--workspace /path]
-
-# V3 恢复会话
-java -cp target/nanobot-java-1.0.0-SNAPSHOT.jar com.nanobot.v3.NanobotCliApplication --resume <sessionId>
+# V2 Spring Boot 模式（Web 界面）
+mvn spring-boot:run
+# → http://localhost:8080 (聊天) | /sessions.html (会话管理)
 ```
 
 ## 编码约定
 
-- **Java 17 特性**：使用 `record`、`sealed class`、`pattern matching` 等现代语法
-- **Lombok**：使用 `@Data`、`@Builder`、`@Slf4j` 减少样板代码
-- **日志**：全部通过 `LoggerFactory.getLogger()` 获取 logger，使用 SLF4J API
-- **配置**：强类型配置类，所有配置有合理默认值，支持 JSON/YAML 和环境变量覆盖
-- **并发**：使用 `CompletableFuture`、`ExecutorService`、`BlockingQueue`，避免裸 `Thread`
-- **测试**：JUnit 5，测试方法名遵循 `should_expectedBehavior_when_condition` 模式
-- **包结构**：按功能模块分包，`com.nanobot.*`，避免循环依赖
-- **文档**：核心类必须有 Javadoc，包含架构说明和 ASCII 流程图
+- **命名**：类名 PascalCase，方法名 camelCase，包名全小写
+- **Lombok**：使用 `@Data`、`@Getter`、`@AllArgsConstructor` 减少样板代码
+- **日志**：统一使用 `LoggerFactory.getLogger()` + SLF4J，关键路径 INFO，调试路径 DEBUG
+- **并发**：`CompletableFuture` + `ExecutorService` + `ConcurrentHashMap`，不直接操作 Thread
+- **测试**：JUnit 5 + `@DisplayName`，测试方法用中文描述
+- **包结构**：按功能模块分包 `com.nanobot.*`，接口和实现分离
+- **文档**：核心类有 Javadoc 含架构说明 + ASCII 流程图
+- **提交**：功能完成后 `mvn test` 验证通过再 commit
 
 ## 关键设计决策
 
-1. **消息总线解耦**：使用 `MessageBus` (BlockingQueue + ConcurrentHashMap) 解耦消息生产者和消费者，SSE/WS 通过 `StreamResponseCallback` 直推，不走队列。
+1. **消息总线解耦**：`MessageBus` (BlockingQueue + ConcurrentHashMap) 解耦消息生产者消费者，SSE/WS 通过 `StreamResponseCallback` 直推。
 
-2. **三版本入口**：
-   - V1: 纯 CLI 入口
-   - V2: Spring Boot HTTP/SSE + WebSocket 服务端
-   - V3: 类 Claude Code 的 CLI 交互体验，通过 Profile `!cli` 隔离
+2. **State 模式状态机**：`AgentLoop` 采用 State 模式，7 个状态独立为 `core/state/` 下的处理类，可读可扩展。
 
-3. **Agent 状态机**：`AgentLoop` 实现状态机引擎，`AgentRunner` 管理 LLM 调用循环和工具调用。
+3. **三版本入口**：V1 独立 / V2 Spring Boot / V3 CLI（对标 Claude Code），共享核心引擎。
 
-4. **安全三层守卫**：`CommandGuard`、`NetworkGuard`、`PathGuard` 分别控制命令执行、网络访问和文件系统操作。
+4. **ProviderFactory 策略工厂**：按模型名自动匹配 LLM 提供商，新增厂商只需注册策略。
 
-5. **不依赖任何 AI 框架**：纯 Java 技术栈手搓实现，LLM 提供商通过 SPI 方式扩展（`OpenAIProvider`、`DeepSeekProvider`）。
+5. **权限管道**：PreToolUseHook → Guards (Path/Command/Network) → RuleEngine → PermissionMode，四层防护。
 
-6. **Lombok 注解处理器**：在 `maven-compiler-plugin` 中显式配置 `annotationProcessorPaths`，确保编译时 Lombok 生效。
+6. **Plan Mode**：`/plan` 进入只读规划 → 出计划 → `/plan approve` 审批执行，对标 Claude Code。
 
-7. **Maven Surefire 编码**：测试执行时指定 `-Dfile.encoding=UTF-8`，避免控制台中文乱码。
-```
+7. **不依赖任何 AI 框架**：纯 Java 17 手搓，所有设计模式（State/Strategy/Command/Chain of Responsibility）自己实现。
