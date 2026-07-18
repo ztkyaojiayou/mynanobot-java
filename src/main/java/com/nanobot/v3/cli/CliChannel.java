@@ -13,8 +13,12 @@ import com.nanobot.command.impl.ResumeCommand;
 import com.nanobot.core.AgentLoop;
 import com.nanobot.tools.impl.AskUserTool;
 import com.nanobot.v3.tui.MarkdownRenderer;
+import org.jline.terminal.Terminal;
+import org.jline.terminal.TerminalBuilder;
+import org.jline.utils.NonBlockingReader;
 import org.springframework.context.ConfigurableApplicationContext;
 
+import java.io.IOException;
 import java.util.Scanner;
 
 /**
@@ -38,6 +42,9 @@ public class CliChannel {
     /** 中断标志 — 用户在流式输出期间按 Enter 取消当前回复 */
     private volatile boolean cancelled;
 
+    /** JLine 终端 — 跨平台原始按键读取（Esc 中断，不干扰 Scanner） */
+    private final Terminal terminal;
+
     /** 共享 Scanner — 整个 CLI 共用一个 System.in 读取器，避免多 Scanner 抢输入 */
     private final Scanner scanner = new Scanner(System.in);
 
@@ -51,6 +58,15 @@ public class CliChannel {
         this.agentLoop = NanobotRunner.getAgentLoop();
         this.sessionId = initialSessionId != null ? initialSessionId : "cli-" + System.currentTimeMillis();
         this.appContext = appContext;
+
+        // 初始化 JLine 终端（跨平台 Esc 检测，使用 /dev/tty 或 CONIN$，不干扰 Scanner）
+        Terminal t = null;
+        try {
+            t = TerminalBuilder.builder().build();
+        } catch (IOException e) {
+            System.err.println("终端初始化失败，Esc 中断不可用: " + e.getMessage());
+        }
+        this.terminal = t;
 
         // 初始化命令注册中心
         var registry = NanobotRunner.getToolRegistry();
@@ -95,7 +111,7 @@ public class CliChannel {
         });
 
         printBanner();
-        System.out.println("输入消息开始对话，/exit 退出系统，/clear 清上下文，Ctrl+C 中断当前回复");
+        System.out.println("输入消息开始对话，/exit 退出系统，/clear 清上下文，Esc 中断当前回复");
         System.out.println();
 
         //持续监听用户输入，这就是入口！！！
@@ -180,16 +196,30 @@ public class CliChannel {
         currentRequestId = requestId;
         cancelled = false;
 
-        // 后台监听线程：流式输出期间按 Enter 中断当前回复
+        // 后台监听线程：流式输出期间按 Esc 中断当前回复
         Thread cancelMonitor = new Thread(() -> {
             try {
-                while (currentRequestId != null && !cancelled) {
-                    if (System.in.available() > 0) {
-                        String line = scanner.nextLine();
-                        cancelled = true;
-                        currentRequestId = null;
+                if (terminal != null) {
+                    NonBlockingReader reader = terminal.reader();
+                    while (currentRequestId != null && !cancelled) {
+                        int ch = reader.read(50); // 50ms 超时轮询
+                        if (ch == 27) { // Esc key
+                            cancelled = true;
+                            currentRequestId = null;
+                            break;
+                        }
                     }
-                    Thread.sleep(200);
+                } else {
+                    // 回退：无终端时用 Enter 中断
+                    while (currentRequestId != null && !cancelled) {
+                        if (System.in.available() > 0) {
+                            scanner.nextLine();
+                            cancelled = true;
+                            currentRequestId = null;
+                            break;
+                        }
+                        Thread.sleep(200);
+                    }
                 }
             } catch (Exception ignored) {}
         }, "CancelMonitor");
@@ -202,7 +232,7 @@ public class CliChannel {
                     .metadata(java.util.Map.of("requestId", requestId, "streamMode", true))
                     .build());
 
-            // 等待流式完成（最多等5分钟，或按 Enter 取消）
+            // 等待流式完成（最多等5分钟，或按 Esc 取消）
             Thread.sleep(200);
             int waited = 0;
             while (currentRequestId != null && waited < 300_000) {
@@ -227,7 +257,7 @@ public class CliChannel {
         System.out.println("""
                 ╔══════════════════════════════════╗
                 ║       my-nanobot CLI 模式       ║
-                ║  基于 Java Agent 框架的 AI 助手  ║
+                ║  基于 Java 的 AI Agent助手  ║
                 ╚══════════════════════════════════╝""");
     }
 }

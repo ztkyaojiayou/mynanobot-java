@@ -69,6 +69,14 @@
             <scope>test</scope>
         </dependency>
 
+          <!-- ==================== JLine - 跨平台终端输入 ==================== -->
+     <!-- 用于 CLI 模式下的 Esc 中断、原始模式按键读取 -->
+        <dependency>
+            <groupId>org.jline</groupId>
+            <artifactId>jline-terminal</artifactId>
+            <version>3.25.1</version>
+        </dependency>
+
         <!-- ==================== JSON 处理 ==================== -->
         <!-- Jackson Core - 核心 JSON 处理 -->
         <dependency>
