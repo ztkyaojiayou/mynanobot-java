@@ -8,8 +8,7 @@ import com.nanobot.mcp.MCPManager;
 import com.nanobot.memory.Dream;
 import com.nanobot.memory.MemoryStore;
 import com.nanobot.providers.LLMProvider;
-import com.nanobot.providers.impl.DeepSeekProvider;
-import com.nanobot.providers.impl.OpenAIProvider;
+import com.nanobot.providers.ProviderFactory;
 import com.nanobot.identity.IdentityManager;
 import com.nanobot.rules.RuleManager;
 import com.nanobot.session.SessionManager;
@@ -111,8 +110,8 @@ public class NanobotRunner implements ApplicationRunner {
         skillManager.loadSkills();
         logger.info("Loaded {} skills", skillManager.getRegistry().size());
 
-        // 5. 初始化 LLM 提供商
-        provider = createProvider();
+        // 5. 初始化 LLM 提供商（策略工厂，按 model 前缀自动匹配）
+        provider = new ProviderFactory().create(config);
 
         // 6. 初始化长期记忆系统
         int maxMemories = config.getMemory().getDream().getMaxMemories();
@@ -184,53 +183,6 @@ public class NanobotRunner implements ApplicationRunner {
         } catch (Exception e) {
             logger.warn("Failed to initialize MCP: {}", e.getMessage());
         }
-    }
-    
-    /**
-     * 创建 LLM 提供商
-     */
-    private LLMProvider createProvider() {
-        Config.AgentDefaults defaults = config.getAgents().getDefaults();
-        String model = defaults.getModel();
-        
-        if (model.startsWith("gpt-") || model.startsWith("o1") || model.startsWith("o3")) {
-            Config.ProviderConfig openaiConfig = config.getProviders().getOpenai();
-            if (!openaiConfig.isConfigured()) {
-                String apiKey = System.getenv("OPENAI_API_KEY");
-                if (apiKey != null) {
-                    openaiConfig.setApiKey(apiKey);
-                }
-            }
-            return new OpenAIProvider(openaiConfig.getApiKey(), model);
-        }
-        
-        if (model.startsWith("deepseek")) {
-            Config.ProviderConfig deepseekConfig = config.getProviders().getDeepseek();
-            if (!deepseekConfig.isConfigured()) {
-                String apiKey = System.getenv("DEEPSEEK_API_KEY");
-                if (apiKey != null) {
-                    deepseekConfig.setApiKey(apiKey);
-                }
-            }
-            if (!deepseekConfig.isConfigured()) {
-                throw new IllegalStateException("DeepSeek API key not configured");
-            }
-            return new DeepSeekProvider(
-                deepseekConfig.getApiKey(),
-                model,
-                deepseekConfig.getApiBase()
-            );
-        }
-        
-        Config.ProviderConfig providerConfig = config.getProviders().getOpenai();
-        String apiKey = providerConfig.getApiKey();
-        if (apiKey == null || apiKey.isBlank()) {
-            apiKey = System.getenv("OPENAI_API_KEY");
-        }
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("No API key configured");
-        }
-        return new OpenAIProvider(apiKey, model);
     }
     
     /**
