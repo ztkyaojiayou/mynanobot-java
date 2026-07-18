@@ -35,7 +35,8 @@
         .chat-header { padding: 12px 20px; border-bottom: 1px solid #e0e0e0; background: #f7f7f8; display: flex; align-items: center; }
         .chat-header .model { font-size: 13px; color: #666; margin-left: auto; }
         .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; }
-        .message { max-width: 75%; margin-bottom: 15px; padding: 12px 18px; border-radius: 16px; line-height: 1.6; font-size: 14px; }
+        .message { max-width: 85%; margin-bottom: 15px; padding: 12px 18px; border-radius: 16px; line-height: 1.6; font-size: 14px; }
+        .bot-message { max-width: 55%; }
         .user-message { align-self: flex-end; background: #1f6feb; color: #fff; border-bottom-right-radius: 4px; }
         .bot-message { align-self: flex-start; background: #f7f7f8; color: #1a1a1a; border: 1px solid #e5e5e5; border-bottom-left-radius: 4px; }
         .bot-message .avatar { width: 28px; height: 28px; border-radius: 50%; background: #1f6feb; display: inline-flex; align-items: center; justify-content: center; margin-right: 8px; float: left; color: #fff; font-size: 12px; font-weight: bold; }
@@ -142,6 +143,7 @@
 
         async function switchSession(key) {
             sessionId = key;
+            isNewSession = false; // 已有会话不再自动改名
             document.getElementById('currentSessionName').textContent = key;
             document.getElementById('messages').innerHTML = '<div class="empty-chat">加载中...</div>';
             loadSessions();
