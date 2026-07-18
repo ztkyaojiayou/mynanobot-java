@@ -2067,81 +2067,77 @@ mvn spring-boot:run
 
 ## 七、配置说明
 
-### 5.1 配置文件位置
+### 7.1 配置文件位置
 
 ```
-~/.nanobot/config.yaml
+src/main/resources/config/config.yaml  ← 项目默认配置（内置）
+~/.nanobot/config.yaml                 ← 用户自定义覆盖
 ```
 
-或通过命令行指定：
-```bash
-java -jar nanobot-java.jar --config /path/to/config.yaml
-```
+CLI 启动时通过 `--workspace` 指定工作目录，Spring Boot 模式从 classpath 加载。
 
-### 5.2 配置结构
+### 7.2 配置结构
 
 ```yaml
 agents:
   defaults:
-    model: gpt-4o-mini
-    workspace: ~/.nanobot/workspace
-    max_tokens: 4096
+    model: "deepseek-chat"          # 默认模型（ProviderFactory 自动匹配）
+    workspace: ".nanobot/workspace"
+    maxTokens: 8192
+    contextWindowTokens: 200000
     temperature: 0.7
-    max_tool_iterations: 10
+    maxToolIterations: 100
+    maxTurns: 0                    # 0=不限制
+    maxCost: 0                     # 0=不限制，单位美元
+    timezone: "UTC"
 
 providers:
   openai:
-    api_key: ${OPENAI_API_KEY}
-    api_base: https://api.openai.com/v1
+    apiKey: ""                     # 优先读环境变量 OPENAI_API_KEY
+    apiBase: "https://api.openai.com/v1"
+  deepseek:
+    apiKey: ""                     # 优先读环境变量 DEEPSEEK_API_KEY
+    apiBase: "https://api.deepseek.com"
 
 tools:
   exec:
-    enable: false
-  
+    enable: true                   # Shell 命令执行（生产环境建议 false）
   web:
     enable: true
     search:
-      provider: "baidu_web"  # baidu_web: 百度公开接口（国内可访问，无需API Key）
-                            # baidu: 百度API（需要API Key）
-                            # brave: Brave Search（需要API Key）
-                            # bing: Bing Search（需要API Key）
-      apiKey: ""            # API Key（当使用 baidu/brave/bing 时需要配置）
+      provider: "baidu_web"
       maxResults: 5
       timeout: 30
 
-# MCP 服务器配置
-mcp_servers:
-  # stdio 模式 - 通过命令启动 MCP 服务器
+mcp_servers:                       # MCP 服务器（可选）
   git:
     command: "npx"
     args: ["-y", "git-mcp@latest"]
     tool_timeout: 30
-    enabled_tools: ["*"]
-  
-  # HTTP 模式 - 连接远程 MCP 服务器
-  weather:
-    type: "streamableHttp"
-    url: "https://api.example.com/mcp"
-    headers:
-      Authorization: "Bearer token"
 
 channels:
-  send_progress: true
+  send_progress: true              # 发送进度消息
+
+memory:
+  dream:
+    maxMemories: 100               # 长期记忆最大条数
 ```
 
-### 5.3 环境变量
+### 7.3 环境变量
 
-| 变量名 | 说明 |
-|--------|------|
-| `OPENAI_API_KEY` | OpenAI API 密钥 |
-| `NANOBOT_MODEL` | 默认模型 |
-| `NANOBOT_WORKSPACE` | 工作目录 |
+| 变量名 | 说明 | 适用 Provider |
+|--------|------|--------------|
+| `DEEPSEEK_API_KEY` | DeepSeek API 密钥 | deepseek-chat |
+| `OPENAI_API_KEY` | OpenAI API 密钥 | gpt-4o, o1, o3 等 |
+| `JAVA_HOME` | JDK 路径 | 启动脚本使用 |
+
+> `ProviderFactory` 根据 `model` 字段自动匹配 Provider：`deepseek*` → DeepSeekProvider，`gpt-*/o1/o3/o4` → OpenAIProvider，其他 → OpenAIProvider（兜底）。API Key 优先读配置文件，没有则读环境变量。
 
 ---
 
 ## 八、编译、启动与部署
 
-### 6.1 环境要求
+### 8.1 环境要求
 
 | 依赖 | 版本 | 说明 |
 |------|------|------|
@@ -2149,7 +2145,7 @@ channels:
 | Maven | 3.9+ | 构建工具 |
 | Git | 2.x | 版本控制（可选） |
 
-### 6.2 编译项目
+### 8.2 编译项目
 
 ```bash
 # 编译项目
@@ -2165,7 +2161,7 @@ mvn clean package
 mvn clean package -DskipTests
 ```
 
-### 6.3 启动运行
+### 8.3 启动运行
 
 #### V3 CLI 模式（推荐）
 
@@ -2204,52 +2200,45 @@ mvn spring-boot:run
 mvn exec:java -Dexec.mainClass="com.nanobot.v1.Nanobot"
 ```
 
-### 6.4 配置环境变量
+### 8.4 配置环境变量
 
 ```bash
-# Linux/Mac
-export OPENAI_API_KEY=your-api-key
-export NANOBOT_MODEL=gpt-4o-mini
-export NANOBOT_WORKSPACE=~/.nanobot/workspace
+# Linux / Mac — 加到 ~/.bashrc 或 ~/.zshrc
+export DEEPSEEK_API_KEY=your-api-key
+export JAVA_HOME=/path/to/jdk17
 
 # Windows PowerShell
-$env:OPENAI_API_KEY="your-api-key"
-$env:NANOBOT_MODEL="gpt-4o-mini"
-$env:NANOBOT_WORKSPACE="~/.nanobot/workspace"
+$env:DEEPSEEK_API_KEY="your-api-key"
 ```
 
-### 6.5 Docker 部署
+### 8.5 自动重建（scripts/nanobot）
 
-**Dockerfile 示例**：
+`scripts/nanobot` 脚本会自动检测源码变更并重新打包：
+
+```bash
+#!/bin/bash
+JAR="$SCRIPT_DIR/target/nanobot-cli.jar"
+
+# 源码有更新？自动 mvn package
+if [[ ! -f "$JAR" ]] || [[ -n "$(find src/main/java -name '*.java' -newer "$JAR")" ]]; then
+    echo "(source changed, rebuilding...)"
+    (cd "$SCRIPT_DIR" && mvn package -DskipTests -q)
+fi
+
+java -jar "$JAR" "$@"
+```
+
+### 8.6 Docker 部署（可选）
 
 ```dockerfile
-FROM openjdk:21-jdk-slim
-
+FROM openjdk:17-jdk-slim
 WORKDIR /app
-
-COPY target/nanobot-1.0.0.jar app.jar
-
-ENV OPENAI_API_KEY=your-api-key
-ENV NANOBOT_MODEL=gpt-4o-mini
-
+COPY target/nanobot-cli.jar app.jar
+ENV DEEPSEEK_API_KEY=your-api-key
 CMD ["java", "-jar", "app.jar"]
 ```
 
-**构建和运行**：
-
-```bash
-# 构建镜像
-docker build -t nanobot .
-
-# 运行容器
-docker run -d \
-  --name nanobot \
-  -e OPENAI_API_KEY=your-api-key \
-  -v ~/.nanobot:/root/.nanobot \
-  nanobot
-```
-
-### 6.6 常见启动问题
+### 8.7 常见启动问题
 
 | 问题 | 解决方案 |
 |------|----------|
