@@ -216,11 +216,249 @@ Loop 工程 (Loop 级):
 
 ---
 
-## 三、nanobot CLI 实战指南（对标 Claude Code）
+## 三、Claude Code 实战指南
+
+> **为什么要学 Claude Code？** 本项目全程使用 Claude Code 构建。Claude Code 是 Anthropic 官方出品的 AI 编程 Agent CLI 工具，是目前 Agent-Driven Development 的标杆产品。掌握它，你就能理解本项目的设计目标——用 Java 复刻一个类 Claude Code 的 Agent 框架。
+
+### 3.1 Claude Code 是什么
+
+Claude Code 是 Anthropic 推出的**终端原生 AI 编程助手**，运行在命令行中，不是一个 IDE 插件。
+
+```
+$ claude
+> 帮我实现用户登录功能
+  → AI 自动探索项目（列出文件、读取代码、搜索关键模式）
+  → 制定计划（改哪些文件、加什么依赖、注意什么安全问题）
+  → 逐步实现（创建文件、编辑代码、跑测试验证）
+  → 提交 git commit
+```
+
+**与 Copilot / Cursor 的关键区别**：
+
+| | GitHub Copilot | Cursor | Claude Code |
+|------|------|------|------|
+| **运行环境** | IDE 插件 | 独立 IDE | 终端 CLI |
+| **交互方式** | Tab 补全 + 聊天面板 | 编辑器内联 + 聊天面板 | 纯命令行对话 |
+| **自主性** | 低（需人触发补全） | 中（可对话式编辑） | 高（自主探索→规划→执行→验证） |
+| **工具调用** | 受限 | 部分支持 | 完整（文件读写、Shell、Web、Git） |
+| **项目理解** | 当前文件上下文 | 项目级索引 | 自主探索（glob/grep/read） |
+| **权限模型** | 无 | 部分 | 4 级权限（Plan/Default/AcceptEdits/Bypass） |
+
+---
+
+### 3.2 安装与启动
+
+```bash
+# 安装 Claude Code（需要 Node.js 18+）
+npm install -g @anthropic-ai/claude-code
+
+# 在任意项目目录启动
+cd /your/project
+claude
+
+# 首次使用需要登录 Anthropic 账号
+claude login
+```
+
+启动后界面：
+
+```
+>                        ← 直接输入需求，AI 开始工作
+```
+
+**没有繁琐的配置**，Claude Code 自动检测项目结构。
+
+---
+
+### 3.3 核心命令速查
+
+| 命令 | 功能 |
+|------|------|
+| `/help` | 列出所有可用命令 |
+| `/clear` | 清空当前对话上下文 |
+| `/compact` | 压缩对话历史（释放 token 预算） |
+| `/init` | 分析项目生成 CLAUDE.md（项目记忆文件） |
+| `/doctor` | 诊断环境问题 |
+| `/login` / `/logout` | 账号管理 |
+| `/status` | 查看当前会话状态 |
+| `/add-dir` | 添加额外的工作目录 |
+| `/cost` | 查看本次会话的 API 费用 |
+| `/context` | 查看当前上下文使用情况 |
+| `/review` | 代码审查当前改动 |
+| `/security-review` | 安全审查当前改动 |
+| `/pr-comment` | 将审查结果发布为 PR 评论 |
+| `Ctrl+C` | 中断当前回复 |
+
+---
+
+### 3.4 核心工作流
+
+#### 工作流 1：Vibe Coding（对话式编程）
+
+最直接的使用方式：
+
+```
+> 帮我写一个 Spring Boot REST API，GET /users 返回用户列表
+
+Claude: 先读项目结构 → 确认是 Spring Boot 项目
+       → 创建 UserController.java
+       → 跑 mvn test 验证 → 通过 ✅
+```
+
+#### 工作流 2：Plan Mode（先计划后执行）
+
+这是 Claude Code 最特色的工作流：
+
+```
+> /plan
+→ 进入规划模式（只读）
+
+> 实现用户注销功能，包括 JWT 黑名单和 Session 失效
+
+Claude (只读模式):
+  1. 探索项目: glob **/*Auth*.java → 找到 AuthController, JwtUtil
+  2. 阅读代码: read_file AuthController.java, JwtUtil.java
+  3. 搜索相关: grep "token\|jwt\|logout" → 确认没有现有实现
+  4. 出计划:
+     ## 实现计划
+     - JwtUtil.java: 新增 invalidate() + 内存黑名单
+     - AuthController.java: 新增 POST /logout
+     - SecurityConfig.java: 放行 /logout
+     - 测试: AuthControllerTest
+  → 等待审批
+
+> 继续
+Claude: 切换到执行模式 → 按计划逐步实现 → 跑测试 → 全部通过 ✅
+```
+
+**对比本项目的 Plan Mode**：完全相同的工作流，`/plan` → 探索 → 出计划 → `/plan approve` → 执行。
+
+#### 工作流 3：代码审查
+
+```
+> /review
+Claude: 分析 staged changes → 从多个维度审查:
+  - 正确性: 有没有 bug？
+  - 安全: SQL 注入、敏感信息泄露？
+  - 性能: N+1 查询、不必要的循环？
+  - 可维护性: 命名清晰？有无重复代码？
+→ 输出审查报告 + 修复建议
+```
+
+#### 工作流 4：多轮迭代
+
+```
+> 帮我写一个四则运算计算器
+
+Claude: 生成 Calculator.vue → 完整的加减乘除功能
+
+> 加个历史记录功能
+
+Claude: 读 Calculator.vue → 在现有代码上添加 history 列表
+
+> 把历史记录存到 localStorage，页面刷新不丢失
+
+Claude: 再加持久化 → 验证 → 完成
+```
+
+---
+
+### 3.5 CLAUDE.md — 项目的 AI 记忆
+
+这是 Claude Code 最核心的功能之一，也是本项目 `NANOBOT.md` + `/init` 的灵感来源。
+
+运行 `/init` 后，Claude Code 自动探索项目并生成 `CLAUDE.md`：
+
+```markdown
+# nanobot-java
+
+A Java 17 AI Agent framework built with Spring Boot 3.2.
+
+## Build & Run
+- `mvn compile` - compile
+- `mvn test` - run tests
+- `./scripts/nanobot` - launch CLI mode
+
+## Architecture
+- `core/AgentLoop.java` - state machine engine
+- `core/AgentRunner.java` - LLM call loop
+- `tools/` - 17 built-in tools
+...
+```
+
+**每次对话开始时**，Claude Code 自动加载 `CLAUDE.md` 作为系统提示词。你可以手动编辑补充：
+- 编码规范（"用 4 空格缩进""禁止使用 Lombok @Builder"）
+- 项目约定（"数据库迁移用 Flyway，SQL 文件放 db/migration/"）
+- 常用命令（"启动：./mvnw spring-boot:run"）
+
+---
+
+### 3.6 权限系统
+
+Claude Code 的 4 级权限模式是本项目 `PermissionManager` + `PermissionMode` 的对标对象：
+
+| 模式 | Claude Code | nanobot |
+|------|------|------|
+| **Plan（只读）** | `/plan` — 只能读文件，不能改 | `/mode plan` — 完全相同 |
+| **Default（默认）** | 读放行，写需确认 | `/mode default` — 完全相同 |
+| **Accept Edits** | 读+文件编辑放行，Shell 需确认 | `/mode accept_edits` — 完全相同 |
+| **Bypass** | 全部放行 | `/mode bypass` — 完全相同 |
+
+**交互确认**：Claude Code 弹出 `y/N` 确认，nanobot 用 `1/2/3` 数字选择（多了"之后都放行"选项）。
+
+---
+
+### 3.7 Claude Code 的架构思想
+
+Claude Code 的架构直接启发了本项目的核心设计：
+
+| Claude Code 特性 | 本项目的对应实现 |
+|------|------|
+| CLI 终端原生交互 | V3 `CliChannel` + JLine + Markdown 渲染 |
+| Agent Loop（LLM 循环调用） | `AgentLoop` + `AgentRunner` |
+| 文件读写工具 | `read_file`, `write_file`, `edit_file` |
+| 搜索工具 | `glob`, `grep` |
+| Shell 执行 | `exec` |
+| Web 搜索 | `web_search`, `web_fetch` |
+| Task 系统（任务追踪） | `TaskStore` + `task_create/list/update` |
+| MCP 工具扩展 | `MCPManager` + `MCPToolWrapper` |
+| `/init` → CLAUDE.md | `/init` → NANOBOT.md |
+| `/plan` 规划模式 | `/mode plan` + `/plan approve` |
+| Permission 权限模式 | `PermissionManager` + `PermissionMode` |
+| Stream 流式输出 | `StreamResponseCallback` + SSE |
+| Session 会话管理 | `SessionManager` + `sessions.html` |
+
+---
+
+### 3.8 实战建议
+
+**1. 先 `/init` 再干活**：进入新项目第一件事就是 `/init`，让 Claude Code 理解项目。
+
+**2. 善用 Plan Mode**：
+```bash
+/plan           # 进入规划
+（描述需求）     # Claude 探索 + 出计划
+（审查计划）     # 不满意就调整
+/plan approve   # 满意后执行
+```
+
+**3. 定期 `/compact`**：对话长了之后 token 占用上升，`/compact` 压缩历史释放预算。
+
+**4. 用 `/cost` 关注费用**：每次对话结束看看花了多少钱，养成习惯。
+
+**5. 利用 `CLAUDE.md` 积累项目知识**：把每次踩坑的经验写进去，后续对话自动生效。
+
+**6. 复杂任务分步拆解**：不要一次性描述过于复杂的需求，拆成 2-3 步逐步推进。
+
+**7. 命令行 + IDE 配合**：Claude Code 做"设计+编码"的脏活，你在 IDE 里 Code Review 和微调。
+
+---
+
+## 四、nanobot CLI 实战指南（对标 Claude Code）
 
 > **阅读目标**：掌握 nanobot CLI 的日常使用方式、常用命令和最佳实践，像使用 Claude Code 一样高效。
 
-### 3.1 启动与环境
+### 4.1 启动与环境
 
 ```bash
 # 安装：把 scripts/ 目录加到 PATH
@@ -251,7 +489,7 @@ nanobot --resume cli-1234567890
 
 ---
 
-### 3.2 命令速查
+### 4.2 命令速查
 
 | 命令 | 别名 | 功能 | 示例 |
 |------|------|------|------|
@@ -270,7 +508,7 @@ nanobot --resume cli-1234567890
 
 ---
 
-### 3.3 核心工作流
+### 4.3 核心工作流
 
 #### 工作流 1：自由对话（Vibe Coding）
 
@@ -358,7 +596,7 @@ AI 输出计划:
 
 ---
 
-### 3.4 权限模式选择指南
+### 4.4 权限模式选择指南
 
 ```
 信任度低 ←──────────────────────────────→ 信任度高
@@ -394,7 +632,7 @@ AI 输出计划:
 
 ---
 
-### 3.5 会话管理
+### 4.5 会话管理
 
 ```
 > /resume                  # 查看历史会话
@@ -417,7 +655,7 @@ AI 输出计划:
 
 ---
 
-### 3.6 NANOBOT.md — 项目的 AI 记忆文件
+### 4.6 NANOBOT.md — 项目的 AI 记忆文件
 
 `/init` 命令会在项目根目录生成 `NANOBOT.md`，后续每次对话 AI 都会自动加载它。
 
@@ -444,7 +682,7 @@ mvn test
 
 ---
 
-### 3.7 实用技巧
+### 4.7 实用技巧
 
 **1. 善用 Esc 中断**：AI 生成的内容跑偏了，按 `Esc` 立即停止再重新提问。
 
@@ -469,9 +707,9 @@ mvn test
 
 ---
 
-## 四、架构说明
+## 五、架构说明
 
-### 4.1 整体架构分层
+### 5.1 整体架构分层
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -523,7 +761,7 @@ mvn test
             ╚══════════════════════════════════════╝
 ```
 
-### 4.2 核心组件职责
+### 5.2 核心组件职责
 
 | 组件 | 职责 | 文件位置 |
 |------|------|----------|
@@ -560,7 +798,7 @@ mvn test
 
 > 📖 完整安全模块文档: [docs/features.md](docs/features.md)
 
-### 4.3 定时任务系统 (CronScheduler)
+### 5.3 定时任务系统 (CronScheduler)
 
 **功能说明**：基于 cron 表达式的定时任务调度器，支持在指定时间执行任务。
 
@@ -593,7 +831,7 @@ scheduler.schedule("0 * * * *", () -> {
 - `-` : 指定范围
 - `/` : 步长
 
-### 4.4 记忆压缩系统 (Consolidator)
+### 5.4 记忆压缩系统 (Consolidator)
 
 **功能说明**：当对话历史超过 token 预算时，自动压缩历史消息，保留关键信息。
 
@@ -621,7 +859,7 @@ boolean needsConsolidation(List<Map<String, Object>> messages)
 int getCurrentUsage(List<Map<String, Object>> messages)
 ```
 
-### 4.5 长期记忆系统 (Dream)
+### 5.5 长期记忆系统 (Dream)
 
 **功能说明**：实现 AI Agent 的长期记忆功能，允许 Agent 存储和检索长期信息。
 
@@ -656,7 +894,7 @@ CompletableFuture<MemoryEntry> consolidate(MemoryEntry newMemory)
 void cleanup()
 ```
 
-### 4.6 多通道接入系统 (ChannelServer)
+### 5.6 多通道接入系统 (ChannelServer)
 
 **功能说明**：提供 HTTP 和 WebSocket 通道的统一管理，允许客户端通过多种方式与 Agent 交互。
 
@@ -706,7 +944,7 @@ ChannelServer server = new ChannelServer(messageBus, 8080);
 server.start();
 ```
 
-### 4.7 状态机流程（已重构为 State 模式）
+### 5.7 状态机流程（已重构为 State 模式）
 
 `AgentLoop` 采用 **State 模式** 管理消息处理，每个状态对应一个独立的 `AgentState` 实现类：
 
@@ -737,7 +975,7 @@ RestoreState CompactSt CommandSt BuildSt  RunSt   SaveSt  RespondSt
 | SAVE | ok | RESPOND | 保存会话状态 |
 | RESPOND | ok | DONE | 发送响应 |
 
-### 4.8 核心消息处理全链路详解
+### 5.8 核心消息处理全链路详解
 
 > **本节目标**：完整梳理一条用户消息从进入系统到生成响应的全链路，理解每一层的职责、数据流转和关键代码路径。
 
@@ -1114,7 +1352,7 @@ chatStream(messages, tools, onDelta)
 
 ---
 
-### 4.9 模块结构
+### 5.9 模块结构
 
 ```
 nanobot-java/
@@ -1180,7 +1418,7 @@ nanobot-java/
 └── pom.xml
 ```
 
-### 4.10 命令系统 (Command)
+### 5.10 命令系统 (Command)
 
 **设计模式**：Command 模式。所有 CLI/WebSocket/HTTP 命令通过 `CommandRegistry` 统一分发。
 
@@ -1227,7 +1465,7 @@ nanobot-java/
 
 ---
 
-### 4.11 身份系统 (Identity)
+### 5.11 身份系统 (Identity)
 
 **三件套**：`.nanobot/` 目录下的三个 Markdown 文件，控制 Agent 的行为和个性。
 
@@ -1253,7 +1491,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 4.12 V3 CLI 模式 (CliChannel)
+### 5.12 V3 CLI 模式 (CliChannel)
 
 **入口**：`NanobotCliApplication` → Spring Boot 容器 → `CliChannel.start()`
 
@@ -1292,7 +1530,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 4.13 V2 Spring Boot 模式
+### 5.13 V2 Spring Boot 模式
 
 **入口**：`NanobotApplication` → 内嵌 Tomcat + Spring MVC
 
@@ -1318,7 +1556,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 4.14 V1 独立模式
+### 5.14 V1 独立模式
 
 **入口**：`Nanobot.java`，手动组装所有组件，无需 Spring。
 
@@ -1334,7 +1572,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 4.15 子 Agent 系统 (Subagent)
+### 5.15 子 Agent 系统 (Subagent)
 
 **核心组件**：
 
@@ -1372,7 +1610,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 4.16 核心接口设计
+### 5.16 核心接口设计
 
 #### Tool 接口
 
@@ -1482,7 +1720,7 @@ public class MCPToolWrapper implements Tool {
 
 ---
 
-### 4.17 MCP (Model Context Protocol) 系统
+### 5.17 MCP (Model Context Protocol) 系统
 
 **MCP**（Model Context Protocol）是由 Cursor 编辑器提出的标准化协议，用于连接 AI Agent 与外部工具/服务。Nanobot 通过 MCP 支持，可以动态加载和使用第三方工具，而无需修改核心代码。
 
@@ -1559,7 +1797,7 @@ public class MCPToolWrapper implements Tool {
 
 ---
 
-### 4.18 Skills 技能系统
+### 5.18 Skills 技能系统
 
 **Skills** 是参考 Claude Code 设计的可复用技能系统，允许用户定义可复用的工作流、指令集和领域知识。Skills 可以通过斜杠命令手动调用，也可以根据对话场景自动触发。
 
@@ -1695,7 +1933,7 @@ List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
 
 ---
 
-### 4.19 Rules 规则系统
+### 5.19 Rules 规则系统
 
 **Rules** 是参考 Claude Code 的设计理念实现的全局规则系统，通过自然语言指令定义 Agent 的行为规范。规则告诉模型"在这个项目中你应该遵循什么规范"。
 
@@ -1826,7 +2064,7 @@ String systemPrompt = "你是一个 AI Agent。\n\n" + rulesPrompt;
 
 ---
 
-### 4.20 安全系统详解
+### 5.20 安全系统详解
 
 **PermissionMode 四种模式**：
 
@@ -1865,7 +2103,7 @@ Tool 调用
 
 ---
 
-### 4.21 内置工具一览
+### 5.21 内置工具一览
 
 **文件工具**：
 
@@ -1915,9 +2153,9 @@ Tool 调用
 
 ---
 
-## 五、新手学习路线
+## 六、新手学习路线
 
-### 5.1 学习阶段规划
+### 6.1 学习阶段规划
 
 | 阶段 | 目标 | 时间 | 关键知识点 |
 |------|------|------|-----------|
@@ -1926,7 +2164,7 @@ Tool 调用
 | **Phase 3** | 深入核心机制 | 3-5 天 | LLM 调用、会话管理、钩子系统 |
 | **Phase 4** | 扩展开发 | 3-5 天 | 自定义工具、新提供商、通道扩展 |
 
-### 5.2 Phase 1：环境搭建与入门
+### 6.2 Phase 1：环境搭建与入门
 
 **目标**：搭建开发环境，了解项目结构，成功运行项目
 
@@ -1966,7 +2204,7 @@ scripts\nanobot.bat                  # Windows
 mvn spring-boot:run
 ```
 
-### 5.3 Phase 2：核心组件理解
+### 6.3 Phase 2：核心组件理解
 
 **目标**：理解状态机、消息总线、工具系统的设计
 
@@ -1994,7 +2232,7 @@ mvn spring-boot:run
 2. 添加一个简单的自定义工具
 3. 调试状态机转换过程
 
-### 5.4 Phase 3：深入核心机制
+### 6.4 Phase 3：深入核心机制
 
 **目标**：理解 LLM 调用、会话管理、钩子系统
 
@@ -2022,7 +2260,7 @@ mvn spring-boot:run
 2. 添加会话压缩逻辑
 3. 实现一个监控钩子
 
-### 5.5 Phase 4：扩展开发
+### 6.5 Phase 4：扩展开发
 
 **目标**：能够扩展新功能
 
@@ -2048,7 +2286,7 @@ mvn spring-boot:run
 
 ---
 
-## 六、关键技术选型
+## 七、关键技术选型
 
 | 功能 | 技术方案 | 理由 |
 |------|---------|------|
@@ -2065,7 +2303,7 @@ mvn spring-boot:run
 
 ---
 
-## 七、配置说明
+## 八、配置说明
 
 ### 7.1 配置文件位置
 
@@ -2135,7 +2373,7 @@ memory:
 
 ---
 
-## 八、编译、启动与部署
+## 九、编译、启动与部署
 
 ### 8.1 环境要求
 
@@ -2249,7 +2487,7 @@ CMD ["java", "-jar", "app.jar"]
 
 ---
 
-## 九、调试与日志
+## 十、调试与日志
 
 ### 7.1 日志配置
 
@@ -2270,7 +2508,7 @@ CMD ["java", "-jar", "app.jar"]
 
 ---
 
-## 十、扩展建议
+## 十一、扩展建议
 
 ### 7.1 添加新工具
 
@@ -2338,7 +2576,7 @@ public class CustomMCPClient implements MCPClient {
 
 ---
 
-## 十一、常见问题
+## 十二、常见问题
 
 ### Q1：如何配置 API Key？
 
@@ -2370,7 +2608,7 @@ A：主要依赖：
 
 ---
 
-## 十二、学习资源
+## 十三、学习资源
 
 1. **官方文档**：`docs/` 目录下的文档
 2. **架构分析**：`nanobot_architecture_analysis.md`
@@ -2379,7 +2617,7 @@ A：主要依赖：
 
 ---
 
-## 十三、总结
+## 十四、总结
 
 Nanobot-Java 的核心价值在于：
 
