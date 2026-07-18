@@ -311,8 +311,14 @@
             h = h.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
             h = h.replace(/^---$/gm, '<hr>');
             // 无序列表
-            h = h.replace(/^- (.+)$/gm, '<li>$1</li>');
-            h = h.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+            h = h.replace(/^[-*] (.+)$/gm, '%%UL%%$1%%/LI%%');
+            // 有序列表
+            h = h.replace(/^\d+[.)] (.+)$/gm, '%%OL%%$1%%/LI%%');
+            // 统一包裹
+            h = h.replace(/((?:%%UL%%.*?%%\/LI%%\n?)+)/g, '<ul>$1</ul>');
+            h = h.replace(/((?:%%OL%%.*?%%\/LI%%\n?)+)/g, '<ol>$1</ol>');
+            // 还原为 li
+            h = h.replace(/%%UL%%/g, '<li>').replace(/%%OL%%/g, '<li>').replace(/%%\/LI%%/g, '</li>');
 
             // 3. 行内元素
             h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
