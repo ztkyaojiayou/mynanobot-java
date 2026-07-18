@@ -721,7 +721,195 @@ nanobot-java/
 └── pom.xml
 ```
 
-### 2.5 核心接口设计
+### 2.10 命令系统 (Command)
+
+**设计模式**：Command 模式。所有 CLI/WebSocket/HTTP 命令通过 `CommandRegistry` 统一分发。
+
+```
+┌─────────────────────────────────────────────┐
+│               CommandRegistry               │
+│  /exit  /help  /init  /mode  /resume       │
+│          /plan  /clear                      │
+└────────────────────┬────────────────────────┘
+                     │ execute(ctx, input)
+                     ▼
+┌─────────────────────────────────────────────┐
+│              Command 接口                    │
+│  name() + aliases() + description()         │
+│  execute(CommandContext, String) → boolean  │
+└─────────────────────────────────────────────┘
+```
+
+**CommandContext**：record 类型，注入组件依赖（ToolRegistry, PermissionManager, AgentLoop, sessionId, shutdown）
+
+**命令清单**：
+
+| 命令 | 别名 | 说明 |
+|------|------|------|
+| `/exit` | `/q`, `/quit` | 退出 CLI 进程 |
+| `/help` | — | 显示所有可用命令 |
+| `/init` | — | 分析项目生成 NANOBOT.md（混合：Java收集元数据+LLM生成内容） |
+| `/mode` | `/plan` | 切换权限模式。`/mode plan` 进入规划模式，`/plan approve` 审批执行 |
+| `/resume` | — | 列出最近会话，`/resume <key>` 恢复指定会话 |
+| `/clear` | — | 清空当前会话上下文（inline 处理，不走 Command 接口） |
+
+**Plan Mode 工作流**（`/mode plan` → `/plan approve`）：
+```
+/mode plan  → AgentLoop.planMode = true
+            → PermissionMode.PLAN (只读)
+            → 工具列表过滤为只读 (getDefinitions(true))
+            → System Prompt 注入规划模式指令
+            → LLM 只能探索 + 出计划，不能写代码
+
+/plan approve  → planMode = false
+              → PermissionMode.ACCEPT_EDITS
+              → 自动发送执行指令到 AgentLoop
+```
+
+---
+
+### 2.11 身份系统 (Identity)
+
+**三件套**：`.nanobot/` 目录下的三个 Markdown 文件，控制 Agent 的行为和个性。
+
+| 文件 | 说明 | 示例 |
+|------|------|------|
+| `SOUL.md` | Agent 的核心身份定义（名字、使命、底线） | "你是 my-nanobot，永远不说自己是 Claude" |
+| `IDENTITY.md` | 个性特征（语气、风格、偏好） | "回答简洁，用中文，代码块标注语言" |
+| `USER.md` | 用户信息（称呼、偏好、上下文） | "用户叫小王，偏好 Java 17，Mac 环境" |
+
+**System Prompt 注入**（首位+近因效应）：
+```
+getSystemPrompt(currentDate) =
+    【开头 — 首位效应】
+    名字声明 + 日期覆盖 + 身份信息
+    ↓
+    （中间是 NANOBOT.md + Plan Mode + Rules）
+    ↓
+    【结尾 — 近因效应】
+    再次强调身份 + 工具结果格式说明
+```
+
+组件：`IdentityManager` → `IdentityLoader`（静态工厂方法，从 Markdown 文件加载）→ `Soul` / `Identity` / `UserProfile`（前端模型类）
+
+---
+
+### 2.12 V3 CLI 模式 (CliChannel)
+
+**入口**：`NanobotCliApplication` → Spring Boot 容器 → `CliChannel.start()`
+
+```
+┌───────────────────────────────────────────────┐
+│                 CliChannel                     │
+│  ┌──────────┐  ┌──────────┐  ┌─────────────┐  │
+│  │ Scanner  │  │ JLine    │  │ Markdown     │  │
+│  │ (行输入) │  │ Terminal │  │ Renderer     │  │
+│  │          │  │ (Esc检测)│  │ (流式渲染)   │  │
+│  └──────────┘  └──────────┘  └─────────────┘  │
+│  ┌──────────────────────────────────────────┐  │
+│  │  交互式权限确认 (1/2/3 数字选择)          │  │
+│  │  AskUser 工具注入 (CLI stdin)            │  │
+│  │  流式响应回调 (MarkdownRenderer)         │  │
+│  └──────────────────────────────────────────┘  │
+└───────────────────────────────────────────────┘
+```
+
+**关键特性**：
+- **JLine Terminal**：跨平台 Esc 键检测，独立于 Scanner 的原始按键流
+- **MarkdownRenderer**：流式输出 Markdown 内容（代码块、标题、列表）
+- **交互式权限**：`1=允许 2=之后都放行 3=拒绝`
+- **流式取消**：`Esc` 中断当前回复
+- **命令系统**：`/` 前缀自动路由到 CommandRegistry
+- **会话恢复**：`--resume <key>` 启动参数
+
+**消息发送流程**：
+```
+用户输入 → scanner.nextLine()
+    → 命令? → CommandRegistry.execute()
+    → 消息? → InboundMessage(sessionId, content, channel="cli")
+            → MessageBus.publishInbound()
+            → 等待流式完成 (currentRequestId)
+```
+
+---
+
+### 2.13 V2 Spring Boot 模式
+
+**入口**：`NanobotApplication` → 内嵌 Tomcat + Spring MVC
+
+**REST API**：
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/chat` | POST | 同步聊天，`waitForSessionResponse` 阻塞等待 |
+| `/api/chat/stream` | POST | SSE 流式聊天，`SseEmitter` 实时推送 |
+| `/api/sessions` | GET | 列出所有会话 |
+| `/api/sessions/{key}` | GET | 获取会话消息历史 |
+| `/api/sessions/{key}` | PATCH | 重命名会话 `{"name":"..."}` |
+| `/api/sessions/{key}` | DELETE | 删除会话 |
+| `/api/health` | GET | 健康检查 |
+
+**前端页面**：
+- `/` — `index.html`（聊天界面）
+- `/sessions.html` — 会话管理（列表、查看详情、重命名、删除）
+
+**WebSocket**：`NanobotWebSocketEndpoint`（`/ws`），Jakarta WebSocket 注解，流式响应通过 `StreamResponseCallback` → `session.sendText()`
+
+**配置类**：`NanobotConfig` 创建 Spring Bean（MessageBus, ToolRegistry, AgentLoop, SessionManager 等），注入到 `NanobotRunner` 静态字段
+
+---
+
+### 2.14 V1 独立模式
+
+**入口**：`Nanobot.java`，手动组装所有组件，无需 Spring。
+
+**ChannelServer**：内嵌 HTTP 服务器（`com.sun.net.httpserver.HttpServer`）
+- `ChatHandler` — 处理 `POST /api/chat`，支持同步和 SSE 流式
+- `WebSocketHandler` — WebSocket 升级握手
+- `WebSocketConnection` — 原始 WebSocket 帧读写（`WebSocketFrame` 手动解析/组装）
+
+**WebSocketFrame**：WebSocket 协议帧的完整实现
+- `text(msg)` / `close()` / `ping()` / `pong()` 工厂方法
+- `send(OutputStream)` 序列化帧
+- `parse(InputStream)` 反序列化帧（含掩码处理）
+
+---
+
+### 2.15 子 Agent 系统 (Subagent)
+
+**核心组件**：
+
+| 组件 | 说明 |
+|------|------|
+| `Subagent` | 子 Agent 接口：`execute(task)` 异步执行任务 |
+| `SubagentContext` | 子 Agent 上下文：任务数据 + 共享状态 + 父子通信 |
+| `SubagentCommunication` | 通信管理器：消息队列、事件发布/订阅、共享状态存储 |
+| `AgentCoordinator` | 协调器：任务分配、能力匹配、并行执行、结果汇总 |
+| `FileInbox` | 文件邮箱：基于文件系统的异步通信（`.nanobot/inbox/`） |
+| `SimpleSubagent` | 简单实现：使用独立 LLM 调用执行子任务 |
+
+**通信模式**：
+```
+主 Agent (Lead)                子 Agent 1              子 Agent 2
+     │                             │                       │
+     ├─ send(task) ──────────────→ │                       │
+     │                             ├─ execute(task)        │
+     │                             └─ sendToParent(result) →│
+     ├─ broadcast(msg) ───────────┼──────────────────────→ │
+     │                             │                       │
+     ├─ receive() ←───────────────┤                       │
+     └─ 汇总结果                                          │
+```
+
+**SubagentCommunication 核心方法**：
+- `send(from, to, msg)` — 点对点消息
+- `broadcast(from, msg)` — 广播给所有子 Agent
+- `sendToParent(childId, msg)` — 子→父汇报
+- `receive(agentId)` — 非阻塞接收
+- `setSharedState(key, value)` / `getSharedState(key)` — 跨 Agent 共享状态
+- `registerParentChild(parent, child)` — 注册父子关系
+
+**SpawnTool**：主 Agent 通过 `spawn` 工具动态创建子 Agent 并分配任务。
 
 #### Tool 接口
 
