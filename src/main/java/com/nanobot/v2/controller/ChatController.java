@@ -66,9 +66,10 @@ public class ChatController {
             //相当于发消息到mq，而不是同步处理！！！这是核心的性能架构设计
             InboundMessage message = InboundMessage.builder()
                     .sessionId(sessionId)
-                    .senderId(sessionId) // API 通道使用 sessionId 作为 senderId
+                    .senderId(sessionId)
                     .content(request.getContent())
                     .channel(request.getChannel() != null ? request.getChannel() : "api")
+                    .sessionKeyOverride(sessionId) // 用前端传的 sessionId 作为 key，不加 channel 前缀
                     .metadata(metadata)
                     .build();
 
@@ -208,9 +209,10 @@ public class ChatController {
         // 构建入站消息（senderId 使用 sessionId，因为 API 通道没有独立的发送者 ID）
         InboundMessage message = InboundMessage.builder()
                 .sessionId(sessionId)
-                .senderId(sessionId) // API 通道使用 sessionId 作为 senderId
+                .senderId(sessionId)
                 .content(request.getContent())
                 .channel(request.getChannel() != null ? request.getChannel() : "api")
+                .sessionKeyOverride(sessionId) // 用前端传的 sessionId，不加 channel 前缀
                 .metadata(metadata)
                 .build();
 
