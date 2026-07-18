@@ -110,6 +110,9 @@ public class AgentLoop {
 
     private static final Logger logger = LoggerFactory.getLogger(AgentLoop.class);
 
+    /** State 模式处理器注册表 */
+    private final java.util.Map<TurnState, com.nanobot.core.state.AgentState> stateHandlers = new java.util.EnumMap<>(TurnState.class);
+
     // ==================== 组件 ====================
 
     /**
@@ -235,6 +238,8 @@ public class AgentLoop {
         this.runner = new AgentRunner(provider, registry);
         this.consolidator = null;  // 通过 setConsolidator() 注入
 
+        // 初始化 State 处理器 (State 模式)
+        initStateHandlers();
         // 加载钩子配置
         loadHooks();
     }
@@ -453,435 +458,36 @@ public class AgentLoop {
     }
 
     /**
-     * 处理单个状态
+     * 处理单个状态 — 委托给 State 处理器（State 模式）
      */
     private TurnState processState(TurnContext context, TurnState state) {
-        return switch (state) {
-            case RESTORE -> doRestore(context);
-            case COMPACT -> doCompact(context);
-            case COMMAND -> doCommand(context);
-            case BUILD -> doBuild(context);
-            //执行大模型查询交互！！！
-            case RUN -> doRun(context);
-            case SAVE -> doSave(context);
-            case RESPOND -> doRespond(context);
-            case DONE -> TurnState.DONE;
-        };
+        if (state.isTerminal()) return state;
+        com.nanobot.core.state.AgentState handler = stateHandlers.get(state);
+        if (handler == null) {
+            logger.warn("No handler registered for state: {}, skipping", state);
+            return TurnState.DONE;
+        }
+        return handler.execute(context);
     }
 
-    // ==================== 各状态实现 ====================
+    // ==================== State 处理器初始化 ====================
 
-    /**
-     * RESTORE: 恢复会话
-     */
-    private TurnState doRestore(TurnContext context) {
-        String sessionKey = context.getSessionKey();
-
-        // 加载会话历史
-        Optional<List<Map<String, Object>>> history = sessionManager.loadHistory(sessionKey);
-
-        if (history.isPresent()) {
-            for (Map<String, Object> msg : history.get()) {
-                context.addMessage(msg);
-            }
-            logger.info("Restored {} messages for session: {}", history.get().size(), sessionKey);
-        } else {
-            logger.debug("No history found for session: {}", sessionKey);
-        }
-
-        // 添加用户消息
-        String content = context.getMessage().getContent();
-        if (content != null && !content.isBlank()) {
-            context.addUserMessage(content);
-            logger.debug("Added user message: {} chars", content.length());
-        }
-
-        logger.info("Total messages in context: {}", context.getMessages().size());
-
-        return TurnState.COMPACT;
+    private void initStateHandlers() {
+        stateHandlers.put(TurnState.RESTORE, new com.nanobot.core.state.RestoreState(sessionManager));
+        stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(consolidator));
+        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager));
+        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode));
+        stateHandlers.put(TurnState.RUN, new com.nanobot.core.state.RunState(runner, config,
+                () -> java.util.List.copyOf(streamResponseCallbacks),
+                msg -> publishProgress(msg)));
+        stateHandlers.put(TurnState.SAVE, new com.nanobot.core.state.SaveState(sessionManager));
+        stateHandlers.put(TurnState.RESPOND, new com.nanobot.core.state.RespondState(messageBus));
     }
 
-    /**
-     * COMPACT: 压缩历史（简化实现）
-     */
-    /**
-     * 设置记忆压缩器（由 NanobotConfig 注入）。
-     */
-    public void setConsolidator(com.nanobot.memory.Consolidator c) { this.consolidator = c; }
-
-    /**
-     * COMPACT: 对话历史压缩。
-     *
-     * 当消息的估算 token 数超过 contextWindowTokens 的 90% 时触发，
-     * 调用 LLM 将旧的 assistant + tool 消息总结为一条 system 消息，
-     * 释放 token 预算，防止上下文窗口溢出。
-     *
-     * 参考: nanobot (Python) 的 consolidator.py
-     */
-    private TurnState doCompact(TurnContext context) {
-        // 未注入压缩器则跳过（向后兼容，不会报错）
-        if (consolidator == null) return TurnState.BUILD;
-
-        List<Map<String, Object>> messages = context.getMessages();
-        if (!consolidator.needsConsolidation(messages)) return TurnState.BUILD;
-
-        logger.info("Compacting history: {} messages, ~{} tokens",
-                messages.size(), consolidator.getCurrentUsage(messages));
-        try {
-            // consolidate() 内部调用 LLM 生成总结，是异步操作，这里阻塞等待
-            List<Map<String, Object>> compacted = consolidator.consolidate(messages).join();
-            context.getMessages().clear();
-            context.getMessages().addAll(compacted);
-            logger.info("Compacted to {} messages", compacted.size());
-        } catch (Exception e) {
-            // 压缩失败不影响对话，继续使用原始消息
-            logger.warn("Compaction failed, continuing with original: {}", e.getMessage());
-        }
-        return TurnState.BUILD;
-    }
-
-    /**
-        // 1. 计算当前 token 数
-        // 2. 超过预算时，压缩旧消息
-        // 3. 调用 LLM 生成摘要
-        return TurnState.COMMAND;
-    }
-
-    /**
-     * COMMAND: 命令分发
-     */
-    private TurnState doCommand(TurnContext context) {
-        String content = context.getMessage().getContent();
-
-        if (content == null || !content.startsWith("/")) {
-            return TurnState.BUILD;
-        }
-
-        // 尝试解析技能调用（Skills）
-        if (skillManager != null) {
-            SkillManager.SkillCall skillCall = skillManager.parseSlashCommand(content);
-            if (skillCall != null) {
-                // 执行技能
-                String result = skillManager.executeSkill(skillCall.skillName(), java.util.Map.of(), skillCall.args());
-                context.setFinalContent(result);
-                return TurnState.DONE;
-            }
-        }
-
-        // 简单命令处理
-        String command = content.split("\\s")[0].toLowerCase();
-
-        return switch (command) {
-            case "/stop" -> {
-                context.cancel();
-                context.setFinalContent("已停止处理。");
-                yield TurnState.DONE;
-            }
-            case "/clear" -> {
-                // 清除会话历史
-                sessionManager.clearSession(context.getSessionKey());
-                context.setFinalContent("会话已清除。");
-                yield TurnState.DONE;
-            }
-            case "/skills" -> {
-                // 显示可用技能列表
-                String skillsHelp = skillManager != null ? skillManager.getRegistry().getHelp() : "技能系统未启用。";
-                context.setFinalContent(skillsHelp);
-                yield TurnState.DONE;
-            }
-            case "/rules" -> {
-                // 显示规则摘要
-                String rulesSummary = ruleManager != null ? ruleManager.getRulesSummary() : "规则系统未启用。";
-                context.setFinalContent(rulesSummary);
-                yield TurnState.DONE;
-            }
-            default -> TurnState.BUILD;
-        };
-    }
-
-    /**
-     * BUILD: 构建上下文
-     */
-    private TurnState doBuild(TurnContext context) {
-        // 获取当前日期（实时）
-        java.time.LocalDate today = java.time.LocalDate.now();
-        String currentDate = today.format(java.time.format.DateTimeFormatter.ofPattern("yyyy年MM月dd日"));
-
-        // 检查是否启用联网搜索
-        boolean useSearch = false;
-        if (context.getMessage() != null && context.getMessage().getMetadata() != null) {
-            Object useSearchObj = context.getMessage().getMetadata().get("useSearch");
-            if (useSearchObj instanceof Boolean) {
-                useSearch = (Boolean) useSearchObj;
-            } else if (useSearchObj instanceof String) {
-                useSearch = Boolean.parseBoolean((String) useSearchObj);
-            }
-        }
-
-        logger.info("Building context: useSearch={}", useSearch);
-
-        StringBuilder systemPrompt = new StringBuilder();
-
-        // ============ 身份信息注入（SOUL, IDENTITY, USER） ============
-        if (identityManager != null) {
-            systemPrompt.append(identityManager.getSystemPrompt(currentDate));
-        } else {
-            // 默认提示词
-            systemPrompt.append("""
-                    你是 my-nanobot，一个基于 Java 实现的轻量级 AI Agent 框架驱动的智能助手。
-
-                    ⚠️ 重要：你不是 Claude、DeepSeek 或任何其他 AI 产品。你的名字是 my-nanobot。
-                    当用户问"你是谁"时，必须回答你是 my-nanobot，不要自称 Claude 或任何其他名字。
-
-                    你的任务是帮助用户解决问题，回答问题，执行任务。
-
-                    【当前真实日期 — 覆盖你的训练数据】
-                    今天是""" + currentDate + "，这是真实日期。训练数据中日期已过时。\n"
-                    + "涉及日期/星期/时间的回答必须以这个日期为准。\n\n");
-        }
-
-        // 根据 useSearch 参数决定是否启用联网搜索工具
-        if (!useSearch) {
-            systemPrompt.append("""
-                    当前未启用联网搜索，不要使用 web_search 和 web_fetch 工具。
-                    如果用户的问题需要最新信息，告知用户可以使用"联网查"功能。
-
-                    """);
-        }
-
-        // ============ NANOBOT.md 项目记忆加载 ============
-        // 如果项目根目录存在 NANOBOT.md（通过 /init 生成），注入系统提示词
-        try {
-            java.nio.file.Path nanobotMd = java.nio.file.Paths.get("NANOBOT.md");
-            if (java.nio.file.Files.exists(nanobotMd)) {
-                String content = java.nio.file.Files.readString(nanobotMd);
-                systemPrompt.append("\n\n【项目上下文 — 来自 NANOBOT.md】\n")
-                        .append(content).append("\n");
-                logger.debug("Loaded NANOBOT.md ({} chars)", content.length());
-            }
-        } catch (Exception e) {
-            logger.debug("NANOBOT.md not found or unreadable: {}", e.getMessage());
-        }
-
-        // ============ Plan Mode 规划模式提示词注入 ============
-        if (planMode) {
-            String cwd = System.getProperty("user.dir", ".");
-            systemPrompt.append("""
-
-                    ⚠️ 你当前处于 **规划模式（Plan Mode）**。关键规则：
-
-                    【禁止事项】
-                    - ❌ 禁止写任何具体代码实现（不要贴代码）
-                    - ❌ 禁止直接给出最终答案
-                    - ❌ 禁止修改文件或执行命令
-
-                    【你必须做的】
-                    - ✅ 使用只读工具探索项目结构和现有代码
-                    - ✅ 向用户提问以澄清不明确的需求
-                    - ✅ 输出一个**结构化的实现计划**，包含：
-                      · ## 需求理解（一句话确认你要做什么）
-                      · ## 影响范围（列出要修改/创建的文件清单）
-                      · ## 实现步骤（每一步做什么，不要写代码）
-                      · ## 注意事项（风险、依赖、边界情况）
-                    - ✅ 计划末尾加上一句"确认后请回复 /plan approve 开始执行"
-
-                    【注意】用户在当前阶段只想看到计划，不想看到具体代码！
-                    等用户输入 /plan approve 之后你才能开始写代码。
-
-                    【工作目录】""" + cwd + """
-                    探索建议：先调用 list_dir 了解目录结构。
-                    """);
-        }
-
-        // ============ Rules 自动注入 ============
-        // 如果有规则管理器，将规则合并到系统提示词中
-        if (ruleManager != null) {
-            String rulesPrompt = ruleManager.getRulesPrompt();
-            if (rulesPrompt != null && !rulesPrompt.isBlank()) {
-                systemPrompt.append("\n\n").append(rulesPrompt);
-            }
-        }
-
-        // 在消息列表开头添加系统提示
-        List<Map<String, Object>> messages = context.getMessages();
-        if (!messages.isEmpty()) {
-            Map<String, Object> firstMsg = messages.get(0);
-            if (!"system".equals(firstMsg.get("role"))) {
-                messages.add(0, Map.of("role", "system", "content", systemPrompt.toString()));
-            }
-        } else {
-            messages.add(Map.of("role", "system", "content", systemPrompt.toString()));
-        }
-
-        return TurnState.RUN;
-    }
-
-    /**
-     * RUN: 运行 LLM
-     */
-    private TurnState doRun(TurnContext context) {
-        // 获取连接 ID（用于 WebSocket 流式传输）
-        final String connectionId = context.getMessage().getConnectionId();
-
-        // 获取 requestId（用于 HTTP SSE 流式传输）
-        final String requestId;
-        if (context.getMessage().getMetadata() != null) {
-            Object requestIdObj = context.getMessage().getMetadata().get("requestId");
-            if (requestIdObj instanceof String) {
-                requestId = (String) requestIdObj;
-            } else {
-                requestId = null;
-            }
-        } else {
-            requestId = null;
-        }
-
-        // 检查是否启用流式模式
-        final boolean streamMode;
-        if (context.getMessage().getMetadata() != null) {
-            Object streamModeObj = context.getMessage().getMetadata().get("streamMode");
-            logger.debug("Stream mode object from metadata: type={}, value={}", streamModeObj != null ? streamModeObj.getClass().getName() : "null", streamModeObj);
-            if (streamModeObj instanceof Boolean) {
-                streamMode = (Boolean) streamModeObj;
-            } else if (streamModeObj instanceof String) {
-                streamMode = Boolean.parseBoolean((String) streamModeObj);
-            } else {
-                streamMode = false;
-            }
-        } else {
-            streamMode = false;
-        }
-        logger.info("🚀 [DO-RUN] streamMode={}, requestId={}, callbacks={}, msgContent='{}'",
-                streamMode, requestId, streamResponseCallbacks.size(),
-                context.getMessage().getContent() != null
-                    ? context.getMessage().getContent().substring(0, Math.min(60, context.getMessage().getContent().length()))
-                    : "null");
-
-        // 创建流式回调（仅在流式模式启用时）
-        Consumer<String> onDelta = null;
-        final String sessionId = context.getMessage().getSessionId();
-
-        // 流式条件：streamMode=true 且（进度启用 或 已设置回调）
-        // 捕获当前回调列表的快照，防止迭代期间列表变化
-        final java.util.List<StreamResponseCallback> activeCallbacks =
-                streamMode ? new java.util.ArrayList<>(streamResponseCallbacks) : java.util.List.of();
-        boolean hasStreamCallback = !activeCallbacks.isEmpty() && requestId != null;
-
-        logger.info("doRun stream setup: mode={}, sendProgress={}, callbacks={}, requestId={}",
-                streamMode, config.getChannels().isSendProgress(), activeCallbacks.size(), requestId);
-
-        if (streamMode && (config.getChannels().isSendProgress() || hasStreamCallback)) {
-            onDelta = delta -> {
-                OutboundMessage.Builder builder = OutboundMessage.builder()
-                        .channel(context.getMessage().getChannel())
-                        .sessionId(sessionId)
-                        .content(delta)
-                        .addMetadata("_stream_delta", true)
-                        .addMetadata("_progress", true);
-
-                if (connectionId != null) {
-                    builder.connectionId(connectionId);
-                }
-
-                publishProgress(builder.build());
-
-                // 使用捕获的快照迭代，防止 ConcurrentModificationException
-                for (StreamResponseCallback cb : activeCallbacks) {
-                    try {
-                        cb.onStreamData(sessionId, requestId, delta);
-                    } catch (Exception e) {
-                        logger.warn("Stream callback onStreamData failed: {}", e.getMessage());
-                    }
-                }
-            };
-            logger.info("onDelta created: callbacks={}", activeCallbacks.size());
-        } else {
-            logger.info("Skipping onDelta: mode={}, progress={}, hasCallback={}",
-                    streamMode, config.getChannels().isSendProgress(), hasStreamCallback);
-        }
-
-        // 执行 Runner
-        try {
-            logger.info("🤖 [LLM-CALL] Starting LLM for session={}, requestId={}, msgs={}",
-                    sessionId, requestId, context.getMessages().size());
-            long llmStart = System.currentTimeMillis();
-            String result = runner.run(context, context.getMessages(), onDelta).join();
-            long llmDuration = System.currentTimeMillis() - llmStart;
-            logger.info("✅ [LLM-DONE] session={}, requestId={}, duration={}ms, resultLen={}",
-                    sessionId, requestId, llmDuration, result != null ? result.length() : 0);
-            context.setFinalContent(result);
-
-            // 发送流式结束标记（仅在流式模式启用时）
-            if (streamMode && onDelta != null) {
-                // WebSocket 结束标记
-                if (connectionId != null) {
-                    OutboundMessage streamEnd = OutboundMessage.builder().channel(context.getMessage().getChannel()).sessionId(sessionId).content("").connectionId(connectionId).addMetadata("_stream_end", true).build();
-                    publishProgress(streamEnd);
-                }
-
-                // 通知所有回调流式结束（使用快照防止迭代时被修改）
-                for (StreamResponseCallback cb : activeCallbacks) {
-                    try {
-                        cb.onStreamComplete(sessionId, requestId);
-                    } catch (Exception e) {
-                        logger.warn("Stream callback onStreamComplete failed: {}", e.getMessage());
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.error("Runner failed: {}", e.getMessage(), e);
-            context.setError(e.getMessage());
-            context.setFinalContent("执行失败：" + e.getMessage());
-        }
-
-        return TurnState.SAVE;
-    }
-
-    /**
-     * SAVE: 保存状态
-     */
-    private TurnState doSave(TurnContext context) {
-        // 添加助手响应到消息历史
-        String responseContent = context.getFinalContent();
-        if (responseContent != null && !responseContent.isBlank()) {
-            context.addAssistantMessage(responseContent, null);
-            logger.debug("Added assistant response to history: {}", responseContent.length());
-        }
-
-        // 保存会话历史
-        sessionManager.saveHistory(context.getSessionKey(), context.getMessages());
-        return TurnState.RESPOND;
-    }
-
-    /**
-     * RESPOND: 发送响应
-     */
-    private TurnState doRespond(TurnContext context) {
-        String content = context.getFinalContent();
-        if (content == null) {
-            content = "(无响应)";
-        }
-
-        // 获取 requestId 用于精确匹配
-        String requestId = null;
-        if (context.getMessage().getMetadata() != null) {
-            Object requestIdObj = context.getMessage().getMetadata().get("requestId");
-            if (requestIdObj != null) {
-                requestId = requestIdObj.toString();
-            }
-        }
-
-        // 发送最终响应到消息总线
-        OutboundMessage response = OutboundMessage.builder().channel(context.getMessage().getChannel()).sessionId(context.getMessage().getSessionId()).content(content).requestId(requestId).build();
-
-        try {
-            messageBus.publishOutbound(response);
-            logger.info("Response sent for sessionId: {}, requestId: {}, content length: {}", context.getMessage().getSessionId(), requestId, content.length());
-        } catch (Exception e) {
-            logger.error("Failed to send response: {}", e.getMessage(), e);
-        }
-
-        return TurnState.DONE;
+    /** 设置记忆压缩器，同时更新 CompactState 处理器 */
+    public void setConsolidator(com.nanobot.memory.Consolidator c) {
+        this.consolidator = c;
+        stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(c));
     }
 
     // ==================== 响应发送 ====================
