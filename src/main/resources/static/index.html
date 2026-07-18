@@ -290,16 +290,29 @@
         function md2html(text) {
             if (!text) return '';
             let h = escHtml(text);
-            h = h.replace(/\n\n/g, '</p><p>');
-            h = h.replace(/\n/g, '<br>');
+
+            // 1. 代码块（先处理，避免内部被后续规则破坏）
+            h = h.replace(/```[a-z]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+
+            // 2. 块级元素（行首匹配，在 newline 转换之前）
             h = h.replace(/^### (.+)$/gm, '<h3>$1</h3>');
             h = h.replace(/^## (.+)$/gm, '<h2>$1</h2>');
             h = h.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+            h = h.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+            h = h.replace(/^---$/gm, '<hr>');
+            // 无序列表
+            h = h.replace(/^- (.+)$/gm, '<li>$1</li>');
+            h = h.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+
+            // 3. 行内元素
             h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
             h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
-            h = h.replace(/```[a-z]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
-            h = h.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
             h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+            // 4. 段落和换行（最后处理，避免破坏块级标签）
+            h = h.replace(/\n\n/g, '</p><p>');
+            h = h.replace(/\n/g, '<br>');
+
             if (!h.startsWith('<')) h = '<p>' + h + '</p>';
             return h;
         }
