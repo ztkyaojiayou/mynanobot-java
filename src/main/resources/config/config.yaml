@@ -111,7 +111,7 @@ tools:
       # baidu: 使用百度搜索 API（需要 API Key）
       # brave: 使用 Brave Search API（需要 API Key）
       # bing: 使用 Bing Search API（需要 API Key）
-      provider: "baidu"
+      provider: "bing"
       # 搜索 API Key（当使用 baidu/brave/bing 时需要配置）
       apiKey: ""
       maxResults: 5
