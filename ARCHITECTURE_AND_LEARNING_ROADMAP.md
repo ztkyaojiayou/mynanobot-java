@@ -454,6 +454,94 @@ Claude Code 的架构直接启发了本项目的核心设计：
 
 ---
 
+### 3.9 Harness 规范体系 — Claude Code 的结构化使用方式
+
+Vibe Coding 的问题在于"随意"——没有规格约束、没有变更追踪、没有质量门禁。**Harness** 体系是在 Claude Code 之上叠加一套轻量级开发规范，让 AI 编码从"随意"走向"可控"。
+
+> 本项目的 `.harness/` 目录就是这套规范的完整实现。它是本项目全程使用 Claude Code 构建的核心方法论。
+
+#### 目录结构
+
+```
+.harness/
+├── agents/               # Agent 角色定义
+│   └── owner.md          # Owner Agent — 总编排者（身份+职责+流水线+决策边界）
+│
+├── rules/                # 约束规则（AI 的"护栏"）
+│   ├── SDD-TDD模式.md    # Spec → Test → Code 三层关系
+│   ├── 工程结构.md        # 目录组织 + 包结构 + 命名约定
+│   ├── 开发流程规范.md    # 6 阶段流水线 + 门禁 + 变更状态机
+│   ├── 编码规范.md        # Java 命名/日志/异常/提交规范
+│   └── 运行时可靠性.md    # 工具超时重试/消息持久/优雅关闭
+│
+├── skills/               # 可复用技能（6 阶段流水线的执行者）
+│   ├── request-analysis/  # ① 需求分析 → 产出 change.md
+│   ├── coding-skill/      # ② 编码实现（TDD）
+│   ├── unit-test-write/   # ③ 边界/降级测试
+│   ├── expert-reviewer/   # ④ 多维度评审
+│   ├── unit-test-ci/      # ⑤ CI 门禁
+│   └── deploy-verify/     # ⑥ 部署验证
+│
+├── changes/              # 变更追踪（Spec Coding 核心）
+│   ├── _TEMPLATE/         # 模板（change + review + verify）
+│   └── C-001~C-018/       # 18 张已完成的变更卡片（三件套）
+│
+└── wiki/                 # 项目知识库（按需加载）
+    ├── 业务模型.md / 接口协议.md / 数据模型.md
+    └── 架构决策.md        # 10 个 ADR（Java17/State模式/ProviderFactory/…）
+```
+
+#### 核心理念
+
+**三重约束**：
+- `rules/` — 约束边界（AI 不能做什么）
+- `skills/` — 执行手段（AI 怎么一步步做）
+- `changes/` — 可追溯记录（每一步留档）
+
+**6 阶段流水线**：
+```
+人类意图
+  → ① request-analysis   需求分析 → change.md（规格真相源）
+  → ② coding-skill       编码实现（TDD: Red→Green→Refactor）
+  → ③ unit-test-write    边界/降级测试（覆盖率 ≥80%）
+  → ④ expert-reviewer    专家评审（0 个严重问题）
+  → ⑤ unit-test-ci       CI 全量通过（mvn test 59/59）
+  → ⑥ deploy-verify      部署冒烟验证
+  → 交付
+```
+
+**变更状态机**：`draft → analyzing → coding → testing → reviewing → ci → verifying → done`
+
+#### 在 Claude Code 中如何使用
+
+```bash
+# 1. 新建变更
+mkdir -p .harness/changes/C-019-new-feature
+cp .harness/changes/_TEMPLATE/* .harness/changes/C-019-new-feature/
+
+# 2. 对 Claude Code 说
+> 按 .harness 流程，帮我完成 C-019：给 AgentLoop 加个新状态
+  → Claude Code 自动读取 owner.md（角色定位）+ rules/（约束）
+  → 按 ①→⑥ 流水线逐步推进
+  → 每阶段产出写入 .harness/changes/C-019/
+
+# 3. 人类只需在关键 Gate 审批
+> ① 需求卡 OK，继续 ②
+> ④ 评审通过，继续 ⑤
+```
+
+#### 与 Plan Mode 的关系
+
+| Harness 流水线 | nanobot Plan Mode |
+|------|------|
+| ① request-analysis | `/plan` + 描述需求 → AI 探索 + 出计划 |
+| ② coding-skill | `/plan approve` → AI 按计划逐步实现 |
+| ③~⑥ 验证 | 人工审查 + `mvn test` |
+
+> **核心价值**：Harness 把"AI 辅助开发"从不可控的 Vibe Coding 升级为可追溯、可验证、可断点续传的 Spec Coding 工程实践。你不只是在和 AI 聊天，你是在用 AI 做软件工程。
+
+---
+
 ## 四、nanobot CLI 实战指南（对标 Claude Code）
 
 > **阅读目标**：掌握 nanobot CLI 的日常使用方式、常用命令和最佳实践，像使用 Claude Code 一样高效。
