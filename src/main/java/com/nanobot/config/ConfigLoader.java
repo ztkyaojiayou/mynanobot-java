@@ -250,10 +250,19 @@ public class ConfigLoader {
     }
 
     private static void applySecretKeys(Config secret, Config config) {
+        // LLM Provider keys
         var sp = secret.getProviders();
         var cp = config.getProviders();
         if (sp.getDeepseek().isConfigured()) cp.getDeepseek().setApiKey(sp.getDeepseek().getApiKey());
         if (sp.getOpenai().isConfigured()) cp.getOpenai().setApiKey(sp.getOpenai().getApiKey());
+
+        // Web search key
+        if (secret.getTools() != null && secret.getTools().getWeb() != null) {
+            String searchKey = secret.getTools().getWeb().getSearch().getApiKey();
+            if (searchKey != null && !searchKey.isBlank()) {
+                config.getTools().getWeb().getSearch().setApiKey(searchKey);
+            }
+        }
     }
     
     /**
