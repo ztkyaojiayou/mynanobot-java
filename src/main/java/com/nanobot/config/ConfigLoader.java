@@ -212,22 +212,48 @@ public class ConfigLoader {
         }
     }
 
-    /** 从同目录的 secret.yaml 读取 API Key 合并到 Config（secret.yaml 不提交 Git） */
-    private static void mergeSecretKeys(Path dir, Config config) {
-        if (dir == null) return;
-        Path secretFile = dir.resolve("secret.yaml");
-        if (!Files.exists(secretFile)) return;
-
-        try {
-            Config secret = parse(Files.readString(secretFile), secretFile.toString());
-            var sp = secret.getProviders();
-            var cp = config.getProviders();
-            if (sp.getDeepseek().isConfigured()) cp.getDeepseek().setApiKey(sp.getDeepseek().getApiKey());
-            if (sp.getOpenai().isConfigured()) cp.getOpenai().setApiKey(sp.getOpenai().getApiKey());
-            logger.debug("Merged API keys from {}", secretFile);
-        } catch (IOException e) {
-            logger.warn("Failed to read secret.yaml: {}", e.getMessage());
+    /** 从多个位置读取 secret.yaml 合并 API Key（不提交 Git） */
+    private static void mergeSecretKeys(Path fileDir, Config config) {
+        // 1. 文件模式：config.yaml 所在目录下的 secret.yaml
+        if (fileDir != null) {
+            Path f = fileDir.resolve("secret.yaml");
+            if (Files.exists(f)) { mergeFromFile(f, config); return; }
         }
+
+        // 2. 工作目录下的 secret.yaml / config/secret.yaml
+        Path cwd = Paths.get("").toAbsolutePath();
+        for (String sub : new String[]{"secret.yaml", "config/secret.yaml",
+                "src/main/resources/config/secret.yaml"}) {
+            Path f = cwd.resolve(sub);
+            if (Files.exists(f)) { mergeFromFile(f, config); return; }
+        }
+
+        // 3. classpath 中的 config/secret.yaml
+        try (InputStream is = ConfigLoader.class.getClassLoader()
+                .getResourceAsStream("config/secret.yaml")) {
+            if (is != null) {
+                Config secret = load(is);
+                applySecretKeys(secret, config);
+                logger.debug("Merged API keys from classpath:config/secret.yaml");
+            }
+        } catch (IOException ignored) {}
+    }
+
+    private static void mergeFromFile(Path file, Config config) {
+        try {
+            Config secret = parse(Files.readString(file), file.toString());
+            applySecretKeys(secret, config);
+            logger.debug("Merged API keys from {}", file);
+        } catch (IOException e) {
+            logger.warn("Failed to read {}: {}", file, e.getMessage());
+        }
+    }
+
+    private static void applySecretKeys(Config secret, Config config) {
+        var sp = secret.getProviders();
+        var cp = config.getProviders();
+        if (sp.getDeepseek().isConfigured()) cp.getDeepseek().setApiKey(sp.getDeepseek().getApiKey());
+        if (sp.getOpenai().isConfigured()) cp.getOpenai().setApiKey(sp.getOpenai().getApiKey());
     }
     
     /**
