@@ -107,7 +107,7 @@
     <script>
         const API = '/api/sessions';
         let sessionId = 'web-' + Date.now();
-        let useSearch = false, useStream = true;
+        let useSearch = false, useStream = true, isNewSession = true;
         let currentStreamingEl = null, currentStreamingContent = '';
 
         // ═══ 会话列表 ═══
@@ -131,6 +131,7 @@
 
         function newSession() {
             sessionId = 'web-' + Date.now();
+            isNewSession = true;
             document.getElementById('messages').innerHTML = '<div class="empty-chat">开始对话吧 ✨</div>';
             document.getElementById('currentSessionName').textContent = '新对话';
             loadSessions();
@@ -276,7 +277,14 @@
                     addMsg('bot', '请求失败');
                 }
             }
+            if (isNewSession) { isNewSession = false; autoTitle(content); }
             loadSessions();
+        }
+
+        async function autoTitle(firstMsg) {
+            const title = firstMsg.replace(/\s+/g, ' ').trim().substring(0, 20) + (firstMsg.length > 20 ? '…' : '');
+            document.getElementById('currentSessionName').textContent = title;
+            await fetch(API + '/' + sessionId, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name: title}) });
         }
 
         function createStreamEl() {
