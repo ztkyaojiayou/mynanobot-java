@@ -185,21 +185,42 @@ public class ConfigLoader {
      */
     public static Config load(Path path) {
         logger.info("Loading configuration from: {}", path);
-        
+
         try {
             String content = Files.readString(path);
             Config config = parse(content, path.toString());
-            
+
+            // 合并 secret.yaml（独立管理的 API Key 文件，不提交 Git）
+            mergeSecretKeys(path.getParent(), config);
+
             // 应用环境变量覆盖
             config = applyEnvironmentOverrides(config);
-            
+
             // 缓存配置
             configCache.put(path.toString(), config);
-            
+
             return config;
         } catch (IOException e) {
             logger.error("Failed to load configuration from {}", path, e);
             throw new RuntimeException("Failed to load configuration", e);
+        }
+    }
+
+    /** 从同目录的 secret.yaml 读取 API Key 合并到 Config（secret.yaml 不提交 Git） */
+    private static void mergeSecretKeys(Path dir, Config config) {
+        if (dir == null) return;
+        Path secretFile = dir.resolve("secret.yaml");
+        if (!Files.exists(secretFile)) return;
+
+        try {
+            Config secret = parse(Files.readString(secretFile), secretFile.toString());
+            var sp = secret.getProviders();
+            var cp = config.getProviders();
+            if (sp.getDeepseek().isConfigured()) cp.getDeepseek().setApiKey(sp.getDeepseek().getApiKey());
+            if (sp.getOpenai().isConfigured()) cp.getOpenai().setApiKey(sp.getOpenai().getApiKey());
+            logger.debug("Merged API keys from {}", secretFile);
+        } catch (IOException e) {
+            logger.warn("Failed to read secret.yaml: {}", e.getMessage());
         }
     }
     
