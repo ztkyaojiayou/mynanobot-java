@@ -10,9 +10,215 @@ Nanobot-Java 是基于香港大学开源的 Nanobot（mini 版 OpenClaw）项目
 
 ---
 
-## 二、架构说明
+## 二、AI 开发演进与核心概念
 
-### 2.1 整体架构分层
+> **阅读目标**：理解 AI 编程领域的发展脉络和关键术语，建立全局认知框架。
+
+### 2.1 AI Native — 一个时代的范式转移
+
+**AI Native** 指从设计之初就以 AI 为核心构建的应用，而非在现有产品上"嫁接" AI 功能。
+
+| | AI-Wrapped（AI 包装） | AI-Native（AI 原生） |
+|------|------|------|
+| **AI 角色** | 辅助功能，可选模块 | 核心引擎，不可剥离 |
+| **架构** | 传统三层 + LLM API 调用 | 以 Agent Loop 为中心的状态机 |
+| **交互** | 表单/按钮为主，偶尔用 AI | 自然语言是主交互界面 |
+| **开发方式** | 人写代码，AI 辅助补全 | AI 自主编码，人做 Code Review |
+| **示例** | Notion AI、钉钉 AI 助手 | Cursor、Claude Code、Devin、本项目 |
+
+**判断标准**：如果把 AI 组件从系统中移除，产品是否还能正常工作？能 → AI-Wrapped；不能 → AI-Native。
+
+本项目的目标就是构建一个 AI-Native 的轻量级 Agent 框架。
+
+---
+
+### 2.2 AI 编程模式的演进：Vibe Coding → Spec Coding → Agent-Driven
+
+```
+2022             2023-2024           2024-2025          2025+
+─────────────────┬───────────────────┬───────────────────┬──────────→
+  Copilot 补全    │  Vibe Coding      │  Spec Coding      │ Agent-Driven
+  (行级辅助)      │  (对话式编程)     │  (规约驱动)       │  (Agent 自主)
+```
+
+#### Vibe Coding（对话式编程）
+
+由 Andrej Karpathy 在 2025 年初提出：开发者用自然语言描述需求，AI 生成代码，人只管"vibe"（感觉）和验证结果。
+
+```
+用户: "帮我写一个四则运算计算器，Vue3 + TypeScript"
+AI: 生成完整组件代码 → 用户运行 → 不满意 → "加个历史记录功能" → AI 修改
+```
+
+**特点**：
+- ✅ 上手零门槛，会说话就能编程
+- ✅ 原型验证极快，几分钟出一个 Demo
+- ❌ 缺乏结构化约束，复杂项目难以维护
+- ❌ AI 理解偏差会累积，迭代多轮后代码质量下降
+
+#### Spec Coding（规约驱动编程）
+
+Vibe Coding 的下一阶段演进。在写代码之前，先与 AI 合作产出一份详尽的**规格说明书**（Specification），明确边界条件、数据结构、错误处理等，再让 AI 按 Spec 实现。
+
+```
+用户 + AI 讨论需求 → 产出 Spec.md（接口定义、数据模型、测试用例、边界条件）
+                  → AI 按 Spec 逐项实现
+                  → 自动化验证 vs Spec
+```
+
+**特点**：
+- ✅ 有规约约束，减少 AI 理解偏差
+- ✅ Spec 本身就是文档，可维护性强
+- ✅ 支持"先出计划再执行"的工作流（本项目 Plan Mode 的灵感来源）
+- ❌ 前期讨论成本较高
+
+#### Agent-Driven（Agent 自主驱动）
+
+Spec Coding 的再下一阶段。AI Agent 不再被动等待指令，而是**主动**探索、规划、执行、验证循环。
+
+```
+Agent 接到目标: "实现用户注销功能"
+  → 自动探索项目结构 (list_dir / glob / read_file)
+  → 自动制定 Plan (需要改哪些文件)
+  → 自动逐个执行 (edit_file / write_file)
+  → 自动验证 (mvn test → 修复 → 再验证)
+  → 提交 PR
+```
+
+这正是本项目 Plan Mode + Agent Loop 的设计目标。
+
+---
+
+### 2.3 AI 工程的四大范式
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  AI 工程四大范式                         │
+│                                                         │
+│  ┌─────────────┐   ┌─────────────┐                      │
+│  │  提示词工程  │──▶│  上下文工程  │    ← 都在"对话窗口"内   │
+│  │  (Prompt)   │   │  (Context)  │                      │
+│  └─────────────┘   └─────────────┘                      │
+│         │                  │                            │
+│         ▼                  ▼                            │
+│  ┌─────────────┐   ┌─────────────┐                      │
+│  │  Harness工程 │──▶│  Loop 工程   │    ← 跳出"对话窗口"   │
+│  │  (脚手架)    │   │  (自闭环)   │                      │
+│  └─────────────┘   └─────────────┘                      │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### 第一层：提示词工程（Prompt Engineering）
+
+**时间**：2022-2023 年，ChatGPT 时代早期。
+
+**核心问题**：如何"问对问题"才能让 LLM 输出高质量结果？
+
+| 技术 | 说明 | 示例 |
+|------|------|------|
+| **Zero-shot** | 直接提问，不给示例 | "翻译成英文：你好" |
+| **Few-shot** | 给几个示例再提问 | "输入:你好→Hello；输入:再见→?" |
+| **Chain of Thought** | 要求逐步推理 | "一步步思考后再回答" |
+| **Role Prompting** | 设定角色 | "你是一个资深 Java 架构师..." |
+| **Structured Output** | 约束输出格式 | "用 JSON 格式返回" |
+
+**局限**：提示词再精妙，LLM 的知识也被训练数据的截止日期锁死，无法获取实时信息、无法执行操作。
+
+#### 第二层：上下文工程（Context Engineering）
+
+**时间**：2023-2024 年，RAG 和 Agent 兴起。
+
+**核心问题**：如何把正确的信息在正确的时间喂给 LLM？
+
+| 技术 | 说明 | 本项目的实现 |
+|------|------|-------------|
+| **RAG（检索增强生成）** | 从知识库检索相关文档注入上下文 | `web_search` / `web_fetch` |
+| **System Prompt 设计** | 系统级指令控制 Agent 行为 | `BuildState` → SOUL + NANOBOT.md + Rules + Plan Mode |
+| **Memory（记忆系统）** | 跨会话的信息持久化 | `MemoryStore` + `Dream`（长期记忆） |
+| **会话历史压缩** | 上下文窗口有限，需要压缩旧消息 | `CompactState` + `Consolidator` |
+| **项目记忆注入** | NANOBOT.md / CLAUDE.md 提供项目级上下文 | `/init` 命令 + `BuildState` 自动加载 |
+
+**核心理念**：LLM 的能力 = 模型本身的能力 × 你喂给它的上下文质量。上下文工程的目标是把"对的上下文"在"对的时间"塞进有限的 Context Window。
+
+#### 第三层：Harness 工程（脚手架工程）
+
+**时间**：2024-2025 年，Agent 基础设施爆发。
+
+**核心问题**：如何为 LLM 构建一个"可以做事"的运行时环境？
+
+| 技术 | 说明 | 本项目的实现 |
+|------|------|-------------|
+| **Tool Use / Function Calling** | LLM 调用外部工具 | `Tool` 接口 + 17 个内置工具 |
+| **MCP（Model Context Protocol）** | 标准化工具接入协议 | `MCPServer` → `MCPToolWrapper` |
+| **Agent Loop** | LLM 调用的控制循环 | `AgentLoop` 状态机 + `AgentRunner` |
+| **Safety Guards** | 工具执行前的安全检查 | `PathGuard` / `CommandGuard` / `NetworkGuard` |
+| **Permission System** | 工具调用的权限管控 | `PermissionManager`（4 种模式） |
+| **Multi-Channel** | 多入口接入（CLI/HTTP/WS） | V1 ChannelServer / V2 Spring Boot / V3 CliChannel |
+| **Sandbox / Workspace** | 执行环境隔离 | 工作区路径约束 |
+
+**核心理念**：LLM 是一个"大脑"，但不能"动手"。Harness 工程就是给这个大脑装上"手"（工具）、"眼睛"（检索）、"安全帽"（权限）、"方向盘"（Agent Loop）。
+
+#### 第四层：Loop 工程（自闭环工程）★ 最新
+
+**时间**：2025 年开始兴起。
+
+**核心问题**：如何让 Agent 拥有自我纠正和自我改进的能力，形成"执行→验证→修复"的闭环？
+
+```
+传统 Agent (Harness 级):
+  LLM 输出 → 执行 → 结束
+
+Loop 工程 (Loop 级):
+  LLM 输出 → 执行 → 观察结果 → 失败？→ 分析原因 → 重新执行
+       ↑_______________________________________________|
+```
+
+| 模式 | 说明 | 示例 |
+|------|------|------|
+| **Self-Debugging** | Agent 运行自己的代码，捕获错误，自我修复 | "跑一下测试 → 失败了 → 分析 stack trace → 修改代码 → 再跑" |
+| **Reflection** | Agent 定期反思自己的输出质量 | "我上次的回答遗漏了边界条件，这次补上" |
+| **Adversarial Review** | 多个 Agent 互相审查 | Claude Code 的 /code-review 多维度交叉验证 |
+| **Plan → Execute → Verify** | 三步闭环 | 本项目的 `/mode plan` + 执行 + 验证 |
+| **Multi-Agent Loop** | 子 Agent 并行执行，主 Agent 汇总 | Subagent + SpawnTool |
+
+**本项目的 Loop 工程体现**：
+- `AgentRunner.runInternal()`：递归循环，工具失败重试 3 次
+- Plan Mode：`/plan` → 探索 → 出计划 → `/plan approve` → 执行
+- Task 工具：`task_create` → 分步执行 → `task_update` 标记完成
+- 子 Agent 系统：`spawn` → 分发任务 → 收集结果 → 汇总
+
+---
+
+### 2.4 关键名词速查表
+
+| 术语 | 英文 | 一句话解释 |
+|------|------|-----------|
+| **AI 原生** | AI Native | 以 AI 为核心引擎构建的应用，非嫁接 |
+| **对话式编程** | Vibe Coding | 自然语言描述需求，AI 生成代码 |
+| **规约驱动编程** | Spec Coding | 先产 Spec 再让 AI 按规约实现 |
+| **Agent 驱动** | Agent-Driven | AI 主动探索→规划→执行→验证 |
+| **提示词工程** | Prompt Engineering | 设计有效提问以获得高质量输出 |
+| **上下文工程** | Context Engineering | 管理喂给 LLM 的信息（RAG、System Prompt、Memory） |
+| **脚手架工程** | Harness Engineering | 构建 Agent 运行时（工具、安全、循环控制） |
+| **自闭环工程** | Loop Engineering | Agent 自我验证、纠错、改进的闭环 |
+| **大语言模型** | LLM | 驱动 Agent 的核心 AI 模型 |
+| **检索增强生成** | RAG | 从知识库检索信息增强 LLM 回答 |
+| **思维链** | Chain of Thought | 让 LLM 逐步推理而非直接给答案 |
+| **函数调用** | Function Calling | LLM 调用外部 API/工具的能力 |
+| **MCP 协议** | Model Context Protocol | AI-工具通信的标准化协议 |
+| **Agent 循环** | Agent Loop | LLM 调用的控制循环（感知→思考→行动） |
+| **流式输出** | Streaming / SSE | LLM 逐 token 实时输出内容 |
+| **Token** | Token | LLM 处理文本的最小单位（约 0.75 个英文单词） |
+| **嵌入向量** | Embedding | 文本的数值化表示，用于语义搜索 |
+| **上下文窗口** | Context Window | LLM 一次能处理的最大信息量 |
+| **系统提示词** | System Prompt | 控制 Agent 行为的最高优先级指令 |
+| **幻觉** | Hallucination | LLM 生成似是而非的虚假信息 |
+
+---
+
+## 三、架构说明
+
+### 3.1 整体架构分层
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -64,7 +270,7 @@ Nanobot-Java 是基于香港大学开源的 Nanobot（mini 版 OpenClaw）项目
             ╚══════════════════════════════════════╝
 ```
 
-### 2.2 核心组件职责
+### 3.2 核心组件职责
 
 | 组件 | 职责 | 文件位置 |
 |------|------|----------|
@@ -101,7 +307,7 @@ Nanobot-Java 是基于香港大学开源的 Nanobot（mini 版 OpenClaw）项目
 
 > 📖 完整安全模块文档: [docs/features.md](docs/features.md)
 
-### 2.3 定时任务系统 (CronScheduler)
+### 3.3 定时任务系统 (CronScheduler)
 
 **功能说明**：基于 cron 表达式的定时任务调度器，支持在指定时间执行任务。
 
@@ -134,7 +340,7 @@ scheduler.schedule("0 * * * *", () -> {
 - `-` : 指定范围
 - `/` : 步长
 
-### 2.4 记忆压缩系统 (Consolidator)
+### 3.4 记忆压缩系统 (Consolidator)
 
 **功能说明**：当对话历史超过 token 预算时，自动压缩历史消息，保留关键信息。
 
@@ -162,7 +368,7 @@ boolean needsConsolidation(List<Map<String, Object>> messages)
 int getCurrentUsage(List<Map<String, Object>> messages)
 ```
 
-### 2.5 长期记忆系统 (Dream)
+### 3.5 长期记忆系统 (Dream)
 
 **功能说明**：实现 AI Agent 的长期记忆功能，允许 Agent 存储和检索长期信息。
 
@@ -197,7 +403,7 @@ CompletableFuture<MemoryEntry> consolidate(MemoryEntry newMemory)
 void cleanup()
 ```
 
-### 2.6 多通道接入系统 (ChannelServer)
+### 3.6 多通道接入系统 (ChannelServer)
 
 **功能说明**：提供 HTTP 和 WebSocket 通道的统一管理，允许客户端通过多种方式与 Agent 交互。
 
@@ -247,7 +453,7 @@ ChannelServer server = new ChannelServer(messageBus, 8080);
 server.start();
 ```
 
-### 2.7 状态机流程（已重构为 State 模式）
+### 3.7 状态机流程（已重构为 State 模式）
 
 `AgentLoop` 采用 **State 模式** 管理消息处理，每个状态对应一个独立的 `AgentState` 实现类：
 
@@ -278,7 +484,7 @@ RestoreState CompactSt CommandSt BuildSt  RunSt   SaveSt  RespondSt
 | SAVE | ok | RESPOND | 保存会话状态 |
 | RESPOND | ok | DONE | 发送响应 |
 
-### 2.8 核心消息处理全链路详解
+### 3.8 核心消息处理全链路详解
 
 > **本节目标**：完整梳理一条用户消息从进入系统到生成响应的全链路，理解每一层的职责、数据流转和关键代码路径。
 
@@ -655,7 +861,7 @@ chatStream(messages, tools, onDelta)
 
 ---
 
-### 2.9 模块结构
+### 3.9 模块结构
 
 ```
 nanobot-java/
@@ -721,7 +927,7 @@ nanobot-java/
 └── pom.xml
 ```
 
-### 2.10 命令系统 (Command)
+### 3.10 命令系统 (Command)
 
 **设计模式**：Command 模式。所有 CLI/WebSocket/HTTP 命令通过 `CommandRegistry` 统一分发。
 
@@ -768,7 +974,7 @@ nanobot-java/
 
 ---
 
-### 2.11 身份系统 (Identity)
+### 3.11 身份系统 (Identity)
 
 **三件套**：`.nanobot/` 目录下的三个 Markdown 文件，控制 Agent 的行为和个性。
 
@@ -794,7 +1000,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 2.12 V3 CLI 模式 (CliChannel)
+### 3.12 V3 CLI 模式 (CliChannel)
 
 **入口**：`NanobotCliApplication` → Spring Boot 容器 → `CliChannel.start()`
 
@@ -833,7 +1039,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 2.13 V2 Spring Boot 模式
+### 3.13 V2 Spring Boot 模式
 
 **入口**：`NanobotApplication` → 内嵌 Tomcat + Spring MVC
 
@@ -859,7 +1065,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 2.14 V1 独立模式
+### 3.14 V1 独立模式
 
 **入口**：`Nanobot.java`，手动组装所有组件，无需 Spring。
 
@@ -875,7 +1081,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 2.15 子 Agent 系统 (Subagent)
+### 3.15 子 Agent 系统 (Subagent)
 
 **核心组件**：
 
@@ -913,7 +1119,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 2.16 核心接口设计
+### 3.16 核心接口设计
 
 #### Tool 接口
 
@@ -1023,7 +1229,7 @@ public class MCPToolWrapper implements Tool {
 
 ---
 
-### 2.17 MCP (Model Context Protocol) 系统
+### 3.17 MCP (Model Context Protocol) 系统
 
 **MCP**（Model Context Protocol）是由 Cursor 编辑器提出的标准化协议，用于连接 AI Agent 与外部工具/服务。Nanobot 通过 MCP 支持，可以动态加载和使用第三方工具，而无需修改核心代码。
 
@@ -1100,7 +1306,7 @@ public class MCPToolWrapper implements Tool {
 
 ---
 
-### 2.18 Skills 技能系统
+### 3.18 Skills 技能系统
 
 **Skills** 是参考 Claude Code 设计的可复用技能系统，允许用户定义可复用的工作流、指令集和领域知识。Skills 可以通过斜杠命令手动调用，也可以根据对话场景自动触发。
 
@@ -1236,7 +1442,7 @@ List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
 
 ---
 
-### 2.19 Rules 规则系统
+### 3.19 Rules 规则系统
 
 **Rules** 是参考 Claude Code 的设计理念实现的全局规则系统，通过自然语言指令定义 Agent 的行为规范。规则告诉模型"在这个项目中你应该遵循什么规范"。
 
@@ -1367,7 +1573,7 @@ String systemPrompt = "你是一个 AI Agent。\n\n" + rulesPrompt;
 
 ---
 
-### 2.20 安全系统详解
+### 3.20 安全系统详解
 
 **PermissionMode 四种模式**：
 
@@ -1406,7 +1612,7 @@ Tool 调用
 
 ---
 
-### 2.21 内置工具一览
+### 3.21 内置工具一览
 
 **文件工具**：
 
@@ -1456,9 +1662,9 @@ Tool 调用
 
 ---
 
-## 三、新手学习路线
+## 四、新手学习路线
 
-### 3.1 学习阶段规划
+### 4.1 学习阶段规划
 
 | 阶段 | 目标 | 时间 | 关键知识点 |
 |------|------|------|-----------|
@@ -1467,7 +1673,7 @@ Tool 调用
 | **Phase 3** | 深入核心机制 | 3-5 天 | LLM 调用、会话管理、钩子系统 |
 | **Phase 4** | 扩展开发 | 3-5 天 | 自定义工具、新提供商、通道扩展 |
 
-### 3.2 Phase 1：环境搭建与入门
+### 4.2 Phase 1：环境搭建与入门
 
 **目标**：搭建开发环境，了解项目结构，成功运行项目
 
@@ -1507,7 +1713,7 @@ scripts\nanobot.bat                  # Windows
 mvn spring-boot:run
 ```
 
-### 3.3 Phase 2：核心组件理解
+### 4.3 Phase 2：核心组件理解
 
 **目标**：理解状态机、消息总线、工具系统的设计
 
@@ -1535,7 +1741,7 @@ mvn spring-boot:run
 2. 添加一个简单的自定义工具
 3. 调试状态机转换过程
 
-### 3.4 Phase 3：深入核心机制
+### 4.4 Phase 3：深入核心机制
 
 **目标**：理解 LLM 调用、会话管理、钩子系统
 
@@ -1563,7 +1769,7 @@ mvn spring-boot:run
 2. 添加会话压缩逻辑
 3. 实现一个监控钩子
 
-### 3.5 Phase 4：扩展开发
+### 4.5 Phase 4：扩展开发
 
 **目标**：能够扩展新功能
 
@@ -1589,7 +1795,7 @@ mvn spring-boot:run
 
 ---
 
-## 四、关键技术选型
+## 五、关键技术选型
 
 | 功能 | 技术方案 | 理由 |
 |------|---------|------|
@@ -1606,7 +1812,7 @@ mvn spring-boot:run
 
 ---
 
-## 五、配置说明
+## 六、配置说明
 
 ### 5.1 配置文件位置
 
@@ -1680,7 +1886,7 @@ channels:
 
 ---
 
-## 六、编译、启动与部署
+## 七、编译、启动与部署
 
 ### 6.1 环境要求
 
@@ -1801,7 +2007,7 @@ docker run -d \
 
 ---
 
-## 七、调试与日志
+## 八、调试与日志
 
 ### 7.1 日志配置
 
@@ -1822,7 +2028,7 @@ docker run -d \
 
 ---
 
-## 七、扩展建议
+## 九、扩展建议
 
 ### 7.1 添加新工具
 
@@ -1890,7 +2096,7 @@ public class CustomMCPClient implements MCPClient {
 
 ---
 
-## 八、常见问题
+## 十、常见问题
 
 ### Q1：如何配置 API Key？
 
@@ -1922,7 +2128,7 @@ A：主要依赖：
 
 ---
 
-## 九、学习资源
+## 十一、学习资源
 
 1. **官方文档**：`docs/` 目录下的文档
 2. **架构分析**：`nanobot_architecture_analysis.md`
@@ -1931,7 +2137,7 @@ A：主要依赖：
 
 ---
 
-## 十、总结
+## 十二、总结
 
 Nanobot-Java 的核心价值在于：
 
