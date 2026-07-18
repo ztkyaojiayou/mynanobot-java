@@ -295,6 +295,8 @@
             h = h.replace(/```[a-z]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
 
             // 2. 块级元素（行首匹配，在 newline 转换之前）
+            // DeepSeek 有时 ## 前缺少换行，先补上
+            h = h.replace(/([^\n>])(#{1,3}\s*\S)/g, '$1\n$2');
             h = h.replace(/^###\s*(.+)$/gm, '<h3>$1</h3>');
             h = h.replace(/^##\s*(.+)$/gm, '<h2>$1</h2>');
             h = h.replace(/^#\s*(.+)$/gm, '<h1>$1</h1>');
