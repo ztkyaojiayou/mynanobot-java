@@ -86,7 +86,7 @@ providers:
     apiBase: "https://openrouter.ai/api/v1"
   
   deepseek:
-    apiKey: "sk-9fdb4ac6d1d646fb90fb93220234bc60"
+    apiKey: ""  # 留空则读环境变量 DEEPSEEK_API_KEY
     apiBase: "https://api.deepseek.com"
 
 # 工具配置
