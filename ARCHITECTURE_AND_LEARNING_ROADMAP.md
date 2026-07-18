@@ -6,7 +6,7 @@
 
 Nanobot-Java 是基于香港大学开源的 Nanobot（mini 版 OpenClaw）项目进行的 Java 重写。这是一个轻量级的 AI Agent 框架，遵循 **"Core stays small; extend at the edges"**（核心保持精简，通过边缘扩展）的设计理念。
 
-**项目位置**：`IdeaProjects/个人项目/ai-project/mynanobot-java/mynanobot-java`
+**项目位置**：https://github.com/ztkyaojiayou/mynanobot-java
 
 ---
 
