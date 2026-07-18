@@ -58,7 +58,7 @@ public class WebSearchTool implements Tool {
     private static final Logger logger = LoggerFactory.getLogger(WebSearchTool.class);
     
     // 百度搜索 API
-    private static final String BAIDU_API_URL = "https://aip.baidubce.com/rpc/2.0/solution/v1/search";
+    private static final String BAIDU_API_URL = "https://qianfan.baidubce.com/v2/ai_search/chat/completions";
     
     // 百度搜索公开接口（国内可访问，无需 API Key）
     private static final String BAIDU_WEB_URL = "https://www.baidu.com/s";
@@ -243,21 +243,20 @@ public class WebSearchTool implements Tool {
                         .GET()
                         .build();
                 } else if ("baidu".equalsIgnoreCase(provider)) {
-                    // 使用百度搜索 API（POST 请求）
+                    // 百度千帆 AI 搜索（OpenAI 兼容协议，Bearer 鉴权）
                     if (apiKey == null || apiKey.isBlank()) {
-                        return "百度 API 搜索需要配置 API Key\n获取方式: https://ai.baidu.com/tech/search\n或者使用 baidu_web 模式（无需 API Key）";
+                        return "百度 AI 搜索需要配置 API Key\n获取方式: https://console.bce.baidu.com/qianfan";
                     }
-                    url = BAIDU_API_URL + "?access_token=" + apiKey;
-                    Map<String, Object> body = Map.of(
-                        "query", query,
-                        "page_size", limit,
-                        "page_no", 1
-                    );
+                    url = BAIDU_API_URL;
+                    Map<String, Object> body = new java.util.LinkedHashMap<>();
+                    body.put("messages", java.util.List.of(Map.of("role", "user", "content", query)));
+                    body.put("search_source", "baidu_search_v2");
+                    body.put("stream", false);
                     String jsonBody = objectMapper.writeValueAsString(body);
                     request = HttpRequest.newBuilder()
                         .uri(URI.create(url))
                         .header("Content-Type", "application/json")
-                        .header("Accept", "application/json")
+                        .header("Authorization", "Bearer " + apiKey)
                         .timeout(java.time.Duration.ofSeconds(30))
                         .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
                         .build();
@@ -534,80 +533,57 @@ public class WebSearchTool implements Tool {
     private String parseBaiduResults(String responseBody, int limit, String query) throws Exception {
         try {
             JsonNode root = objectMapper.readTree(responseBody);
-            
-            // 检查是否有错误（多种错误格式）
-            if (root.has("error_code")) {
-                String errorMsg = root.has("error_msg") ? root.get("error_msg").asText() : "未知错误";
-                logger.error("Baidu API error: {}", errorMsg);
-                // 抛出异常让重试机制生效
-                throw new Exception("API错误: " + errorMsg);
-            }
-            
-            // 检查是否有错误信息字段
+
+            // 错误检查（OpenAI 兼容格式）
             if (root.has("error")) {
-                String errorMsg = root.get("error").asText();
-                logger.error("Baidu API error: {}", errorMsg);
-                throw new Exception("API错误: " + errorMsg);
+                String err = root.get("error").has("message") ? root.get("error").get("message").asText() : root.get("error").asText();
+                logger.error("Baidu API error: {}", err);
+                throw new Exception("API错误: " + err);
             }
-            
-            // 检查是否返回了错误描述
-            if (root.has("message")) {
-                String errorMsg = root.get("message").asText();
-                if (errorMsg.contains("error") || errorMsg.contains("Error") || 
-                    errorMsg.contains("unsupported") || errorMsg.contains("Unsupported")) {
-                    logger.error("Baidu API error: {}", errorMsg);
-                    throw new Exception("API错误: " + errorMsg);
-                }
-            }
-            
-            JsonNode result = root.get("result");
-            if (result == null || !result.has("items")) {
-                // 检查是否有其他错误信息
-                if (root.has("result") && root.get("result").has("error")) {
-                    String errorMsg = root.get("result").get("error").asText();
-                    logger.error("Baidu API error: {}", errorMsg);
-                    throw new Exception("API错误: " + errorMsg);
+
+            // 提取 references（结构化搜索结果）
+            JsonNode refs = root.get("references");
+            if (refs == null || !refs.isArray() || refs.size() == 0) {
+                // 无 references 时尝试返回 AI 回答
+                JsonNode choices = root.get("choices");
+                if (choices != null && choices.size() > 0) {
+                    JsonNode msg = choices.get(0).get("message");
+                    if (msg != null && msg.has("content")) {
+                        return "搜索结果（" + query + "）：\n\n" + msg.get("content").asText();
+                    }
                 }
                 return "未找到相关搜索结果";
             }
-            
-            StringBuilder resultStr = new StringBuilder();
-            resultStr.append("搜索结果（").append(query).append("）：\n\n");
-            
-            JsonNode items = result.get("items");
+
+            StringBuilder result = new StringBuilder();
+            result.append("搜索结果（").append(query).append("）：\n\n");
             int count = 0;
-            for (JsonNode item : items) {
+            for (JsonNode ref : refs) {
                 if (count >= limit) break;
-                
-                String title = item.has("title") ? item.get("title").asText() : "无标题";
-                String url = item.has("url") ? item.get("url").asText() : "";
-                String description = item.has("description") ? item.get("description").asText() : "";
-                
-                resultStr.append((count + 1)).append(". ").append(title).append("\n");
-                if (!url.isBlank()) {
-                    resultStr.append("   链接: ").append(url).append("\n");
-                }
-                if (!description.isBlank()) {
-                    resultStr.append("   摘要: ").append(description).append("\n");
-                }
-                resultStr.append("\n");
-                
-                count++;
+                String title = ref.has("title") ? ref.get("title").asText().trim() : "";
+                String url = ref.has("url") ? ref.get("url").asText().trim() : "";
+                String snippet = ref.has("snippet") ? ref.get("snippet").asText().trim() : "";
+                if (title.isEmpty()) continue;
+
+                result.append(++count).append(". ").append(title).append("\n");
+                if (!url.isEmpty()) result.append("   链接: ").append(url).append("\n");
+                if (!snippet.isEmpty()) result.append("   摘要: ").append(snippet).append("\n");
+                result.append("\n");
             }
-            
-            // 添加实时日期标记
-            String currentDate = java.time.LocalDate.now().format(
-                java.time.format.DateTimeFormatter.ofPattern("yyyy年MM月dd日"));
-            logger.info("当前实时日期：{}", currentDate);
-            resultStr.append("---\n");
-            resultStr.append("搜索时间：").append(currentDate).append("\n");
-            
-            logger.info("最终搜索结果：{}", resultStr.toString());
-            return resultStr.toString();
-            
+
+            // 追加 AI 总结
+            JsonNode choices = root.get("choices");
+            if (choices != null && choices.size() > 0) {
+                JsonNode msg = choices.get(0).get("message");
+                if (msg != null && msg.has("content")) {
+                    result.append("AI 总结: ").append(msg.get("content").asText()).append("\n");
+                }
+            }
+
+            return count > 0 ? result.toString() : "未找到相关搜索结果";
         } catch (Exception e) {
             logger.error("Failed to parse Baidu results", e);
-            return "解析搜索结果失败：" + e.getMessage();
+            throw e;
         }
     }
 }
