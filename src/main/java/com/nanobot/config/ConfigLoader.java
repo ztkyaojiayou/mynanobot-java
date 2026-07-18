@@ -155,26 +155,32 @@ public class ConfigLoader {
                 .getResourceAsStream(CLASSPATH_CONFIG)) {
             if (is != null) {
                 logger.info("Loading configuration from classpath: {}", CLASSPATH_CONFIG);
-                return load(is);
+                Config config = load(is);
+                mergeSecretKeys(Paths.get("").toAbsolutePath(), config); // 从工作目录读 secret.yaml
+                return config;
             }
         } catch (IOException e) {
             logger.warn("Failed to load classpath config", e);
         }
-        
+
         // 尝试从类路径加载默认配置
         try (InputStream is = ConfigLoader.class.getClassLoader()
                 .getResourceAsStream(CLASSPATH_DEFAULT_CONFIG)) {
             if (is != null) {
                 logger.info("Loading configuration from classpath: {}", CLASSPATH_DEFAULT_CONFIG);
-                return load(is);
+                Config config = load(is);
+                mergeSecretKeys(Paths.get("").toAbsolutePath(), config);
+                return config;
             }
         } catch (IOException e) {
             logger.warn("Failed to load classpath default config", e);
         }
-        
+
         // 返回空配置
         logger.info("No config file found, using default configuration");
-        return Config.createDefault();
+        Config config = Config.createDefault();
+        mergeSecretKeys(Paths.get("").toAbsolutePath(), config);
+        return config;
     }
     
     /**
