@@ -106,7 +106,7 @@ public class AgentRunner {
     private int toolHintMaxLength = 40;
     
     /** 工具执行超时时间（秒） */
-    private int toolTimeoutSeconds = 30;
+    private int toolTimeoutSeconds = 90;
     
     /** 工具执行最大重试次数 */
     private int maxToolRetries = 3;
