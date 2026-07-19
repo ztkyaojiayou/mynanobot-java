@@ -542,6 +542,110 @@ cp .harness/changes/_TEMPLATE/* .harness/changes/C-019-new-feature/
 
 ---
 
+### 3.10 Harness 各模块详解
+
+#### Owner Agent（`agents/owner.md`）
+
+Owner Agent 是整个 Harness 体系的总指挥。它定义了 AI 的角色定位、工作流水线和决策边界。
+
+| 模块 | 说明 |
+|------|------|
+| **身份与使命** | "我是 mynanobot-java 的 Owner Agent，精通 Java、Spring Boot、AI Agent 框架" |
+| **核心职责** | 需求理解、技能编排、约束守护、上下文管理、变更追踪、质量兜底、人机协同 |
+| **工作流水线** | 6 阶段严格按序，不可跳步（见上文） |
+| **决策边界** | 可自主决定（命名/重构/测试设计） vs 必须请示人类（新增依赖/改 API/改架构） |
+| **上下文加载策略** | 按需加载（地图模式），禁止全量灌入；任何任务先读 CLAUDE.md + rules/ |
+| **技术铁律** | JDK 17、Spring Boot 3.2.5、Maven 3.9+、deepseek-chat、JLine 3 |
+
+#### Rules 规则层详解
+
+每个 `.harness/rules/` 文件都是对 AI 的强制约束：
+
+| 文件 | 核心内容 | AI 行为约束 |
+|------|---------|------------|
+| **SDD-TDD模式.md** | SDD（change.md=真相源）+ TDD（Red→Green→Refactor）+ Harness（约束→验证→留档） | 核心逻辑必须先写失败测试，覆盖率 ≥80% |
+| **工程结构.md** | 完整目录树、包结构约定、命名约定、新增模块/功能约定 | 单模块 Maven，`com.nanobot.*` 分包，禁止循环依赖 |
+| **开发流程规范.md** | 6 阶段流水线 + 门禁 + 变更状态机 + 人机协同协议 + 提交规范 | 每个 Gate 不通过禁止进入下一阶段；状态变更即更新 change.md |
+| **编码规范.md** | Java 命名（PascalCase/camelCase）、Lombok 策略（@Data 允许）、日志约定、异常处理、安全红线 | 禁止吞异常、禁止硬编码 Key、提交前 mvn test 全绿 |
+| **运行时可靠性.md** | Agent 调用保护（超时/重试/降级）、消息总线可靠性、会话持久化、CLI 交互可靠性、优雅关闭 | 外部依赖必须有超时+重试+降级；消息队列有界防 OOM |
+
+#### Skills 技能层详解
+
+6 个技能对应开发流水线的 6 个阶段：
+
+| 阶段 | 技能 | 输入 | 产出 | Gate |
+|------|------|------|------|------|
+| ① 需求分析 | `request-analysis` | 一句话意图 | change.md（用户故事+AC+边界+NFR） | AC 可测试、≥3 边界情况 |
+| ② 编码实现 | `coding-skill` | 已确认的 change.md | 失败测试 + 最小实现 | 测试通过 + mvn compile |
+| ③ 单测编写 | `unit-test-write` | 实现代码 | 边界/降级/回归测试 | 核心覆盖率 ≥80% |
+| ④ 专家评审 | `expert-reviewer` | 代码 + 测试 | 评审报告（5 维度） | 0 个严重问题 |
+| ⑤ CI 门禁 | `unit-test-ci` | 完整变更 | CI 报告 | mvn test 59/59 全绿 |
+| ⑥ 部署验证 | `deploy-verify` | 通过 CI 的构建 | 验证报告 | 冒烟 + 健康检查 |
+
+#### Changes 变更追踪详解
+
+每个功能/模块 = 一张变更卡片，三件套：
+
+```
+.harness/changes/C-NNN-<slug>/
+├── change.md    — 用户故事 + 验收标准 + 边界情况 + 非功能需求（规格真相源）
+├── review.md    — 设计评审记录（5 维度：代码规范/工程结构/测试覆盖/边界处理/可扩展性）
+└── verify.md    — 验证记录（mvn test 59/59 全绿 + 编译通过）
+```
+
+**本项目 18 张卡片速览**：
+
+| 编号 | 模块 | 状态 |
+|------|------|------|
+| C-001 | 项目脚手架（Java 17 + Maven + Spring Boot） | done |
+| C-002 | 消息总线（MessageBus + Inbound/Outbound） | done |
+| C-003 | AgentLoop 引擎（State 模式七状态机） | done |
+| C-004 | AgentRunner 执行循环（LLM→Tool→递归） | done |
+| C-005 | 工具系统（Tool 接口 + 17 内置工具） | done |
+| C-006 | LLM 提供商（ProviderFactory + OpenAI + DeepSeek） | done |
+| C-007 | 记忆系统（Dream + Consolidator + NANOBOT.md） | done |
+| C-008 | 会话管理（SessionManager + SessionStore + Web UI） | done |
+| C-009 | 安全权限（PermissionManager + Guard + RuleEngine） | done |
+| C-010 | 命令系统（/exit /help /init /mode /resume） | done |
+| C-011 | 钩子系统（AgentHook + Metrics/Validation/Tracing） | done |
+| C-012 | 身份系统（SOUL + IDENTITY + USER） | done |
+| C-013 | V3 CLI（JLine + Markdown + Esc 中断） | done |
+| C-014 | Plan Mode（/plan → /plan approve） | done |
+| C-015 | V2 Spring Boot（REST + SSE + WebSocket + sessions.html） | done |
+| C-016 | MCP 集成（StdioMCP + HttpMCP + MCPManager） | done |
+| C-017 | 设计模式重构（State + Strategy + Repository） | done |
+| C-018 | 文档体系（架构 14 章 + README + NANOBOT.md + .harness） | done |
+
+#### Wiki 知识库
+
+| 文件 | 内容 |
+|------|------|
+| `业务模型.md` | Agent 框架核心概念（InboundMessage→AgentLoop→Tool→Provider 流转） |
+| `接口协议.md` | REST API（6 端点）+ CLI 9 命令 + WebSocket + MCP 协议 |
+| `数据模型.md` | 文件存储 6 层（history.jsonl/metadata.json/dream.json/NANOBOT.md/TaskStore/config.yaml） |
+| `架构决策.md` | 10 个 ADR（Java 17/单模块/State模式/ProviderFactory/文件存储/JLine/Claude Code） |
+
+#### 快速上手
+
+```bash
+# 1. 新需求：创建变更卡
+cp -r .harness/changes/_TEMPLATE .harness/changes/C-019-my-feature
+# 编辑 change.md 填写用户故事和 AC
+
+# 2. 启动 Claude Code，一句话启动流水线
+> 按 .harness 流程完成 C-019，先读 rules/ 和 wiki/
+
+# 3. AI 按 6 阶段推进，关键 Gate 等你拍板
+> ① OK 继续 ②
+> ④ 通过 继续 ⑤
+
+# 4. 收口
+mvn test                    # 59/59 全绿
+git commit -m "feat: xxx"
+```
+
+---
+
 ## 四、nanobot CLI 实战指南（对标 Claude Code）
 
 > **阅读目标**：掌握 nanobot CLI 的日常使用方式、常用命令和最佳实践，像使用 Claude Code 一样高效。
