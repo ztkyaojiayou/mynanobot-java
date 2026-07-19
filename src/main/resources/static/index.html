@@ -19,13 +19,14 @@
         .session-item:hover { background: #ececf1; }
         .session-item.active { background: #e3e5e8; border-left: 3px solid #58a6ff; }
         .session-item .info { flex: 1; min-width: 0; }
-        .session-item .name { font-size: 14px; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; border-bottom: 1px dashed transparent; }
-        .session-item .name:hover { border-bottom-color: #58a6ff; }
-        .session-item .name input { width: 100%; background: #ffffff; color: #1a1a1a; border: 1px solid #58a6ff; border-radius: 4px; padding: 2px 6px; font-size: 14px; }
+        .session-item .name { font-size: 14px; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .session-item .name input { width: 100%; background: #fff; color: #1a1a1a; border: 1px solid #58a6ff; border-radius: 4px; padding: 2px 6px; font-size: 14px; }
         .session-item .meta { font-size: 12px; color: #666; margin-top: 3px; }
-        .session-item .delete-btn { background: none; border: none; color: #999; font-size: 14px; cursor: pointer; padding: 2px 6px; flex-shrink: 0; visibility: hidden; }
-        .session-item:hover .delete-btn { visibility: visible; }
-        .session-item .delete-btn:hover { color: #f85149; }
+        .session-item .actions { display: flex; gap: 2px; flex-shrink: 0; visibility: hidden; }
+        .session-item:hover .actions { visibility: visible; }
+        .session-item .act-btn { background: none; border: none; color: #999; font-size: 14px; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+        .session-item .act-btn:hover { background: #e0e0e0; color: #333; }
+        .session-item .act-btn.danger:hover { color: #f85149; }
         .sidebar-footer { padding: 12px 16px; border-top: 1px solid #e0e0e0; }
         .clear-all-btn { width: 100%; padding: 6px; background: #ffffff; color: #666; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 13px; cursor: pointer; }
         .clear-all-btn:hover { color: #f85149; border-color: #da3633; }
@@ -124,10 +125,13 @@
                 el.innerHTML = sessions.map(s => `
                     <div class="session-item${s.key===sessionId?' active':''}" onclick="switchSession('${s.key}')">
                         <div class="info">
-                            <div class="name" onclick="event.stopPropagation();startRename('${s.key}',this)">${escHtml(s.name||s.key)}</div>
+                            <div class="name">${escHtml(s.name||s.key)}</div>
                             <div class="meta">${s.messageCount||0} 条 · ${new Date(s.lastModified).toLocaleDateString()}</div>
                         </div>
-                        <button class="delete-btn" onclick="event.stopPropagation();deleteSession('${s.key}')" title="删除">×</button>
+                        <div class="actions">
+                            <button class="act-btn" onclick="event.stopPropagation();startRename('${s.key}',this.parentElement.parentElement.querySelector('.name'))" title="重命名">✎</button>
+                            <button class="act-btn danger" onclick="event.stopPropagation();deleteSession('${s.key}')" title="删除">×</button>
+                        </div>
                     </div>
                 `).join('');
             } catch(e) { console.error(e); }
