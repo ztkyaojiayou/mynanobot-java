@@ -1789,21 +1789,6 @@ ToolRegistry.execute(name, params)
 Plan Mode 激活时 `getDefinitions(true)` 只返回只读工具，从源头杜绝写操作。
 
 ---
-
-
-
-**三件套**：`.nanobot/` 目录下的三个 Markdown 文件，控制 Agent 的行为和个性。
-
-| 文件 | 说明 | 示例 |
-|------|------|------|
-| `SOUL.md` | Agent 的核心身份定义（名字、使命、底线） | "你是 my-nanobot，永远不说自己是 Claude" |
-| `IDENTITY.md` | 个性特征（语气、风格、偏好） | "回答简洁，用中文，代码块标注语言" |
-| `USER.md` | 用户信息（称呼、偏好、上下文） | "用户叫小王，偏好 Java 17，Mac 环境" |
-
-**System Prompt 注入**（首位+近因效应）：
-```
-getSystemPrompt(currentDate) =
-
 ### 5.10 身份系统 (Identity)
 
 **三件套**：`.nanobot/` 目录下的三个 Markdown 文件，控制 Agent 的行为和个性。
