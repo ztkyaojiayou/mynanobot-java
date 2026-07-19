@@ -1872,20 +1872,6 @@ BuildState.execute(TurnContext)
 ```
 
 ---
-
-
-    【开头 — 首位效应】
-    名字声明 + 日期覆盖 + 身份信息
-    ↓
-    （中间是 NANOBOT.md + Plan Mode + Rules）
-    ↓
-    【结尾 — 近因效应】
-    再次强调身份 + 工具结果格式说明
-```
-
-组件：`IdentityManager` → `IdentityLoader`（静态工厂方法，从 Markdown 文件加载）→ `Soul` / `Identity` / `UserProfile`（前端模型类）
-
----
 ### 5.12 上下文管理系统 ★
 
 > 上下文工程是 AI Agent 的第二层核心范式。如果说 Agent Loop 是"心脏"，上下文管理就是"记忆"——管理 Agent 能"看到"和"记住"什么。
