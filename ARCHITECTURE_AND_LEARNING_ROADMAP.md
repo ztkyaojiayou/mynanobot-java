@@ -1872,11 +1872,126 @@ BuildState.execute(TurnContext)
 ```
 
 ---
-### 5.12 上下文管理系统 ★
+### 5.12 Plan Mode — 先计划后执行 ★
+
+> Plan Mode 是对标 Claude Code `/plan` 的核心工作流模式。它让 Agent 先"想清楚再动手"——只读分析项目 → 产出结构化计划 → 用户审批 → 切换到执行模式。这本质上是 **Spec Coding** 在 Agent 层面的落地。
+
+#### 5.12.1 工作流全景
+
+```
+用户: /plan
+  │
+  ▼
+┌─────────────────────────────────────────────┐
+│           Plan Mode 激活                     │
+│  planMode = true                            │
+│  PermissionMode = PLAN (只读)                │
+│  System Prompt 注入规划指令                   │
+│  工具列表过滤为只读 (getDefinitions(true))    │
+└─────────────────────────────────────────────┘
+  │
+  ▼  用户: "实现用户注销功能"
+┌─────────────────────────────────────────────┐
+│           Agent 探索阶段（只读）              │
+│  list_dir → glob → read_file → grep         │
+│  理解项目结构、阅读现有代码、搜索关键模式      │
+│  向用户提问以澄清需求                         │
+└─────────────────────────────────────────────┘
+  │
+  ▼
+┌─────────────────────────────────────────────┐
+│           产出结构化计划                      │
+│  ## 需求理解                                 │
+│  ## 影响范围（要修改/创建的文件清单）          │
+│  ## 实现步骤（每步可验证）                    │
+│  ## 注意事项（风险、依赖、边界）              │
+│  → 末尾提示: "确认后请回复 /plan approve"     │
+└─────────────────────────────────────────────┘
+  │
+  ▼  用户审查计划 → 不满意就调整 → 满意就批准
+  │
+  ▼  用户: /plan approve
+┌─────────────────────────────────────────────┐
+│           Plan Mode 关闭                     │
+│  planMode = false                           │
+│  PermissionMode = ACCEPT_EDITS              │
+│  自动发送执行指令到 AgentLoop                 │
+│  "请按照刚才的计划开始实现，不要再次询问"      │
+└─────────────────────────────────────────────┘
+  │
+  ▼  Agent 按计划逐步实现 → mvn test → 完成
+```
+
+#### 5.12.2 三层协同机制
+
+Plan Mode 不是单一开关，而是**三个系统协同工作**：
+
+| 层级 | 组件 | 行为 |
+|------|------|------|
+| **权限层** | `PermissionMode.PLAN` | 只允许 `isReadOnly()=true` 的工具 |
+| **工具层** | `ToolRegistry.getDefinitions(true)` | LLM 的工具列表中排除 exec/write_file 等——**从源头不可见** |
+| **提示词层** | `BuildState` 注入 Plan Prompt | 明确告知 LLM"禁止写代码、禁止直接给答案、要求结构化计划" |
+
+**为什么是三层而不是一层**：单靠 System Prompt 约束不可靠（LLM 可能忽略）；单靠权限拦截不够（LLM 不知道被拦截，反复重试）。三层协同让 LLM **不知道**写工具的存在 + **被明确告知**只能读 + **即使尝试也**被权限拦截。
+
+#### 5.12.3 提示词注入机制
+
+`BuildState` 在 planMode 为 true 时注入：
+
+```
+⚠️ 你当前处于规划模式（Plan Mode）。关键规则：
+
+【禁止事项】
+- ❌ 禁止写任何具体代码实现（不要贴代码）
+- ❌ 禁止直接给出最终答案
+- ❌ 禁止修改文件或执行命令
+
+【你必须做的】
+- ✅ 使用只读工具探索项目结构和现有代码
+- ✅ 输出结构化实现计划（需求理解→影响范围→步骤→风险）
+- ✅ 计划末尾加上"确认后请回复 /plan approve 开始执行"
+
+【工作目录】{cwd}
+探索建议：先调用 list_dir 了解目录结构。
+```
+
+#### 5.12.4 审批执行流程
+
+`/plan approve` 由 `ModeCommand` 处理：
+
+```
+1. AgentLoop.setPlanMode(false)          ← 关闭规划模式
+2. PermissionManager.setMode(ACCEPT_EDITS) ← 切换到编辑放行
+3. MessageBus.publishInbound(...)        ← 自动发送执行指令
+   "请按照刚才的计划开始实现。直接写代码，不要再次询问或重新规划。"
+```
+
+关键细节：执行指令使用相同的 `sessionId`，确保响应流式回调正确匹配到 CLI 输出。
+
+#### 5.12.5 与 Claude Code 对标
+
+| 特性 | Claude Code | nanobot |
+|------|------|------|
+| 进入规划 | `/plan` | `/plan` 或 `/mode plan` |
+| 权限切换 | 自动切到只读 | `PermissionMode.PLAN` + 工具过滤 |
+| 提示词注入 | 系统指令 | `BuildState` 动态注入 |
+| 审批执行 | `/plan approve` 或回复"继续" | `/plan approve` |
+| 权限恢复 | 切回编辑模式 | `PermissionMode.ACCEPT_EDITS` |
+| 计划调整 | 对话中直接说"第三步不对" | 同上，LLM 更新计划 |
+
+#### 5.12.6 设计要点
+
+- **sessionKeyOverride 一致性**：执行指令使用 `ctx.sessionId()` 而非新建随机 sessionId，保证前后端 key 一致
+- **isNewSession 防重复命名**：切换已有会话时不触发自动标题
+- **sanitizeToolCallHistory**：Plan Mode 下 LLM 调用仍会经过历史清理，防止 DeepSeek 校验失败
+
+---
+
+### 5.13 上下文管理系统 ★
 
 > 上下文工程是 AI Agent 的第二层核心范式。如果说 Agent Loop 是"心脏"，上下文管理就是"记忆"——管理 Agent 能"看到"和"记住"什么。
 
-#### 5.12.1 为什么需要上下文管理
+#### 5.13.1 为什么需要上下文管理
 
 LLM 的 Context Window 有限（DeepSeek 约 128K tokens），对话越长，能"记住"的越少。上下文管理的目标：**把正确的信息在正确的时间塞进有限的窗口**。
 
@@ -1893,7 +2008,7 @@ LLM 的 Context Window 有限（DeepSeek 约 128K tokens），对话越长，能
 └─────────────────────────────────────────────────────┘
 ```
 
-#### 5.12.2 会话持久化
+#### 5.13.2 会话持久化
 
 **双层架构**：SessionManager（锁+业务）+ SessionStore（纯 I/O），Repository 模式。
 
@@ -1914,7 +2029,7 @@ LLM 的 Context Window 有限（DeepSeek 约 128K tokens），对话越长，能
 
 **并发安全**：`ConcurrentHashMap<String, Object>` 会话级 `synchronized`，同一会话串行读写。
 
-#### 5.12.3 消息历史生命周期
+#### 5.13.3 消息历史生命周期
 
 ```
 RESTORE     SessionManager.loadHistory(sessionKey)
@@ -1936,7 +2051,7 @@ DELETE      SessionManager.deleteSession(sessionKey)
 - 一键清空所有会话
 - 新会话首条消息自动生成标题
 
-#### 5.12.4 Context Window 与 Token 预算
+#### 5.13.4 Context Window 与 Token 预算
 
 | 机制 | 实现 | 说明 |
 |------|------|------|
@@ -1945,7 +2060,7 @@ DELETE      SessionManager.deleteSession(sessionKey)
 | **压缩触发** | 使用量 > 90% 窗口上限 | `CompactState` 在状态机中自动检测 |
 | **压缩策略** | LLM 对旧消息生成摘要 → 替换原始消息 | 保留 System Prompt + 最近 N 条，压缩中间部分 |
 
-#### 5.12.5 记忆压缩 (Consolidator)
+#### 5.13.5 记忆压缩 (Consolidator)
 
 ```
 触发条件: token 估算 > contextWindowTokens × 90%
@@ -1962,7 +2077,7 @@ Consolidator.consolidate(messages)
 
 **优先级**：系统消息（不压缩）> 工具结果（保留关键）> 用户消息（可压缩）> 助手消息（优先压缩）。
 
-#### 5.12.6 长期记忆 (Dream)
+#### 5.13.6 长期记忆 (Dream)
 
 与短期会话历史不同，`Dream` 负责**跨会话**的持久记忆：
 
@@ -1980,7 +2095,7 @@ Dream.retrieve(query, limit)
 
 **记忆结构**：id / content / keywords / timestamp / importance(0-1) / source(来源会话ID)。
 
-#### 5.12.7 NANOBOT.md — 项目级上下文
+#### 5.13.7 NANOBOT.md — 项目级上下文
 
 `/init` 生成，每次对话自动加载到 System Prompt 最前面。内容：技术栈、项目结构、构建命令、编码约定。
 
@@ -1988,7 +2103,7 @@ Dream.retrieve(query, limit)
 
 ---
 
-### 5.13 记忆压缩系统 (Consolidator)
+### 5.14 记忆压缩系统 (Consolidator)
 
 **功能说明**：当对话历史超过 token 预算时，自动压缩历史消息，保留关键信息。
 
@@ -2015,7 +2130,7 @@ boolean needsConsolidation(List<Map<String, Object>> messages)
 // 获取当前 token 使用量
 int getCurrentUsage(List<Map<String, Object>> messages)
 ```
-### 5.14 长期记忆系统 (Dream)
+### 5.15 长期记忆系统 (Dream)
 
 **功能说明**：实现 AI Agent 的长期记忆功能，允许 Agent 存储和检索长期信息。
 
@@ -2049,7 +2164,7 @@ CompletableFuture<MemoryEntry> consolidate(MemoryEntry newMemory)
 // 清理过时记忆
 void cleanup()
 ```
-### 5.15 安全系统详解
+### 5.16 安全系统详解
 
 **PermissionMode 四种模式**：
 
@@ -2087,7 +2202,7 @@ Tool 调用
 - `3=拒绝`
 
 ---
-### 5.16 命令系统 (Command)
+### 5.17 命令系统 (Command)
 
 **设计模式**：Command 模式。所有 CLI/WebSocket/HTTP 命令通过 `CommandRegistry` 统一分发。
 
@@ -2133,11 +2248,11 @@ Tool 调用
 ```
 
 ---
-### 5.17 MCP (Model Context Protocol) 系统
+### 5.18 MCP (Model Context Protocol) 系统
 
 **MCP**（Model Context Protocol）是由 Cursor 编辑器提出的标准化协议，用于连接 AI Agent 与外部工具/服务。Nanobot 通过 MCP 支持，可以动态加载和使用第三方工具，而无需修改核心代码。
 
-#### 5.17.1 MCP 架构
+#### 5.18.1 MCP 架构
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -2160,7 +2275,7 @@ Tool 调用
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 5.17.2 MCP 架构
+#### 5.18.2 MCP 架构
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -2192,7 +2307,7 @@ Tool 调用
 └─────────────────────────────────────────────────────────────┘
 ```
 
-#### 5.17.3 支持的传输方式
+#### 5.18.3 支持的传输方式
 
 | 传输类型 | 说明 | 适用场景 |
 |---------|------|---------|
@@ -2200,7 +2315,7 @@ Tool 调用
 | **sse** | Server-Sent Events | 实时推送场景 |
 | **streamableHttp** | HTTP 流式传输 | 远程 MCP 服务 |
 
-#### 5.17.4 MCP 工具命名规则
+#### 5.18.4 MCP 工具命名规则
 
 注册后的工具名称格式：`mcp_<server_name>_<tool_name>`
 
@@ -2209,11 +2324,11 @@ Tool 调用
 - 服务器名 `weather` + 工具名 `get` → `mcp_weather_get`
 
 ---
-### 5.18 Skills 技能系统
+### 5.19 Skills 技能系统
 
 **Skills** 是参考 Claude Code 设计的可复用技能系统，允许用户定义可复用的工作流、指令集和领域知识。Skills 可以通过斜杠命令手动调用，也可以根据对话场景自动触发。
 
-#### 5.18.1 Skills 架构
+#### 5.19.1 Skills 架构
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -2245,7 +2360,7 @@ Tool 调用
 └─────────────────────────────────────────────────────────────┘
 ```
 
-#### 5.18.2 技能目录结构
+#### 5.19.2 技能目录结构
 
 ```
 .nanobot/skills/my-skill/
@@ -2255,7 +2370,7 @@ Tool 调用
 └── resources/        # 可选：资源文件
 ```
 
-#### 5.18.3 SKILL.md 格式
+#### 5.19.3 SKILL.md 格式
 
 ```markdown
 ---
@@ -2284,7 +2399,7 @@ auto-trigger: true
    - 资源泄漏
 ```
 
-#### 5.18.4 技能类型
+#### 5.19.4 技能类型
 
 | 类型 | 说明 | 示例 |
 |------|------|------|
@@ -2294,7 +2409,7 @@ auto-trigger: true
 | **自动化型** | 业务流程自动化 | 部署流程 |
 | **审查型** | 代码审查和安全检查 | 代码审查、安全扫描 |
 
-#### 5.18.5 调用方式
+#### 5.19.5 调用方式
 
 **1. 手动调用（斜杠命令）**
 ```
@@ -2311,7 +2426,7 @@ auto-trigger: true
 /code-review src/main/java/MyClass.java
 ```
 
-#### 5.18.6 核心组件
+#### 5.19.6 核心组件
 
 | 组件 | 职责 | 文件位置 |
 |------|------|----------|
@@ -2321,7 +2436,7 @@ auto-trigger: true
 | **SkillRegistry** | 技能注册中心 | `skill/SkillRegistry.java` |
 | **SkillManager** | 技能管理器 | `skill/SkillManager.java` |
 
-#### 5.18.7 使用示例
+#### 5.19.7 使用示例
 
 ```java
 // 创建技能管理器
@@ -2344,11 +2459,11 @@ List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
 ```
 
 ---
-### 5.19 Rules 规则系统
+### 5.20 Rules 规则系统
 
 **Rules** 是参考 Claude Code 的设计理念实现的全局规则系统，通过自然语言指令定义 Agent 的行为规范。规则告诉模型"在这个项目中你应该遵循什么规范"。
 
-#### 5.19.1 Rules 架构
+#### 5.20.1 Rules 架构
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -2379,7 +2494,7 @@ List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
 └─────────────────────────────────────────────────────────────┘
 ```
 
-#### 5.19.2 规则文件位置
+#### 5.20.2 规则文件位置
 
 | 级别 | 路径 | 优先级 | 说明 |
 |------|------|--------|------|
@@ -2388,7 +2503,7 @@ List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
 | **用户级** | `~/.nanobot/rules/*.md` | 低 | 当前用户全局规则 |
 | **内置** | Built-in | 最低 | 系统默认规则 |
 
-#### 5.19.3 规则文件格式
+#### 5.20.3 规则文件格式
 
 ```markdown
 ---
@@ -2410,7 +2525,7 @@ tags: [java, coding]
 - 使用 4 空格缩进
 ```
 
-#### 5.19.4 规则类型
+#### 5.20.4 规则类型
 
 | 类型 | 说明 | 示例 |
 |------|------|------|
@@ -2419,14 +2534,14 @@ tags: [java, coding]
 | **响应规则** | 回复格式规范 | 语言要求、输出格式 |
 | **业务规则** | 特定业务规则 | 项目特定规范 |
 
-#### 5.19.5 优先级机制
+#### 5.20.5 优先级机制
 
 规则按优先级排序后合并到系统提示词中：
 - 数字越小，优先级越高
 - 高优先级规则会在提示词中靠前显示
 - 内置规则默认优先级为 100-150
 
-#### 5.19.6 核心组件
+#### 5.20.6 核心组件
 
 | 组件 | 职责 | 文件位置 |
 |------|------|----------|
@@ -2435,7 +2550,7 @@ tags: [java, coding]
 | **RuleRegistry** | 规则注册中心 | `rules/RuleRegistry.java` |
 | **RuleManager** | 规则管理器 | `rules/RuleManager.java` |
 
-#### 5.19.7 使用示例
+#### 5.20.7 使用示例
 
 **1. 创建项目级规则文件 CLAUDE.md**：
 ```markdown
@@ -2474,7 +2589,7 @@ String systemPrompt = "你是一个 AI Agent。\n\n" + rulesPrompt;
 ```
 
 ---
-### 5.20 多通道接入系统 (ChannelServer)
+### 5.21 多通道接入系统 (ChannelServer)
 
 **功能说明**：提供 HTTP 和 WebSocket 通道的统一管理，允许客户端通过多种方式与 Agent 交互。
 
@@ -2523,7 +2638,7 @@ POST /api/chat
 ChannelServer server = new ChannelServer(messageBus, 8080);
 server.start();
 ```
-### 5.21 定时任务系统 (CronScheduler)
+### 5.22 定时任务系统 (CronScheduler)
 
 > 非核心功能，按"从能跑到跑得好"原则后置。
 
@@ -2557,7 +2672,7 @@ scheduler.schedule("0 * * * *", () -> {
 - `,` : 列出多个值
 - `-` : 指定范围
 - `/` : 步长
-### 5.22 V3 CLI 模式 (CliChannel)
+### 5.23 V3 CLI 模式 (CliChannel)
 
 **入口**：`NanobotCliApplication` → Spring Boot 容器 → `CliChannel.start()`
 
@@ -2595,7 +2710,7 @@ scheduler.schedule("0 * * * *", () -> {
 ```
 
 ---
-### 5.23 V2 Spring Boot 模式
+### 5.24 V2 Spring Boot 模式
 
 **入口**：`NanobotApplication` → 内嵌 Tomcat + Spring MVC
 
@@ -2620,7 +2735,7 @@ scheduler.schedule("0 * * * *", () -> {
 **配置类**：`NanobotConfig` 创建 Spring Bean（MessageBus, ToolRegistry, AgentLoop, SessionManager 等），注入到 `NanobotRunner` 静态字段
 
 ---
-### 5.24 V1 独立模式
+### 5.25 V1 独立模式
 
 **入口**：`Nanobot.java`，手动组装所有组件，无需 Spring。
 
@@ -2635,7 +2750,7 @@ scheduler.schedule("0 * * * *", () -> {
 - `parse(InputStream)` 反序列化帧（含掩码处理）
 
 ---
-### 5.25 子 Agent 系统 (Subagent)
+### 5.26 子 Agent 系统 (Subagent)
 
 **核心组件**：
 
