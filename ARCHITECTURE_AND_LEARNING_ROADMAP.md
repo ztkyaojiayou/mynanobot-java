@@ -2843,7 +2843,277 @@ scheduler.schedule("0 * * * *", () -> {
 **SpawnTool**：主 Agent 通过 `spawn` 工具动态创建子 Agent 并分配任务。
 
 ---
-## 六、新手学习路线
+
+---
+
+## 六、从0到1自实现一个Agent系统
+
+> **阅读目标**：跟着本章从零开始构建一个可编程、可对话的 AI Agent。每一步只需几十行代码，最终你会写出一个完整的 Agent 框架——就像本项目一样。
+
+### 6.1 第1步：最小可行Agent（10行代码跑起来）
+
+一个 Agent 的本质是什么？**接收用户输入 → 调用 LLM → 返回结果**。就是这么简单。
+
+```java
+// Step 1: 最简 Agent —— 10 行代码
+String apiKey = System.getenv("DEEPSEEK_API_KEY");
+String userInput = "帮我写一个 Hello World";
+String systemPrompt = "你是一个编程助手。";
+
+HttpClient client = HttpClient.newHttpClient();
+String body = String.format("""
+    {"model":"deepseek-chat","messages":[
+      {"role":"system","content":"%s"},
+      {"role":"user","content":"%s"}
+    ]}""", systemPrompt, userInput);
+
+HttpRequest req = HttpRequest.newBuilder()
+    .uri(URI.create("https://api.deepseek.com/chat/completions"))
+    .header("Authorization", "Bearer " + apiKey)
+    .header("Content-Type", "application/json")
+    .POST(HttpRequest.BodyPublishers.ofString(body))
+    .build();
+
+HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+System.out.println(resp.body());  // LLM 返回的代码
+```
+
+> 本项目对应：`providers/impl/DeepSeekProvider.java` — 当然实际代码更完善，但核心逻辑就是上面这些。
+
+**你已经有了一个"能对话"的 Agent**。但它还不会"做事"——只能聊天，不能读文件、搜网页、写代码。
+
+---
+
+### 6.2 第2步：加上工具调用（让 Agent 能"动手"）
+
+LLM 可以输出**工具调用请求**（tool_calls），告诉程序"我想执行 read_file"。程序执行后把结果返回给 LLM，LLM 再基于结果继续回复。这就是 Agent 的"手"。
+
+#### 6.2.1 设计 Tool 接口
+
+```java
+public interface Tool {
+    String getName();              // 工具名，如 "read_file"
+    String getDescription();       // 功能描述，LLM 据此判断何时调用
+    JsonNode getParameters();      // 参数 JSON Schema
+    boolean isReadOnly();          // Plan Mode 等场景用
+    CompletableFuture<Object> execute(Map<String, Object> params);
+}
+```
+
+> 本项目对应：`tools/Tool.java`
+
+#### 6.2.2 实现第一个工具：read_file
+
+```java
+public class ReadFileTool implements Tool {
+    public String getName() { return "read_file"; }
+    public String getDescription() { return "读取文件内容"; }
+    public boolean isReadOnly() { return true; }
+
+    public CompletableFuture<Object> execute(Map<String, Object> params) {
+        String path = (String) params.get("path");
+        return CompletableFuture.supplyAsync(() -> {
+            try { return Files.readString(Path.of(path)); }
+            catch (IOException e) { return "Error: " + e.getMessage(); }
+        });
+    }
+}
+```
+
+> 本项目对应：`tools/impl/ReadFileTool.java` — 实际版本支持行范围、offset/limit，原理相同。
+
+#### 6.2.3 LLM 返回 tool_calls 时递归
+
+```java
+String runLoop(List<Map<String, Object>> messages) {
+    LLMResponse resp = callLLM(messages);
+
+    if (resp.hasToolCalls()) {
+        // 1. 执行工具
+        for (ToolCall call : resp.getToolCalls()) {
+            Object result = toolRegistry.execute(call.name, call.params);
+            messages.add(toolResultMsg(call.id, result));
+        }
+        // 2. 递归——把工具结果喂给 LLM 再问一次
+        return runLoop(messages);
+    }
+
+    return resp.getContent();  // LLM 不再调工具，返回最终答案
+}
+```
+
+> 本项目对应：`core/AgentRunner.java` 的 `runInternal()` 方法。
+
+**现在你的 Agent 能读文件了**。加上 write_file、exec、web_search …… 它就成了一个编程助手。
+
+---
+
+### 6.3 第3步：System Prompt（让 Agent 知道"自己是谁"）
+
+System Prompt 是控制 Agent 行为的最高优先级指令。没有它，LLM 不知道自己是 my-nanobot。
+
+```java
+String systemPrompt = """
+    你是 my-nanobot，一个基于 Java 的 AI Agent。
+    你可以使用工具来读文件、搜索网页、执行命令。
+    回答用中文，代码块标注语言。
+
+    【项目上下文】
+    """ + nanobotMdContent + """
+
+    【编码规范】
+    使用 Java 17，Maven 构建，4空格缩进。
+    """;
+```
+
+> 本项目对应：`core/state/BuildState.java` — 含身份注入、NANOBOT.md 加载、Plan Mode 提示词、Rules 注入。
+
+**System Prompt 的质量 = Agent 的表现上限**。投入时间打磨它是值得的。
+
+---
+
+### 6.4 第4步：消息总线（让 Agent 能处理并发）
+
+当多个用户同时发消息时，不能直接同步处理——需要一个队列。
+
+```
+用户A → [消息A] ┐
+用户B → [消息B] ┤── MessageBus (BlockingQueue) ──→ AgentLoop (单线程消费)
+用户C → [消息C] ┘
+```
+
+```java
+public class MessageBus {
+    BlockingQueue<InboundMessage> inboundQueue = new ArrayBlockingQueue<>(100);
+
+    public void publishInbound(InboundMessage msg) {
+        inboundQueue.put(msg);  // 阻塞直到有空间
+    }
+
+    public InboundMessage consumeInbound(long timeout, TimeUnit unit) {
+        return inboundQueue.poll(timeout, unit);  // 超时返回 null
+    }
+}
+```
+
+> 本项目对应：`bus/MessageBus.java` — 加上 sessionResponses Map 用于同步匹配。
+
+---
+
+### 6.5 第5步：流式输出（让 Agent 不"冷场"）
+
+用户不想等 30 秒才看到完整回复。流式输出让文字逐 token 出现。
+
+```java
+// LLM 返回 SSE 流
+// data: {"choices":[{"delta":{"content":"你"}}]}
+// data: {"choices":[{"delta":{"content":"好"}}]}
+// data: [DONE]
+
+provider.chatStream(messages, tools, delta -> {
+    System.out.print(delta);      // 实时打印
+    onDelta.accept(delta);        // 推送给前端
+});
+```
+
+> 本项目对应：`providers/impl/DeepSeekProvider.java` 的 `chatStream()` + `core/state/RunState.java` 的 `buildOnDelta()`。
+
+---
+
+### 6.6 第6步：安全与权限（让 Agent 不越界）
+
+Agent 能执行 Shell 命令、写文件——这些能力必须有权限控制。
+
+```
+工具调用 → PathGuard(路径检查) → CommandGuard(命令检查)
+         → NetworkGuard(URL检查) → PermissionMode(模式判定)
+         → 交互确认(1=允许/2=信任/3=拒绝)
+```
+
+```java
+public enum PermissionMode {
+    PLAN          { boolean allowsTool(Tool t) { return t.isReadOnly(); }},
+    DEFAULT       { boolean allowsTool(Tool t) { return t.isReadOnly(); }},
+    ACCEPT_EDITS  { /* 读+文件编辑放行 */ },
+    BYPASS        { boolean allowsTool(Tool t) { return true; }};
+}
+```
+
+> 本项目对应：`security/PermissionManager.java` + `security/PermissionMode.java`。
+
+**Plan Mode 的价值**：不确定 AI 会做什么时，先切到 `/plan` 让它只读分析、出计划，审批后再执行。
+
+---
+
+### 6.7 第7步：会话管理（让 Agent 记住上下文）
+
+Agent 不能每次对话都"失忆"。会话持久化让用户下次回来还能接着聊。
+
+```
+SessionManager
+  ├── saveHistory()    增量追加新消息 → JSONL
+  ├── loadHistory()    加载全部历史 → List<Map>
+  ├── renameSession()  更新 metadata.json 的 name 字段
+  └── deleteSession()  删除会话目录
+```
+
+> 本项目对应：`session/SessionManager.java` + `session/SessionStore.java`。
+
+---
+
+### 6.8 第8步：生产化（让 Agent 稳定运行）
+
+| 机制 | 实现 | 代码位置 |
+|------|------|---------|
+| **工具超时+重试** | `executeToolWithRetry()` 最多 3 次，间隔 1s | `AgentRunner.java:466` |
+| **有界队列** | `ArrayBlockingQueue(100)` 防 OOM | `MessageBus.java` |
+| **优雅关闭** | shutdown hook → 排空队列 → 关闭线程池 | `NanobotRunner.java` |
+| **流式中断** | Esc 键 → JLine Terminal 读取原始按键 | `CliChannel.java` |
+| **降级兜底** | 连续 3 次工具失败 → 不带工具直接回答 | `AgentRunner.java:167` |
+
+---
+
+### 6.9 完整架构一览
+
+经过 8 步演进，你已经从 10 行代码构建出了一个完整的 Agent 系统：
+
+```
+                      ┌──────────────────────┐
+                      │   入口: CLI / HTTP    │  Step 1: 用户输入
+                      └──────────┬───────────┘
+                                 │
+                      ┌──────────▼───────────┐
+                      │     MessageBus       │  Step 4: 消息队列
+                      └──────────┬───────────┘
+                                 │
+           ┌─────────────────────▼─────────────────────┐
+           │              AgentLoop                    │
+           │  RESTORE → BUILD → RUN → SAVE → RESPOND  │  Step 3,5,6,7
+           │  [System Prompt] [Tools] [Stream]        │
+           └─────────────────────┬─────────────────────┘
+                                 │
+           ┌─────────────────────▼─────────────────────┐
+           │              AgentRunner                  │
+           │  LLM ← → Tool Execute (递归循环)          │  Step 2
+           └─────────────────────┬─────────────────────┘
+                                 │
+           ┌─────────────────────▼─────────────────────┐
+           │   Tools: read_file | exec | web_search... │  Step 2
+           │   Security: Guard → Rule → Mode          │  Step 6
+           │   Session: JSONL + metadata.json         │  Step 7
+           └───────────────────────────────────────────┘
+```
+
+**你从这个项目中可以学到**：
+- 不依赖任何 AI 框架，纯 Java 手搓 Agent
+- State 模式、Strategy 模式、Command 模式的实际应用
+- 从 10 行 Demo 到生产级系统的完整演进路径
+- DeepSeek/OpenAI API 的调用细节（流式参数拼接、tool_calls 解析）
+
+> 本章的每一步在项目中都有对应代码。建议配合 `ARCHITECTURE_AND_LEARNING_ROADMAP.md § 五、架构说明` 阅读，那里有每个模块的深度剖析。
+
+
+## 七、新手学习路线
 
 ### 6.1 学习阶段规划
 
@@ -2976,7 +3246,7 @@ mvn spring-boot:run
 
 ---
 
-## 七、关键技术选型
+## 八、关键技术选型
 
 | 功能 | 技术方案 | 理由 |
 |------|---------|------|
@@ -2993,7 +3263,7 @@ mvn spring-boot:run
 
 ---
 
-## 八、配置说明
+## 九、配置说明
 
 ### 7.1 配置文件位置
 
@@ -3063,7 +3333,7 @@ memory:
 
 ---
 
-## 九、编译、启动与部署
+## 十、编译、启动与部署
 
 ### 8.1 环境要求
 
@@ -3177,7 +3447,7 @@ CMD ["java", "-jar", "app.jar"]
 
 ---
 
-## 十、调试与日志
+## 十一、调试与日志
 
 ### 10.1 日志配置
 
@@ -3198,7 +3468,7 @@ CMD ["java", "-jar", "app.jar"]
 
 ---
 
-## 十一、扩展建议
+## 十二、扩展建议
 
 ### 11.1 添加新工具
 
@@ -3266,7 +3536,7 @@ public class CustomMCPClient implements MCPClient {
 
 ---
 
-## 十二、常见问题
+## 十三、常见问题
 
 ### Q1：如何配置 API Key？
 
@@ -3298,7 +3568,7 @@ A：主要依赖：
 
 ---
 
-## 十三、学习资源
+## 十四、学习资源
 
 1. **官方文档**：`docs/` 目录下的文档
 2. **架构分析**：`nanobot_architecture_analysis.md`
@@ -3307,7 +3577,7 @@ A：主要依赖：
 
 ---
 
-## 十四、总结
+## 十五、总结
 
 Nanobot-Java 的核心价值在于：
 
