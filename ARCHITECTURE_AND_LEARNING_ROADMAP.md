@@ -1729,6 +1729,10 @@ nanobot-java/
 │   ├── config/config.yaml
 │   ├── logback.xml / logback-cli.xml
 │   └── static/                # sessions.html (会话管理前端)
+```
+
+---
+
 ### 5.9 工具系统 ★
 
 > 工具是 Agent 的"手"——没有工具，LLM 只能聊天；有了工具，Agent 才能读写文件、搜索网页、执行命令。
