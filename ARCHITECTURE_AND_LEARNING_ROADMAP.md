@@ -2103,44 +2103,81 @@ Dream.retrieve(query, limit)
 
 ---
 
-### 5.14 记忆压缩系统 (Consolidator)
+### 5.14 记忆系统 ★
 
-**功能说明**：当对话历史超过 token 预算时，自动压缩历史消息，保留关键信息。
+> 如果说上下文管理是"管道"（怎么存取），记忆系统就是"内容"（记住了什么）。它决定了 Agent 在对话中、跨对话、跨项目能"回忆"起多少信息。
 
-**压缩策略**：
-1. 计算当前对话的 token 使用量
-2. 如果超过预算，选择最不重要的消息进行压缩
-3. 使用 LLM 对选中的消息进行总结
-4. 用总结替换原始消息
+#### 5.14.1 三层记忆模型
 
-**优先级规则**：
-- 系统消息：最高优先级，不压缩
-- 工具调用结果：高优先级，保留关键结果
-- 用户消息：中等优先级，可适当压缩
-- 助手消息：低优先级，优先压缩
-
-**核心方法**：
-```java
-// 压缩消息列表
-CompletableFuture<List<Map<String, Object>>> consolidate(List<Map<String, Object>> messages)
-
-// 检查是否需要压缩
-boolean needsConsolidation(List<Map<String, Object>> messages)
-
-// 获取当前 token 使用量
-int getCurrentUsage(List<Map<String, Object>> messages)
 ```
-### 5.15 长期记忆系统 (Dream)
+┌──────────────────────────────────────────────────────┐
+│                    记忆系统三层模型                    │
+│                                                      │
+│  感知记忆 (Sensory)                                   │
+│  └── 当前消息（几秒）                                  │
+│      ↓ 进入 Context Window                            │
+│  工作记忆 (Working) = 对话历史                         │
+│  └── 一个会话内的所有消息（JSONL 文件）                 │
+│  └── Cons​olidator：超预算时自动压缩                   │
+│      ↓ 跨会话提取                                     │
+│  长期记忆 (Long-term) = Dream                         │
+│  └── LLM 从对话中提取关键信息                          │
+│  └── 跨会话持久化（.nanobot/dream.json）               │
+│                                                      │
+│  项目记忆 = NANOBOT.md                                │
+│  └── 项目级上下文，每次对话自动加载                     │
+└──────────────────────────────────────────────────────┘
+```
 
-**功能说明**：实现 AI Agent 的长期记忆功能，允许 Agent 存储和检索长期信息。
+#### 5.14.2 工作记忆 — 对话历史
 
-**核心功能**：
-1. **记忆存储** - 将对话中的关键信息保存到长期记忆
-2. **记忆检索** - 根据当前上下文检索相关记忆
-3. **记忆整合** - 将新信息与现有记忆融合
-4. **记忆清理** - 移除过时或重复的记忆
+一个会话内的全部消息，由 `SessionManager/SessionStore` 管理（存储层见 5.13 上下文管理系统）。
+
+| 操作 | 时机 | 存储 |
+|------|------|------|
+| **加载** | RESTORE 状态 | `loadHistory()` 从 JSONL 读取 |
+| **追加** | SAVE 状态 | `saveHistory()` 增量追加新增消息 |
+| **压缩** | COMPACT 状态 | Consolidator：超预算时 LLM 生成摘要 |
+| **清除** | `/clear` 命令 | `deleteHistory()` 删除 JSONL |
+| **恢复** | `/resume` 命令 | 切换 sessionId → 重新加载历史 |
+
+#### 5.14.3 记忆压缩 (Consolidator)
+
+当对话历史的估算 token 数超过 `contextWindowTokens` 的 90% 时触发：
+
+```
+Consolidator.needsConsolidation(messages)
+  │  估算 token 使用量 > 窗口 × 90%
+  ▼
+Consolidator.consolidate(messages)
+  │  调用 LLM 对旧消息生成摘要
+  │  保留：系统消息（最高优先级）
+  │  压缩：助手消息（优先压缩）> 用户消息 > 工具结果（保留关键）
+  ▼
+用摘要替换原始消息 → 释放 token 预算
+```
+
+**压缩失败处理**：不中断对话，warn 日志 + 继续使用原始消息。
+
+#### 5.14.4 长期记忆 (Dream)
+
+与工作记忆不同，Dream 负责**跨会话**的知识积累：
+
+```
+Dream.extractAndStore(sessionId, messages)
+  │  LLM 从对话中提取关键信息
+  │  生成记忆条目（content + keywords + importance）
+  │  写入 .nanobot/dream.json
+  ▼
+Dream.retrieve(query, limit)
+  │  根据当前上下文检索相关记忆
+  │  注入 System Prompt（BuildState 自动加载）
+  ▼
+跨会话知识可复用
+```
 
 **记忆结构**：
+
 | 字段 | 说明 |
 |------|------|
 | id | 唯一标识 |
@@ -2150,21 +2187,27 @@ int getCurrentUsage(List<Map<String, Object>> messages)
 | importance | 重要性分数 (0-1) |
 | source | 来源会话 ID |
 
-**核心方法**：
-```java
-// 从对话中提取并存储记忆
-CompletableFuture<List<MemoryEntry>> extractAndStore(String sessionId, List<Map<String, Object>> messages)
+#### 5.14.5 项目记忆 (NANOBOT.md)
 
-// 检索相关记忆
-CompletableFuture<List<MemoryEntry>> retrieve(String query, int limit)
+**生成**：`/init` 命令，Java 收集元数据 + LLM 生成内容 → 写入项目根目录。
 
-// 整合新信息到现有记忆
-CompletableFuture<MemoryEntry> consolidate(MemoryEntry newMemory)
+**加载**：`BuildState` 每次对话自动读取并注入 System Prompt。
 
-// 清理过时记忆
-void cleanup()
-```
-### 5.16 安全系统详解
+**内容**：技术栈、项目结构、构建命令、编码约定——本质是"项目级的永久上下文"。
+
+**对标**：Claude Code 的 `CLAUDE.md`。
+
+#### 5.14.6 各层记忆的加载时机
+
+| 记忆层 | 加载时机 | 生命周期 |
+|--------|---------|---------|
+| 工作记忆 | RESTORE → 恢复全部历史 | 单次会话 |
+| 压缩摘要 | COMPACT → 超预算时替换旧消息 | 单次会话（压缩后变小） |
+| 长期记忆 | BUILD → Dream.retrieve() 注入 System Prompt | 跨会话 |
+| 项目记忆 | BUILD → NANOBOT.md 完整注入 | 项目级别 |
+
+
+### 5.15 安全系统详解
 
 **PermissionMode 四种模式**：
 
@@ -2202,7 +2245,7 @@ Tool 调用
 - `3=拒绝`
 
 ---
-### 5.17 命令系统 (Command)
+### 5.16 命令系统 (Command)
 
 **设计模式**：Command 模式。所有 CLI/WebSocket/HTTP 命令通过 `CommandRegistry` 统一分发。
 
@@ -2248,11 +2291,11 @@ Tool 调用
 ```
 
 ---
-### 5.18 MCP (Model Context Protocol) 系统
+### 5.17 MCP (Model Context Protocol) 系统
 
 **MCP**（Model Context Protocol）是由 Cursor 编辑器提出的标准化协议，用于连接 AI Agent 与外部工具/服务。Nanobot 通过 MCP 支持，可以动态加载和使用第三方工具，而无需修改核心代码。
 
-#### 5.18.1 MCP 架构
+#### 5.17.1 MCP 架构
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -2275,7 +2318,7 @@ Tool 调用
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 5.18.2 MCP 架构
+#### 5.17.2 MCP 架构
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -2307,7 +2350,7 @@ Tool 调用
 └─────────────────────────────────────────────────────────────┘
 ```
 
-#### 5.18.3 支持的传输方式
+#### 5.17.3 支持的传输方式
 
 | 传输类型 | 说明 | 适用场景 |
 |---------|------|---------|
@@ -2315,7 +2358,7 @@ Tool 调用
 | **sse** | Server-Sent Events | 实时推送场景 |
 | **streamableHttp** | HTTP 流式传输 | 远程 MCP 服务 |
 
-#### 5.18.4 MCP 工具命名规则
+#### 5.17.4 MCP 工具命名规则
 
 注册后的工具名称格式：`mcp_<server_name>_<tool_name>`
 
@@ -2324,11 +2367,11 @@ Tool 调用
 - 服务器名 `weather` + 工具名 `get` → `mcp_weather_get`
 
 ---
-### 5.19 Skills 技能系统
+### 5.18 Skills 技能系统
 
 **Skills** 是参考 Claude Code 设计的可复用技能系统，允许用户定义可复用的工作流、指令集和领域知识。Skills 可以通过斜杠命令手动调用，也可以根据对话场景自动触发。
 
-#### 5.19.1 Skills 架构
+#### 5.18.1 Skills 架构
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -2360,7 +2403,7 @@ Tool 调用
 └─────────────────────────────────────────────────────────────┘
 ```
 
-#### 5.19.2 技能目录结构
+#### 5.18.2 技能目录结构
 
 ```
 .nanobot/skills/my-skill/
@@ -2370,7 +2413,7 @@ Tool 调用
 └── resources/        # 可选：资源文件
 ```
 
-#### 5.19.3 SKILL.md 格式
+#### 5.18.3 SKILL.md 格式
 
 ```markdown
 ---
@@ -2399,7 +2442,7 @@ auto-trigger: true
    - 资源泄漏
 ```
 
-#### 5.19.4 技能类型
+#### 5.18.4 技能类型
 
 | 类型 | 说明 | 示例 |
 |------|------|------|
@@ -2409,7 +2452,7 @@ auto-trigger: true
 | **自动化型** | 业务流程自动化 | 部署流程 |
 | **审查型** | 代码审查和安全检查 | 代码审查、安全扫描 |
 
-#### 5.19.5 调用方式
+#### 5.18.5 调用方式
 
 **1. 手动调用（斜杠命令）**
 ```
@@ -2426,7 +2469,7 @@ auto-trigger: true
 /code-review src/main/java/MyClass.java
 ```
 
-#### 5.19.6 核心组件
+#### 5.18.6 核心组件
 
 | 组件 | 职责 | 文件位置 |
 |------|------|----------|
@@ -2436,7 +2479,7 @@ auto-trigger: true
 | **SkillRegistry** | 技能注册中心 | `skill/SkillRegistry.java` |
 | **SkillManager** | 技能管理器 | `skill/SkillManager.java` |
 
-#### 5.19.7 使用示例
+#### 5.18.7 使用示例
 
 ```java
 // 创建技能管理器
@@ -2459,11 +2502,11 @@ List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
 ```
 
 ---
-### 5.20 Rules 规则系统
+### 5.19 Rules 规则系统
 
 **Rules** 是参考 Claude Code 的设计理念实现的全局规则系统，通过自然语言指令定义 Agent 的行为规范。规则告诉模型"在这个项目中你应该遵循什么规范"。
 
-#### 5.20.1 Rules 架构
+#### 5.19.1 Rules 架构
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -2494,7 +2537,7 @@ List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
 └─────────────────────────────────────────────────────────────┘
 ```
 
-#### 5.20.2 规则文件位置
+#### 5.19.2 规则文件位置
 
 | 级别 | 路径 | 优先级 | 说明 |
 |------|------|--------|------|
@@ -2503,7 +2546,7 @@ List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
 | **用户级** | `~/.nanobot/rules/*.md` | 低 | 当前用户全局规则 |
 | **内置** | Built-in | 最低 | 系统默认规则 |
 
-#### 5.20.3 规则文件格式
+#### 5.19.3 规则文件格式
 
 ```markdown
 ---
@@ -2525,7 +2568,7 @@ tags: [java, coding]
 - 使用 4 空格缩进
 ```
 
-#### 5.20.4 规则类型
+#### 5.19.4 规则类型
 
 | 类型 | 说明 | 示例 |
 |------|------|------|
@@ -2534,14 +2577,14 @@ tags: [java, coding]
 | **响应规则** | 回复格式规范 | 语言要求、输出格式 |
 | **业务规则** | 特定业务规则 | 项目特定规范 |
 
-#### 5.20.5 优先级机制
+#### 5.19.5 优先级机制
 
 规则按优先级排序后合并到系统提示词中：
 - 数字越小，优先级越高
 - 高优先级规则会在提示词中靠前显示
 - 内置规则默认优先级为 100-150
 
-#### 5.20.6 核心组件
+#### 5.19.6 核心组件
 
 | 组件 | 职责 | 文件位置 |
 |------|------|----------|
@@ -2550,7 +2593,7 @@ tags: [java, coding]
 | **RuleRegistry** | 规则注册中心 | `rules/RuleRegistry.java` |
 | **RuleManager** | 规则管理器 | `rules/RuleManager.java` |
 
-#### 5.20.7 使用示例
+#### 5.19.7 使用示例
 
 **1. 创建项目级规则文件 CLAUDE.md**：
 ```markdown
@@ -2589,7 +2632,7 @@ String systemPrompt = "你是一个 AI Agent。\n\n" + rulesPrompt;
 ```
 
 ---
-### 5.21 多通道接入系统 (ChannelServer)
+### 5.20 多通道接入系统 (ChannelServer)
 
 **功能说明**：提供 HTTP 和 WebSocket 通道的统一管理，允许客户端通过多种方式与 Agent 交互。
 
@@ -2638,7 +2681,7 @@ POST /api/chat
 ChannelServer server = new ChannelServer(messageBus, 8080);
 server.start();
 ```
-### 5.22 定时任务系统 (CronScheduler)
+### 5.21 定时任务系统 (CronScheduler)
 
 > 非核心功能，按"从能跑到跑得好"原则后置。
 
@@ -2672,7 +2715,7 @@ scheduler.schedule("0 * * * *", () -> {
 - `,` : 列出多个值
 - `-` : 指定范围
 - `/` : 步长
-### 5.23 V3 CLI 模式 (CliChannel)
+### 5.22 V3 CLI 模式 (CliChannel)
 
 **入口**：`NanobotCliApplication` → Spring Boot 容器 → `CliChannel.start()`
 
@@ -2710,7 +2753,7 @@ scheduler.schedule("0 * * * *", () -> {
 ```
 
 ---
-### 5.24 V2 Spring Boot 模式
+### 5.23 V2 Spring Boot 模式
 
 **入口**：`NanobotApplication` → 内嵌 Tomcat + Spring MVC
 
@@ -2735,7 +2778,7 @@ scheduler.schedule("0 * * * *", () -> {
 **配置类**：`NanobotConfig` 创建 Spring Bean（MessageBus, ToolRegistry, AgentLoop, SessionManager 等），注入到 `NanobotRunner` 静态字段
 
 ---
-### 5.25 V1 独立模式
+### 5.24 V1 独立模式
 
 **入口**：`Nanobot.java`，手动组装所有组件，无需 Spring。
 
@@ -2750,7 +2793,7 @@ scheduler.schedule("0 * * * *", () -> {
 - `parse(InputStream)` 反序列化帧（含掩码处理）
 
 ---
-### 5.26 子 Agent 系统 (Subagent)
+### 5.25 子 Agent 系统 (Subagent)
 
 **核心组件**：
 
