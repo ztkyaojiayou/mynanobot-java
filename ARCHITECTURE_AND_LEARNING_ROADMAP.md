@@ -2107,31 +2107,40 @@ Dream.retrieve(query, limit)
 
 > 如果说上下文管理是"管道"（怎么存取），记忆系统就是"内容"（记住了什么）。它决定了 Agent 在对话中、跨对话、跨项目能"回忆"起多少信息。
 
-#### 5.14.1 三层记忆模型
+#### 5.14.1 四层记忆模型
+
+> **概念对齐**：AI 领域的"工作记忆"和认知心理学中的"短期记忆"是同一个概念——容量有限、会话结束后消失。下表明确对应关系。
+
+| 记忆层 | 认知概念 | 本项目的实现 | 生命周期 | 存储介质 |
+|--------|---------|-------------|---------|---------|
+| **感知记忆** | Sensory Memory | 当前正在处理的消息 | 毫秒~秒 | 内存（TurnContext） |
+| **短期记忆** | Short-term / Working Memory | 一个会话内的对话历史 | 单次会话 | JSONL 文件 |
+| **长期记忆** | Long-term Memory | Dream — 跨会话知识 | 永久 | `.nanobot/dream.json` |
+| **项目记忆** | Project Memory | NANOBOT.md — 项目级上下文 | 项目级别 | 项目根目录 Markdown |
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│                    记忆系统三层模型                    │
+│                    四层记忆模型                        │
 │                                                      │
-│  感知记忆 (Sensory)                                   │
-│  └── 当前消息（几秒）                                  │
-│      ↓ 进入 Context Window                            │
-│  工作记忆 (Working) = 对话历史                         │
-│  └── 一个会话内的所有消息（JSONL 文件）                 │
+│  ① 感知记忆 (Sensory)                                 │
+│  └── 当前消息（毫秒~秒），在 TurnContext 内存中        │
+│      ↓ 追加到消息列表                                 │
+│  ② 短期记忆 / 工作记忆 (Short-term / Working)         │
+│  └── 一个会话内的全部消息（JSONL）                     │
 │  └── Cons​olidator：超预算时自动压缩                   │
-│      ↓ 跨会话提取                                     │
-│  长期记忆 (Long-term) = Dream                         │
-│  └── LLM 从对话中提取关键信息                          │
+│      ↓ LLM 提取关键信息                               │
+│  ③ 长期记忆 (Long-term) = Dream                       │
 │  └── 跨会话持久化（.nanobot/dream.json）               │
 │                                                      │
-│  项目记忆 = NANOBOT.md                                │
+│  ④ 项目记忆 = NANOBOT.md                              │
 │  └── 项目级上下文，每次对话自动加载                     │
+│  └── 对标 Claude Code 的 CLAUDE.md                    │
 └──────────────────────────────────────────────────────┘
 ```
 
-#### 5.14.2 工作记忆 — 对话历史
+#### 5.14.2 短期记忆（工作记忆）— 对话历史
 
-一个会话内的全部消息，由 `SessionManager/SessionStore` 管理（存储层见 5.13 上下文管理系统）。
+即"短期记忆 = 工作记忆"——一个会话内的全部消息。容量受 Context Window（约 128K tokens）限制，超限时由 Consolidator 压缩腾出空间。存储层由 `SessionManager/SessionStore` 管理（详见 5.13 上下文管理系统）。
 
 | 操作 | 时机 | 存储 |
 |------|------|------|
@@ -2141,9 +2150,9 @@ Dream.retrieve(query, limit)
 | **清除** | `/clear` 命令 | `deleteHistory()` 删除 JSONL |
 | **恢复** | `/resume` 命令 | 切换 sessionId → 重新加载历史 |
 
-#### 5.14.3 记忆压缩 (Consolidator)
+#### 5.14.3 短期记忆压缩 (Consolidator)
 
-当对话历史的估算 token 数超过 `contextWindowTokens` 的 90% 时触发：
+当短期记忆（对话历史）的估算 token 数超过 Context Window 的 90% 时触发：
 
 ```
 Consolidator.needsConsolidation(messages)
@@ -2201,7 +2210,8 @@ Dream.retrieve(query, limit)
 
 | 记忆层 | 加载时机 | 生命周期 |
 |--------|---------|---------|
-| 工作记忆 | RESTORE → 恢复全部历史 | 单次会话 |
+| 感知记忆 | 消息到达 → 存入 TurnContext | 即时（一条消息的处理周期） |
+| 短期记忆 | RESTORE → 恢复全部对话历史 | 单次会话 |
 | 压缩摘要 | COMPACT → 超预算时替换旧消息 | 单次会话（压缩后变小） |
 | 长期记忆 | BUILD → Dream.retrieve() 注入 System Prompt | 跨会话 |
 | 项目记忆 | BUILD → NANOBOT.md 完整注入 | 项目级别 |
