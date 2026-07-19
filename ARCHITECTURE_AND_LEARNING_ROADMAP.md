@@ -1500,7 +1500,63 @@ chatStream(messages, tools, onDelta)
 | **增量保存** | `saveHistory()` 只追加新增消息，不全量覆写 |
 
 ---
-### 5.6 核心接口设计
+### 5.6 流式输出机制 ★
+
+> 流式输出是 Agent 体验的关键——用户不想等 30 秒才看到完整回复，而是希望逐字呈现。
+
+#### 流式 vs 非流式
+
+| 模式 | 用户体验 | 实现 |
+|------|---------|------|
+| **非流式** | 等完整回复 → 一次显示 | `chat()` 返回完整 `LLMResponse` |
+| **流式 (SSE)** | 逐 token 实时渲染 | `chatStream()` + `onDelta` 回调 |
+
+#### 数据流
+
+```
+LLM API (SSE)
+  │  data: {"choices":[{"delta":{"content":"字"}}]}
+  │  data: [DONE]
+  ▼
+AgentRunner.runInternal()
+  │  onDelta.accept(delta)
+  ▼
+RunState
+  │  ├─ publishProgress(msg) → MessageBus
+  │  └─ StreamResponseCallback.onStreamData() → SSE/WebSocket 直推
+  ▼
+前端
+  │  fetch reader → handleStreamDelta()
+  │  currentStreamingContent += delta → md2html() → innerHTML
+```
+
+#### 关键组件
+
+| 组件 | 职责 |
+|------|------|
+| `LLMProvider.chatStream()` | 发起 SSE 请求，逐行解析 |
+| `RunState.buildOnDelta()` | 构建流式回调，双路径推送 |
+| `StreamResponseCallback` | 接口：`onStreamData()` + `onStreamComplete()` |
+| `DeepSeekProvider.ToolCallAccumulator` | DeepSeek 逐字符流式返回 arguments，跨 delta 拼接后解析 |
+| 前端 `sendMessageStreamHTTP()` | `fetch` + `ReadableStream` reader 逐行 SSE |
+
+#### DeepSeek 流式参数特殊性
+
+DeepSeek 和其他模型不同——arguments 逐字符发送：
+
+```
+Delta 1: arguments: "{"
+Delta 2: arguments: "\""
+Delta 3: arguments: "path"
+...
+```
+
+`ToolCallAccumulator` 按 index 用 StringBuilder 拼接，流式结束后一次性解析完整 JSON。
+
+---
+
+
+### 5.7 核心接口设计
 
 #### Tool 接口
 
@@ -1609,7 +1665,7 @@ public class MCPToolWrapper implements Tool {
 ```
 
 ---
-### 5.7 模块结构
+### 5.8 模块结构
 
 ```
 nanobot-java/
@@ -1672,59 +1728,83 @@ nanobot-java/
 │   ├── config/config.yaml
 │   ├── logback.xml / logback-cli.xml
 │   └── static/                # sessions.html (会话管理前端)
-└── pom.xml
+### 5.9 工具系统 ★
+
+> 工具是 Agent 的"手"——没有工具，LLM 只能聊天；有了工具，Agent 才能读写文件、搜索网页、执行命令。
+
+#### 设计理念
+
 ```
-### 5.8 内置工具一览
+Tool 接口（契约）
+  ├── getName()        工具名（LLM 通过 function name 调用）
+  ├── getDescription()  功能描述（LLM 判断何时使用）
+  ├── getParameters()   JSON Schema（LLM 知道传什么参数）
+  ├── isReadOnly()      权限判定（PLAN 模式只放行只读工具）
+  └── execute(params)   执行逻辑（异步 CompletableFuture）
+```
 
-**文件工具**：
+**17 个内置工具**：
 
-| 工具 | 只读 | 说明 |
-|------|------|------|
-| `read_file` | ✅ | 读取文件内容（支持行范围） |
-| `write_file` | ❌ | 创建或覆盖文件 |
-| `edit_file` | ❌ | 精确字符串替换编辑 |
-| `list_dir` | ✅ | 列目录（支持递归，path 默认 `.`） |
-| `glob` | ✅ | 通配符文件搜索（pattern 默认 `*`） |
-| `grep` | ✅ | 文件内容搜索（path 默认 `.`） |
+| 工具 | 类型 | 只读 | 说明 |
+|------|------|------|------|
+| `read_file` | 文件 | ✅ | 读取文件内容（支持行范围、offset/limit） |
+| `write_file` | 文件 | ❌ | 创建或覆盖文件 |
+| `edit_file` | 文件 | ❌ | 精确字符串替换编辑 |
+| `list_dir` | 文件 | ✅ | 列目录（path 默认 `.`，支持递归） |
+| `glob` | 文件 | ✅ | 通配符文件搜索（pattern 默认 `*`） |
+| `grep` | 文件 | ✅ | 文件内容搜索（path 默认 `.`） |
+| `exec` | Shell | ❌ | 执行命令（自动检测 PowerShell/pwsh） |
+| `web_search` | Web | ✅ | 网页搜索（百度千帆 / Bing / Brave） |
+| `web_fetch` | Web | ✅ | 抓取网页内容转 Markdown |
+| `task_create` | 任务 | ❌ | 创建追踪任务 |
+| `task_list` | 任务 | ✅ | 列出任务，支持状态过滤 |
+| `task_update` | 任务 | ❌ | 更新任务状态/依赖 |
+| `ask_user` | 交互 | ✅ | LLM 在关键决策点向用户提问 |
+| `get_current_time` | 工具 | ✅ | 获取当前时间 |
+| `spawn` | 子Agent | ❌ | 动态创建子 Agent 执行任务 |
+| `spawn_check` | 子Agent | ✅ | 检查子 Agent 任务状态 |
+| （MCP 动态工具） | MCP | 视具体工具 | 通过 MCP 协议动态加载 |
 
-**Shell 工具**：
+#### 工具执行流程
 
-| 工具 | 只读 | 说明 |
-|------|------|------|
-| `exec` | ❌ | 执行 shell 命令。自动检测 PowerShell/pwsh，避免 cmd /c 吃掉转义符 |
+```
+ToolRegistry.execute(name, params)
+  ├─ 1. 查找工具 (tools.get(name))
+  ├─ 2. 验证参数 (tool.validateParameters(params))
+  ├─ 3. 权限检查 (permissionManager.check(tool, params))
+  └─ 4. 执行工具 (tool.execute(params))
+        └─ 结果包装: [TOOL_OK] / [TOOL_ERR]
+```
 
-**Web 工具**：
+#### 参数默认值
 
-| 工具 | 只读 | 说明 |
-|------|------|------|
-| `web_search` | ✅ | 网页搜索（支持百度/Brave/Bing） |
-| `web_fetch` | ✅ | 抓取网页内容转 Markdown |
+| 工具 | 参数 | 默认值 | 理由 |
+|------|------|--------|------|
+| `list_dir` | `path` | `"."` | 大多数场景下列当前目录 |
+| `glob` | `pattern` | `"*"` | 展示所有文件 |
+| `grep` | `path` | `"."` | 默认搜索当前目录 |
 
-**任务工具**：
+#### Plan Mode 工具过滤
 
-| 工具 | 只读 | 说明 |
-|------|------|------|
-| `task_create` | ❌ | 创建任务（对标 Claude Code） |
-| `task_list` | ✅ | 列出任务，支持状态过滤 |
-| `task_update` | ❌ | 更新任务状态/依赖 |
-
-**交互工具**：
-
-| 工具 | 只读 | 说明 |
-|------|------|------|
-| `ask_user` | ✅ | LLM 在关键决策点向用户提问 |
-| `get_current_time` | ✅ | 获取当前时间 |
-
-**子 Agent 工具**：
-
-| 工具 | 只读 | 说明 |
-|------|------|------|
-| `spawn` | ❌ | 动态创建子 Agent 执行任务 |
-| `spawn_check` | ✅ | 检查子 Agent 任务状态 |
+Plan Mode 激活时 `getDefinitions(true)` 只返回只读工具，从源头杜绝写操作。
 
 ---
 
-### 5.9 身份系统 (Identity)
+
+
+**三件套**：`.nanobot/` 目录下的三个 Markdown 文件，控制 Agent 的行为和个性。
+
+| 文件 | 说明 | 示例 |
+|------|------|------|
+| `SOUL.md` | Agent 的核心身份定义（名字、使命、底线） | "你是 my-nanobot，永远不说自己是 Claude" |
+| `IDENTITY.md` | 个性特征（语气、风格、偏好） | "回答简洁，用中文，代码块标注语言" |
+| `USER.md` | 用户信息（称呼、偏好、上下文） | "用户叫小王，偏好 Java 17，Mac 环境" |
+
+**System Prompt 注入**（首位+近因效应）：
+```
+getSystemPrompt(currentDate) =
+
+### 5.10 身份系统 (Identity)
 
 **三件套**：`.nanobot/` 目录下的三个 Markdown 文件，控制 Agent 的行为和个性。
 
@@ -1749,7 +1829,74 @@ getSystemPrompt(currentDate) =
 组件：`IdentityManager` → `IdentityLoader`（静态工厂方法，从 Markdown 文件加载）→ `Soul` / `Identity` / `UserProfile`（前端模型类）
 
 ---
-### 5.10 记忆压缩系统 (Consolidator)
+
+---
+
+### 5.11 System Prompt 构建 ★
+
+> System Prompt 是控制 Agent 行为的最高优先级指令。它的质量直接决定 Agent 的表现。
+
+#### 构建流程
+
+```
+BuildState.execute(TurnContext)
+  │
+  ├─ ① 身份注入（SOUL + IDENTITY + USER）
+  │      IdentityManager.getSystemPrompt(currentDate)
+  │      首位效应：名字声明 + 日期覆盖（对抗模型身份混淆）
+  │
+  ├─ ② 联网搜索开关（useSearch 元数据）
+  │
+  ├─ ③ NANOBOT.md 项目记忆
+  │      从项目根目录读取（/init 生成）
+  │
+  ├─ ④ Plan Mode 提示词（如激活）
+  │      工具列表自动过滤为只读
+  │
+  ├─ ⑤ Rules 规则注入
+  │      RuleManager.getRulesPrompt()
+  │
+  └─ ⑥ 近因效应收尾
+         "再次强调：你的名字是 my-nanobot"
+         "[TOOL_OK]/[TOOL_ERR] 格式说明"
+```
+
+#### 设计原则
+
+| 原则 | 说明 |
+|------|------|
+| **首位效应** | 开头的信息影响力最大——身份声明放在最前面 |
+| **近因效应** | 结尾的信息记忆最深——身份+格式放在最后面 |
+| **按需注入** | 不全量灌入——Plan Mode 只在激活时注入，Rules 存在才追加 |
+| **动态日期** | `LocalDate.now()` 实时生成，覆盖训练数据中的过期日期 |
+
+#### 最终结构
+
+```
+【开头】名字声明 + 日期覆盖
+【身份】SOUL.md + IDENTITY.md + USER.md
+【项目】NANOBOT.md
+【模式】Plan Mode 提示词（如激活）
+【规则】Rules 规则合并
+【结尾】"再次强调：你的名字是 my-nanobot"
+```
+
+---
+
+
+    【开头 — 首位效应】
+    名字声明 + 日期覆盖 + 身份信息
+    ↓
+    （中间是 NANOBOT.md + Plan Mode + Rules）
+    ↓
+    【结尾 — 近因效应】
+    再次强调身份 + 工具结果格式说明
+```
+
+组件：`IdentityManager` → `IdentityLoader`（静态工厂方法，从 Markdown 文件加载）→ `Soul` / `Identity` / `UserProfile`（前端模型类）
+
+---
+### 5.12 记忆压缩系统 (Consolidator)
 
 **功能说明**：当对话历史超过 token 预算时，自动压缩历史消息，保留关键信息。
 
@@ -1776,7 +1923,7 @@ boolean needsConsolidation(List<Map<String, Object>> messages)
 // 获取当前 token 使用量
 int getCurrentUsage(List<Map<String, Object>> messages)
 ```
-### 5.11 长期记忆系统 (Dream)
+### 5.13 长期记忆系统 (Dream)
 
 **功能说明**：实现 AI Agent 的长期记忆功能，允许 Agent 存储和检索长期信息。
 
@@ -1810,7 +1957,7 @@ CompletableFuture<MemoryEntry> consolidate(MemoryEntry newMemory)
 // 清理过时记忆
 void cleanup()
 ```
-### 5.12 安全系统详解
+### 5.14 安全系统详解
 
 **PermissionMode 四种模式**：
 
@@ -1848,7 +1995,7 @@ Tool 调用
 - `3=拒绝`
 
 ---
-### 5.13 命令系统 (Command)
+### 5.15 命令系统 (Command)
 
 **设计模式**：Command 模式。所有 CLI/WebSocket/HTTP 命令通过 `CommandRegistry` 统一分发。
 
@@ -1894,7 +2041,7 @@ Tool 调用
 ```
 
 ---
-### 5.14 MCP (Model Context Protocol) 系统
+### 5.16 MCP (Model Context Protocol) 系统
 
 **MCP**（Model Context Protocol）是由 Cursor 编辑器提出的标准化协议，用于连接 AI Agent 与外部工具/服务。Nanobot 通过 MCP 支持，可以动态加载和使用第三方工具，而无需修改核心代码。
 
@@ -1970,7 +2117,7 @@ Tool 调用
 - 服务器名 `weather` + 工具名 `get` → `mcp_weather_get`
 
 ---
-### 5.15 Skills 技能系统
+### 5.17 Skills 技能系统
 
 **Skills** 是参考 Claude Code 设计的可复用技能系统，允许用户定义可复用的工作流、指令集和领域知识。Skills 可以通过斜杠命令手动调用，也可以根据对话场景自动触发。
 
@@ -2105,7 +2252,7 @@ List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
 ```
 
 ---
-### 5.16 Rules 规则系统
+### 5.18 Rules 规则系统
 
 **Rules** 是参考 Claude Code 的设计理念实现的全局规则系统，通过自然语言指令定义 Agent 的行为规范。规则告诉模型"在这个项目中你应该遵循什么规范"。
 
@@ -2235,7 +2382,7 @@ String systemPrompt = "你是一个 AI Agent。\n\n" + rulesPrompt;
 ```
 
 ---
-### 5.17 多通道接入系统 (ChannelServer)
+### 5.19 多通道接入系统 (ChannelServer)
 
 **功能说明**：提供 HTTP 和 WebSocket 通道的统一管理，允许客户端通过多种方式与 Agent 交互。
 
@@ -2284,7 +2431,7 @@ POST /api/chat
 ChannelServer server = new ChannelServer(messageBus, 8080);
 server.start();
 ```
-### 5.18 定时任务系统 (CronScheduler)
+### 5.20 定时任务系统 (CronScheduler)
 
 > 非核心功能，按"从能跑到跑得好"原则后置。
 
@@ -2318,7 +2465,7 @@ scheduler.schedule("0 * * * *", () -> {
 - `,` : 列出多个值
 - `-` : 指定范围
 - `/` : 步长
-### 5.19 V3 CLI 模式 (CliChannel)
+### 5.21 V3 CLI 模式 (CliChannel)
 
 **入口**：`NanobotCliApplication` → Spring Boot 容器 → `CliChannel.start()`
 
@@ -2356,7 +2503,7 @@ scheduler.schedule("0 * * * *", () -> {
 ```
 
 ---
-### 5.20 V2 Spring Boot 模式
+### 5.22 V2 Spring Boot 模式
 
 **入口**：`NanobotApplication` → 内嵌 Tomcat + Spring MVC
 
@@ -2381,7 +2528,7 @@ scheduler.schedule("0 * * * *", () -> {
 **配置类**：`NanobotConfig` 创建 Spring Bean（MessageBus, ToolRegistry, AgentLoop, SessionManager 等），注入到 `NanobotRunner` 静态字段
 
 ---
-### 5.21 V1 独立模式
+### 5.23 V1 独立模式
 
 **入口**：`Nanobot.java`，手动组装所有组件，无需 Spring。
 
@@ -2396,7 +2543,7 @@ scheduler.schedule("0 * * * *", () -> {
 - `parse(InputStream)` 反序列化帧（含掩码处理）
 
 ---
-### 5.22 子 Agent 系统 (Subagent)
+### 5.24 子 Agent 系统 (Subagent)
 
 **核心组件**：
 
