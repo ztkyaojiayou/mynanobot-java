@@ -952,7 +952,6 @@ mvn test
             ║  PreToolUseHookManager (Hook 链)     ║
             ╚══════════════════════════════════════╝
 ```
-
 ### 5.2 核心组件职责
 
 | 组件 | 职责 | 文件位置 |
@@ -989,7 +988,6 @@ mvn test
 | **MarkdownRenderer** | CLI 终端 Markdown 渲染 | `v3/tui/MarkdownRenderer.java` |
 
 > 📖 完整安全模块文档: [docs/features.md](docs/features.md)
-
 ### 5.3 Agent Loop — 核心循环 ★
 
 > Agent Loop 是 AI Agent 的心脏。理解它就理解了 Agent 是如何"活着"的。
@@ -1096,156 +1094,7 @@ AgentRunner 在以下任一条件满足时停止循环：
 ```
 
 ---
-
-### 5.4 定时任务系统 (CronScheduler)
-
-> 非核心功能，按"从能跑到跑得好"原则后置。
-
-**功能说明**：基于 cron 表达式的定时任务调度器，支持在指定时间执行任务。
-
-**支持的 cron 表达式格式**：
-```
-┌───────────── 分钟 (0 - 59)
-│ ┌───────────── 小时 (0 - 23)
-│ │ ┌───────────── 日期 (1 - 31)
-│ │ │ ┌───────────── 月份 (1 - 12)
-│ │ │ │ ┌───────────── 星期 (0 - 6) (周日=0)
-│ │ │ │ │
-* * * * *
-```
-
-**使用示例**：
-```java
-CronScheduler scheduler = new CronScheduler(messageBus);
-scheduler.schedule("0 * * * *", () -> {
-    messageBus.publish(OutboundMessage.builder()
-        .channel("system")
-        .content("每分钟执行一次")
-        .build());
-});
-```
-
-**支持的特殊字符**：
-- `*` : 匹配任何值
-- `?` : 不指定值（用于日期和星期）
-- `,` : 列出多个值
-- `-` : 指定范围
-- `/` : 步长
-
-### 5.5 记忆压缩系统 (Consolidator)
-
-**功能说明**：当对话历史超过 token 预算时，自动压缩历史消息，保留关键信息。
-
-**压缩策略**：
-1. 计算当前对话的 token 使用量
-2. 如果超过预算，选择最不重要的消息进行压缩
-3. 使用 LLM 对选中的消息进行总结
-4. 用总结替换原始消息
-
-**优先级规则**：
-- 系统消息：最高优先级，不压缩
-- 工具调用结果：高优先级，保留关键结果
-- 用户消息：中等优先级，可适当压缩
-- 助手消息：低优先级，优先压缩
-
-**核心方法**：
-```java
-// 压缩消息列表
-CompletableFuture<List<Map<String, Object>>> consolidate(List<Map<String, Object>> messages)
-
-// 检查是否需要压缩
-boolean needsConsolidation(List<Map<String, Object>> messages)
-
-// 获取当前 token 使用量
-int getCurrentUsage(List<Map<String, Object>> messages)
-```
-
-### 5.6 长期记忆系统 (Dream)
-
-**功能说明**：实现 AI Agent 的长期记忆功能，允许 Agent 存储和检索长期信息。
-
-**核心功能**：
-1. **记忆存储** - 将对话中的关键信息保存到长期记忆
-2. **记忆检索** - 根据当前上下文检索相关记忆
-3. **记忆整合** - 将新信息与现有记忆融合
-4. **记忆清理** - 移除过时或重复的记忆
-
-**记忆结构**：
-| 字段 | 说明 |
-|------|------|
-| id | 唯一标识 |
-| content | 记忆内容 |
-| keywords | 关键词标签 |
-| timestamp | 创建时间 |
-| importance | 重要性分数 (0-1) |
-| source | 来源会话 ID |
-
-**核心方法**：
-```java
-// 从对话中提取并存储记忆
-CompletableFuture<List<MemoryEntry>> extractAndStore(String sessionId, List<Map<String, Object>> messages)
-
-// 检索相关记忆
-CompletableFuture<List<MemoryEntry>> retrieve(String query, int limit)
-
-// 整合新信息到现有记忆
-CompletableFuture<MemoryEntry> consolidate(MemoryEntry newMemory)
-
-// 清理过时记忆
-void cleanup()
-```
-
-### 5.7 多通道接入系统 (ChannelServer)
-
-**功能说明**：提供 HTTP 和 WebSocket 通道的统一管理，允许客户端通过多种方式与 Agent 交互。
-
-**支持的通道类型**：
-
-| 通道类型 | 说明 | 端点 |
-|---------|------|------|
-| HTTP REST | 同步请求/响应模式 | `/api/chat` |
-| WebSocket | 异步双向通信 | `/ws` |
-
-**HTTP API 端点**：
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/chat` | POST | 同步发送消息 |
-| `/api/chat/stream` | POST | SSE 流式发送消息 |
-| `/api/sessions` | GET | 获取会话列表（含名称、消息数） |
-| `/api/sessions/{key}` | GET | 获取会话详情（消息历史） |
-| `/api/sessions/{key}` | PATCH | 重命名会话 `{"name":"..."}` |
-| `/api/sessions/{key}` | DELETE | 删除会话 |
-| `/api/health` | GET | 健康检查 |
-
-**消息参数**：
-
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| `content` | String | 消息内容（必填） |
-| `chat_id` | String | 会话 ID（可选） |
-| `useSearch` | Boolean | 是否启用联网搜索（可选，默认 true） |
-
-**useSearch 参数说明**：
-- `true`（默认）：允许 LLM 调用 web_search 工具进行联网搜索
-- `false`：禁用所有工具调用，LLM 将直接回答问题，不进行联网搜索
-
-**使用示例**：
-```json
-POST /api/chat
-{
-  "content": "今天天气怎么样？",
-  "useSearch": true
-}
-```
-
-**使用示例**：
-```java
-ChannelServer server = new ChannelServer(messageBus, 8080);
-server.start();
-```
-
-### 5.8 状态机流程（已重构为 State 模式）
+### 5.4 状态机流程（已重构为 State 模式）
 
 `AgentLoop` 采用 **State 模式** 管理消息处理，每个状态对应一个独立的 `AgentState` 实现类：
 
@@ -1275,8 +1124,7 @@ RestoreState CompactSt CommandSt BuildSt  RunSt   SaveSt  RespondSt
 | RUN | ok | SAVE | 执行 LLM 调用和工具 |
 | SAVE | ok | RESPOND | 保存会话状态 |
 | RESPOND | ok | DONE | 发送响应 |
-
-### 5.9 核心消息处理全链路详解
+### 5.5 核心消息处理全链路详解
 
 > **本节目标**：完整梳理一条用户消息从进入系统到生成响应的全链路，理解每一层的职责、数据流转和关键代码路径。
 
@@ -1652,266 +1500,7 @@ chatStream(messages, tools, onDelta)
 | **增量保存** | `saveHistory()` 只追加新增消息，不全量覆写 |
 
 ---
-
-### 5.10 模块结构
-
-```
-nanobot-java/
-├── scripts/                   # 启动脚本
-│   ├── nanobot                # Mac/Linux 启动脚本
-│   ├── nanobot.bat            # Windows 启动脚本
-│   └── start.sh / stop.sh     # 服务启停脚本
-├── src/main/java/com/nanobot/
-│   ├── NanobotRunner.java     # Spring Boot 组件初始化
-│   ├── bus/                   # 消息总线
-│   ├── command/               # 命令系统 (Command 模式)
-│   │   ├── Command.java
-│   │   ├── CommandContext.java
-│   │   ├── CommandRegistry.java
-│   │   └── impl/              # /exit, /help, /init, /mode, /resume
-│   ├── config/                # 配置系统
-│   ├── core/                  # 核心引擎
-│   │   ├── AgentLoop.java     # 状态机引擎 (State 模式)
-│   │   ├── AgentRunner.java   # LLM 调用循环
-│   │   ├── TaskStore.java     # 任务追踪
-│   │   ├── TurnContext.java
-│   │   ├── TurnState.java
-│   │   ├── state/             # State 处理器 (NEW)
-│   │   │   ├── AgentState.java
-│   │   │   ├── RestoreState.java / CompactState.java / CommandState.java
-│   │   │   ├── BuildState.java / RunState.java
-│   │   │   └── SaveState.java / RespondState.java
-│   │   ├── hook/              # 钩子系统
-│   │   └── subagent/          # 子 Agent
-│   ├── cron/                  # 定时任务
-│   ├── identity/              # 身份系统 (SOUL/IDENTITY/USER)
-│   ├── mcp/                   # MCP 协议
-│   ├── memory/                # 记忆存储
-│   ├── providers/             # LLM 提供商
-│   │   ├── LLMProvider.java
-│   │   ├── ProviderFactory.java   # 策略工厂 (NEW)
-│   │   └── impl/              # OpenAI, DeepSeek
-│   ├── rules/                 # 规则系统
-│   ├── security/              # 安全系统
-│   │   ├── PermissionManager.java
-│   │   ├── PermissionMode.java   # PLAN/DEFAULT/ACCEPT_EDITS/BYPASS
-│   │   ├── guard/             # PathGuard/CommandGuard/NetworkGuard
-│   │   ├── hook/              # PreToolUseHook
-│   │   └── rule/              # RuleEngine
-│   ├── session/               # 会话管理
-│   │   ├── SessionManager.java    # 业务层
-│   │   └── SessionStore.java      # 存储层 (NEW)
-│   ├── skill/                 # 技能系统
-│   ├── tools/                 # 工具系统 (17+ 内置工具)
-│   │   ├── Tool.java / ToolRegistry.java
-│   │   └── impl/              # 文件、搜索、Shell、Web、Task、AskUser
-│   ├── v1/                    # V1 独立模式 (Nanobot.java + ChannelServer)
-│   ├── v2/                    # V2 Spring Boot (NanobotApplication + REST + WS)
-│   │   ├── controller/        # ChatController, SessionController, HealthController
-│   │   └── websocket/         # NanobotWebSocketEndpoint
-│   └── v3/                    # V3 CLI 模式 (NanobotCliApplication)
-│       ├── cli/               # CliChannel (JLine 终端 + Markdown 渲染)
-│       └── tui/               # MarkdownRenderer
-├── src/main/resources/
-│   ├── config/config.yaml
-│   ├── logback.xml / logback-cli.xml
-│   └── static/                # sessions.html (会话管理前端)
-└── pom.xml
-```
-
-### 5.11 命令系统 (Command)
-
-**设计模式**：Command 模式。所有 CLI/WebSocket/HTTP 命令通过 `CommandRegistry` 统一分发。
-
-```
-┌─────────────────────────────────────────────┐
-│               CommandRegistry               │
-│  /exit  /help  /init  /mode  /resume       │
-│          /plan  /clear                      │
-└────────────────────┬────────────────────────┘
-                     │ execute(ctx, input)
-                     ▼
-┌─────────────────────────────────────────────┐
-│              Command 接口                    │
-│  name() + aliases() + description()         │
-│  execute(CommandContext, String) → boolean  │
-└─────────────────────────────────────────────┘
-```
-
-**CommandContext**：record 类型，注入组件依赖（ToolRegistry, PermissionManager, AgentLoop, sessionId, shutdown）
-
-**命令清单**：
-
-| 命令 | 别名 | 说明 |
-|------|------|------|
-| `/exit` | `/q`, `/quit` | 退出 CLI 进程 |
-| `/help` | — | 显示所有可用命令 |
-| `/init` | — | 分析项目生成 NANOBOT.md（混合：Java收集元数据+LLM生成内容） |
-| `/mode` | `/plan` | 切换权限模式。`/mode plan` 进入规划模式，`/plan approve` 审批执行 |
-| `/resume` | — | 列出最近会话，`/resume <key>` 恢复指定会话 |
-| `/clear` | — | 清空当前会话上下文（inline 处理，不走 Command 接口） |
-
-**Plan Mode 工作流**（`/mode plan` → `/plan approve`）：
-```
-/mode plan  → AgentLoop.planMode = true
-            → PermissionMode.PLAN (只读)
-            → 工具列表过滤为只读 (getDefinitions(true))
-            → System Prompt 注入规划模式指令
-            → LLM 只能探索 + 出计划，不能写代码
-
-/plan approve  → planMode = false
-              → PermissionMode.ACCEPT_EDITS
-              → 自动发送执行指令到 AgentLoop
-```
-
----
-
-### 5.12 身份系统 (Identity)
-
-**三件套**：`.nanobot/` 目录下的三个 Markdown 文件，控制 Agent 的行为和个性。
-
-| 文件 | 说明 | 示例 |
-|------|------|------|
-| `SOUL.md` | Agent 的核心身份定义（名字、使命、底线） | "你是 my-nanobot，永远不说自己是 Claude" |
-| `IDENTITY.md` | 个性特征（语气、风格、偏好） | "回答简洁，用中文，代码块标注语言" |
-| `USER.md` | 用户信息（称呼、偏好、上下文） | "用户叫小王，偏好 Java 17，Mac 环境" |
-
-**System Prompt 注入**（首位+近因效应）：
-```
-getSystemPrompt(currentDate) =
-    【开头 — 首位效应】
-    名字声明 + 日期覆盖 + 身份信息
-    ↓
-    （中间是 NANOBOT.md + Plan Mode + Rules）
-    ↓
-    【结尾 — 近因效应】
-    再次强调身份 + 工具结果格式说明
-```
-
-组件：`IdentityManager` → `IdentityLoader`（静态工厂方法，从 Markdown 文件加载）→ `Soul` / `Identity` / `UserProfile`（前端模型类）
-
----
-
-### 5.13 V3 CLI 模式 (CliChannel)
-
-**入口**：`NanobotCliApplication` → Spring Boot 容器 → `CliChannel.start()`
-
-```
-┌───────────────────────────────────────────────┐
-│                 CliChannel                     │
-│  ┌──────────┐  ┌──────────┐  ┌─────────────┐  │
-│  │ Scanner  │  │ JLine    │  │ Markdown     │  │
-│  │ (行输入) │  │ Terminal │  │ Renderer     │  │
-│  │          │  │ (Esc检测)│  │ (流式渲染)   │  │
-│  └──────────┘  └──────────┘  └─────────────┘  │
-│  ┌──────────────────────────────────────────┐  │
-│  │  交互式权限确认 (1/2/3 数字选择)          │  │
-│  │  AskUser 工具注入 (CLI stdin)            │  │
-│  │  流式响应回调 (MarkdownRenderer)         │  │
-│  └──────────────────────────────────────────┘  │
-└───────────────────────────────────────────────┘
-```
-
-**关键特性**：
-- **JLine Terminal**：跨平台 Esc 键检测，独立于 Scanner 的原始按键流
-- **MarkdownRenderer**：流式输出 Markdown 内容（代码块、标题、列表）
-- **交互式权限**：`1=允许 2=之后都放行 3=拒绝`
-- **流式取消**：`Esc` 中断当前回复
-- **命令系统**：`/` 前缀自动路由到 CommandRegistry
-- **会话恢复**：`--resume <key>` 启动参数
-
-**消息发送流程**：
-```
-用户输入 → scanner.nextLine()
-    → 命令? → CommandRegistry.execute()
-    → 消息? → InboundMessage(sessionId, content, channel="cli")
-            → MessageBus.publishInbound()
-            → 等待流式完成 (currentRequestId)
-```
-
----
-
-### 5.14 V2 Spring Boot 模式
-
-**入口**：`NanobotApplication` → 内嵌 Tomcat + Spring MVC
-
-**REST API**：
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/chat` | POST | 同步聊天，`waitForSessionResponse` 阻塞等待 |
-| `/api/chat/stream` | POST | SSE 流式聊天，`SseEmitter` 实时推送 |
-| `/api/sessions` | GET | 列出所有会话 |
-| `/api/sessions/{key}` | GET | 获取会话消息历史 |
-| `/api/sessions/{key}` | PATCH | 重命名会话 `{"name":"..."}` |
-| `/api/sessions/{key}` | DELETE | 删除会话 |
-| `/api/health` | GET | 健康检查 |
-
-**前端页面**：
-- `/` — `index.html`（聊天界面）
-- `/sessions.html` — 会话管理（列表、查看详情、重命名、删除）
-
-**WebSocket**：`NanobotWebSocketEndpoint`（`/ws`），Jakarta WebSocket 注解，流式响应通过 `StreamResponseCallback` → `session.sendText()`
-
-**配置类**：`NanobotConfig` 创建 Spring Bean（MessageBus, ToolRegistry, AgentLoop, SessionManager 等），注入到 `NanobotRunner` 静态字段
-
----
-
-### 5.15 V1 独立模式
-
-**入口**：`Nanobot.java`，手动组装所有组件，无需 Spring。
-
-**ChannelServer**：内嵌 HTTP 服务器（`com.sun.net.httpserver.HttpServer`）
-- `ChatHandler` — 处理 `POST /api/chat`，支持同步和 SSE 流式
-- `WebSocketHandler` — WebSocket 升级握手
-- `WebSocketConnection` — 原始 WebSocket 帧读写（`WebSocketFrame` 手动解析/组装）
-
-**WebSocketFrame**：WebSocket 协议帧的完整实现
-- `text(msg)` / `close()` / `ping()` / `pong()` 工厂方法
-- `send(OutputStream)` 序列化帧
-- `parse(InputStream)` 反序列化帧（含掩码处理）
-
----
-
-### 5.16 子 Agent 系统 (Subagent)
-
-**核心组件**：
-
-| 组件 | 说明 |
-|------|------|
-| `Subagent` | 子 Agent 接口：`execute(task)` 异步执行任务 |
-| `SubagentContext` | 子 Agent 上下文：任务数据 + 共享状态 + 父子通信 |
-| `SubagentCommunication` | 通信管理器：消息队列、事件发布/订阅、共享状态存储 |
-| `AgentCoordinator` | 协调器：任务分配、能力匹配、并行执行、结果汇总 |
-| `FileInbox` | 文件邮箱：基于文件系统的异步通信（`.nanobot/inbox/`） |
-| `SimpleSubagent` | 简单实现：使用独立 LLM 调用执行子任务 |
-
-**通信模式**：
-```
-主 Agent (Lead)                子 Agent 1              子 Agent 2
-     │                             │                       │
-     ├─ send(task) ──────────────→ │                       │
-     │                             ├─ execute(task)        │
-     │                             └─ sendToParent(result) →│
-     ├─ broadcast(msg) ───────────┼──────────────────────→ │
-     │                             │                       │
-     ├─ receive() ←───────────────┤                       │
-     └─ 汇总结果                                          │
-```
-
-**SubagentCommunication 核心方法**：
-- `send(from, to, msg)` — 点对点消息
-- `broadcast(from, msg)` — 广播给所有子 Agent
-- `sendToParent(childId, msg)` — 子→父汇报
-- `receive(agentId)` — 非阻塞接收
-- `setSharedState(key, value)` / `getSharedState(key)` — 跨 Agent 共享状态
-- `registerParentChild(parent, child)` — 注册父子关系
-
-**SpawnTool**：主 Agent 通过 `spawn` 工具动态创建子 Agent 并分配任务。
-
----
-
-### 5.17 核心接口设计
+### 5.6 核心接口设计
 
 #### Tool 接口
 
@@ -2020,8 +1609,292 @@ public class MCPToolWrapper implements Tool {
 ```
 
 ---
+### 5.7 模块结构
 
-### 5.18 MCP (Model Context Protocol) 系统
+```
+nanobot-java/
+├── scripts/                   # 启动脚本
+│   ├── nanobot                # Mac/Linux 启动脚本
+│   ├── nanobot.bat            # Windows 启动脚本
+│   └── start.sh / stop.sh     # 服务启停脚本
+├── src/main/java/com/nanobot/
+│   ├── NanobotRunner.java     # Spring Boot 组件初始化
+│   ├── bus/                   # 消息总线
+│   ├── command/               # 命令系统 (Command 模式)
+│   │   ├── Command.java
+│   │   ├── CommandContext.java
+│   │   ├── CommandRegistry.java
+│   │   └── impl/              # /exit, /help, /init, /mode, /resume
+│   ├── config/                # 配置系统
+│   ├── core/                  # 核心引擎
+│   │   ├── AgentLoop.java     # 状态机引擎 (State 模式)
+│   │   ├── AgentRunner.java   # LLM 调用循环
+│   │   ├── TaskStore.java     # 任务追踪
+│   │   ├── TurnContext.java
+│   │   ├── TurnState.java
+│   │   ├── state/             # State 处理器 (NEW)
+│   │   │   ├── AgentState.java
+│   │   │   ├── RestoreState.java / CompactState.java / CommandState.java
+│   │   │   ├── BuildState.java / RunState.java
+│   │   │   └── SaveState.java / RespondState.java
+│   │   ├── hook/              # 钩子系统
+│   │   └── subagent/          # 子 Agent
+│   ├── cron/                  # 定时任务
+│   ├── identity/              # 身份系统 (SOUL/IDENTITY/USER)
+│   ├── mcp/                   # MCP 协议
+│   ├── memory/                # 记忆存储
+│   ├── providers/             # LLM 提供商
+│   │   ├── LLMProvider.java
+│   │   ├── ProviderFactory.java   # 策略工厂 (NEW)
+│   │   └── impl/              # OpenAI, DeepSeek
+│   ├── rules/                 # 规则系统
+│   ├── security/              # 安全系统
+│   │   ├── PermissionManager.java
+│   │   ├── PermissionMode.java   # PLAN/DEFAULT/ACCEPT_EDITS/BYPASS
+│   │   ├── guard/             # PathGuard/CommandGuard/NetworkGuard
+│   │   ├── hook/              # PreToolUseHook
+│   │   └── rule/              # RuleEngine
+│   ├── session/               # 会话管理
+│   │   ├── SessionManager.java    # 业务层
+│   │   └── SessionStore.java      # 存储层 (NEW)
+│   ├── skill/                 # 技能系统
+│   ├── tools/                 # 工具系统 (17+ 内置工具)
+│   │   ├── Tool.java / ToolRegistry.java
+│   │   └── impl/              # 文件、搜索、Shell、Web、Task、AskUser
+│   ├── v1/                    # V1 独立模式 (Nanobot.java + ChannelServer)
+│   ├── v2/                    # V2 Spring Boot (NanobotApplication + REST + WS)
+│   │   ├── controller/        # ChatController, SessionController, HealthController
+│   │   └── websocket/         # NanobotWebSocketEndpoint
+│   └── v3/                    # V3 CLI 模式 (NanobotCliApplication)
+│       ├── cli/               # CliChannel (JLine 终端 + Markdown 渲染)
+│       └── tui/               # MarkdownRenderer
+├── src/main/resources/
+│   ├── config/config.yaml
+│   ├── logback.xml / logback-cli.xml
+│   └── static/                # sessions.html (会话管理前端)
+└── pom.xml
+```
+### 5.8 内置工具一览
+
+**文件工具**：
+
+| 工具 | 只读 | 说明 |
+|------|------|------|
+| `read_file` | ✅ | 读取文件内容（支持行范围） |
+| `write_file` | ❌ | 创建或覆盖文件 |
+| `edit_file` | ❌ | 精确字符串替换编辑 |
+| `list_dir` | ✅ | 列目录（支持递归，path 默认 `.`） |
+| `glob` | ✅ | 通配符文件搜索（pattern 默认 `*`） |
+| `grep` | ✅ | 文件内容搜索（path 默认 `.`） |
+
+**Shell 工具**：
+
+| 工具 | 只读 | 说明 |
+|------|------|------|
+| `exec` | ❌ | 执行 shell 命令。自动检测 PowerShell/pwsh，避免 cmd /c 吃掉转义符 |
+
+**Web 工具**：
+
+| 工具 | 只读 | 说明 |
+|------|------|------|
+| `web_search` | ✅ | 网页搜索（支持百度/Brave/Bing） |
+| `web_fetch` | ✅ | 抓取网页内容转 Markdown |
+
+**任务工具**：
+
+| 工具 | 只读 | 说明 |
+|------|------|------|
+| `task_create` | ❌ | 创建任务（对标 Claude Code） |
+| `task_list` | ✅ | 列出任务，支持状态过滤 |
+| `task_update` | ❌ | 更新任务状态/依赖 |
+
+**交互工具**：
+
+| 工具 | 只读 | 说明 |
+|------|------|------|
+| `ask_user` | ✅ | LLM 在关键决策点向用户提问 |
+| `get_current_time` | ✅ | 获取当前时间 |
+
+**子 Agent 工具**：
+
+| 工具 | 只读 | 说明 |
+|------|------|------|
+| `spawn` | ❌ | 动态创建子 Agent 执行任务 |
+| `spawn_check` | ✅ | 检查子 Agent 任务状态 |
+
+---
+
+### 5.9 身份系统 (Identity)
+
+**三件套**：`.nanobot/` 目录下的三个 Markdown 文件，控制 Agent 的行为和个性。
+
+| 文件 | 说明 | 示例 |
+|------|------|------|
+| `SOUL.md` | Agent 的核心身份定义（名字、使命、底线） | "你是 my-nanobot，永远不说自己是 Claude" |
+| `IDENTITY.md` | 个性特征（语气、风格、偏好） | "回答简洁，用中文，代码块标注语言" |
+| `USER.md` | 用户信息（称呼、偏好、上下文） | "用户叫小王，偏好 Java 17，Mac 环境" |
+
+**System Prompt 注入**（首位+近因效应）：
+```
+getSystemPrompt(currentDate) =
+    【开头 — 首位效应】
+    名字声明 + 日期覆盖 + 身份信息
+    ↓
+    （中间是 NANOBOT.md + Plan Mode + Rules）
+    ↓
+    【结尾 — 近因效应】
+    再次强调身份 + 工具结果格式说明
+```
+
+组件：`IdentityManager` → `IdentityLoader`（静态工厂方法，从 Markdown 文件加载）→ `Soul` / `Identity` / `UserProfile`（前端模型类）
+
+---
+### 5.10 记忆压缩系统 (Consolidator)
+
+**功能说明**：当对话历史超过 token 预算时，自动压缩历史消息，保留关键信息。
+
+**压缩策略**：
+1. 计算当前对话的 token 使用量
+2. 如果超过预算，选择最不重要的消息进行压缩
+3. 使用 LLM 对选中的消息进行总结
+4. 用总结替换原始消息
+
+**优先级规则**：
+- 系统消息：最高优先级，不压缩
+- 工具调用结果：高优先级，保留关键结果
+- 用户消息：中等优先级，可适当压缩
+- 助手消息：低优先级，优先压缩
+
+**核心方法**：
+```java
+// 压缩消息列表
+CompletableFuture<List<Map<String, Object>>> consolidate(List<Map<String, Object>> messages)
+
+// 检查是否需要压缩
+boolean needsConsolidation(List<Map<String, Object>> messages)
+
+// 获取当前 token 使用量
+int getCurrentUsage(List<Map<String, Object>> messages)
+```
+### 5.11 长期记忆系统 (Dream)
+
+**功能说明**：实现 AI Agent 的长期记忆功能，允许 Agent 存储和检索长期信息。
+
+**核心功能**：
+1. **记忆存储** - 将对话中的关键信息保存到长期记忆
+2. **记忆检索** - 根据当前上下文检索相关记忆
+3. **记忆整合** - 将新信息与现有记忆融合
+4. **记忆清理** - 移除过时或重复的记忆
+
+**记忆结构**：
+| 字段 | 说明 |
+|------|------|
+| id | 唯一标识 |
+| content | 记忆内容 |
+| keywords | 关键词标签 |
+| timestamp | 创建时间 |
+| importance | 重要性分数 (0-1) |
+| source | 来源会话 ID |
+
+**核心方法**：
+```java
+// 从对话中提取并存储记忆
+CompletableFuture<List<MemoryEntry>> extractAndStore(String sessionId, List<Map<String, Object>> messages)
+
+// 检索相关记忆
+CompletableFuture<List<MemoryEntry>> retrieve(String query, int limit)
+
+// 整合新信息到现有记忆
+CompletableFuture<MemoryEntry> consolidate(MemoryEntry newMemory)
+
+// 清理过时记忆
+void cleanup()
+```
+### 5.12 安全系统详解
+
+**PermissionMode 四种模式**：
+
+| 模式 | 只读工具 | 文件编辑 | Shell | 场景 |
+|------|---------|---------|-------|------|
+| `PLAN` | ✅ 放行 | ❌ 拒绝 | ❌ 拒绝 | 代码审查、出计划 |
+| `DEFAULT` | ✅ 放行 | 🔶 需确认 | 🔶 需确认 | 日常使用 |
+| `ACCEPT_EDITS` | ✅ 放行 | ✅ 放行 | 🔶 需确认 | 信任的编码会话 |
+| `BYPASS` | ✅ 放行 | ✅ 放行 | ✅ 放行 | 完全信任的自动化 |
+
+**权限检查管道**（4 步顺序执行）：
+
+```
+Tool 调用
+  → 1. PreToolUseHook 链 (deny/allow/modify/passthrough)
+  → 2. Guards 守卫 (PathGuard → CommandGuard → NetworkGuard，永远执行)
+  → 3. RuleEngine 规则 (deny → ask → allow 优先级链)
+  → 4. PermissionMode 判定 (PLAN/DEFAULT/ACCEPT_EDITS/BYPASS)
+  → execute() 或 deny
+```
+
+**Guard 守卫层**（Strategy 模式）：
+
+| Guard | 检查内容 | 适用工具 |
+|-------|---------|---------|
+| `PathGuard` | 文件路径必须在工作区内 | read_file, write_file, glob, grep 等 |
+| `CommandGuard` | Shell 命令黑/白名单过滤 | exec |
+| `NetworkGuard` | URL SSRF 防护，IP 范围过滤 | web_fetch, web_search |
+
+**RuleEngine**：`deny规则` > `ask规则`（需交互确认） > `allow规则` > `默认(模式判定)`
+
+**交互式权限确认**（CLI 模式）：
+- `1=允许` 执行本次
+- `2=之后都放行` 当前进程内信任，不再询问
+- `3=拒绝`
+
+---
+### 5.13 命令系统 (Command)
+
+**设计模式**：Command 模式。所有 CLI/WebSocket/HTTP 命令通过 `CommandRegistry` 统一分发。
+
+```
+┌─────────────────────────────────────────────┐
+│               CommandRegistry               │
+│  /exit  /help  /init  /mode  /resume       │
+│          /plan  /clear                      │
+└────────────────────┬────────────────────────┘
+                     │ execute(ctx, input)
+                     ▼
+┌─────────────────────────────────────────────┐
+│              Command 接口                    │
+│  name() + aliases() + description()         │
+│  execute(CommandContext, String) → boolean  │
+└─────────────────────────────────────────────┘
+```
+
+**CommandContext**：record 类型，注入组件依赖（ToolRegistry, PermissionManager, AgentLoop, sessionId, shutdown）
+
+**命令清单**：
+
+| 命令 | 别名 | 说明 |
+|------|------|------|
+| `/exit` | `/q`, `/quit` | 退出 CLI 进程 |
+| `/help` | — | 显示所有可用命令 |
+| `/init` | — | 分析项目生成 NANOBOT.md（混合：Java收集元数据+LLM生成内容） |
+| `/mode` | `/plan` | 切换权限模式。`/mode plan` 进入规划模式，`/plan approve` 审批执行 |
+| `/resume` | — | 列出最近会话，`/resume <key>` 恢复指定会话 |
+| `/clear` | — | 清空当前会话上下文（inline 处理，不走 Command 接口） |
+
+**Plan Mode 工作流**（`/mode plan` → `/plan approve`）：
+```
+/mode plan  → AgentLoop.planMode = true
+            → PermissionMode.PLAN (只读)
+            → 工具列表过滤为只读 (getDefinitions(true))
+            → System Prompt 注入规划模式指令
+            → LLM 只能探索 + 出计划，不能写代码
+
+/plan approve  → planMode = false
+              → PermissionMode.ACCEPT_EDITS
+              → 自动发送执行指令到 AgentLoop
+```
+
+---
+### 5.14 MCP (Model Context Protocol) 系统
 
 **MCP**（Model Context Protocol）是由 Cursor 编辑器提出的标准化协议，用于连接 AI Agent 与外部工具/服务。Nanobot 通过 MCP 支持，可以动态加载和使用第三方工具，而无需修改核心代码。
 
@@ -2097,8 +1970,7 @@ public class MCPToolWrapper implements Tool {
 - 服务器名 `weather` + 工具名 `get` → `mcp_weather_get`
 
 ---
-
-### 5.19 Skills 技能系统
+### 5.15 Skills 技能系统
 
 **Skills** 是参考 Claude Code 设计的可复用技能系统，允许用户定义可复用的工作流、指令集和领域知识。Skills 可以通过斜杠命令手动调用，也可以根据对话场景自动触发。
 
@@ -2233,8 +2105,7 @@ List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
 ```
 
 ---
-
-### 5.20 Rules 规则系统
+### 5.16 Rules 规则系统
 
 **Rules** 是参考 Claude Code 的设计理念实现的全局规则系统，通过自然语言指令定义 Agent 的行为规范。规则告诉模型"在这个项目中你应该遵循什么规范"。
 
@@ -2364,96 +2235,204 @@ String systemPrompt = "你是一个 AI Agent。\n\n" + rulesPrompt;
 ```
 
 ---
+### 5.17 多通道接入系统 (ChannelServer)
 
-### 5.21 安全系统详解
+**功能说明**：提供 HTTP 和 WebSocket 通道的统一管理，允许客户端通过多种方式与 Agent 交互。
 
-**PermissionMode 四种模式**：
+**支持的通道类型**：
 
-| 模式 | 只读工具 | 文件编辑 | Shell | 场景 |
-|------|---------|---------|-------|------|
-| `PLAN` | ✅ 放行 | ❌ 拒绝 | ❌ 拒绝 | 代码审查、出计划 |
-| `DEFAULT` | ✅ 放行 | 🔶 需确认 | 🔶 需确认 | 日常使用 |
-| `ACCEPT_EDITS` | ✅ 放行 | ✅ 放行 | 🔶 需确认 | 信任的编码会话 |
-| `BYPASS` | ✅ 放行 | ✅ 放行 | ✅ 放行 | 完全信任的自动化 |
+| 通道类型 | 说明 | 端点 |
+|---------|------|------|
+| HTTP REST | 同步请求/响应模式 | `/api/chat` |
+| WebSocket | 异步双向通信 | `/ws` |
 
-**权限检查管道**（4 步顺序执行）：
+**HTTP API 端点**：
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/chat` | POST | 同步发送消息 |
+| `/api/chat/stream` | POST | SSE 流式发送消息 |
+| `/api/sessions` | GET | 获取会话列表（含名称、消息数） |
+| `/api/sessions/{key}` | GET | 获取会话详情（消息历史） |
+| `/api/sessions/{key}` | PATCH | 重命名会话 `{"name":"..."}` |
+| `/api/sessions/{key}` | DELETE | 删除会话 |
+| `/api/health` | GET | 健康检查 |
+
+**消息参数**：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `content` | String | 消息内容（必填） |
+| `chat_id` | String | 会话 ID（可选） |
+| `useSearch` | Boolean | 是否启用联网搜索（可选，默认 true） |
+
+**useSearch 参数说明**：
+- `true`（默认）：允许 LLM 调用 web_search 工具进行联网搜索
+- `false`：禁用所有工具调用，LLM 将直接回答问题，不进行联网搜索
+
+**使用示例**：
+```json
+POST /api/chat
+{
+  "content": "今天天气怎么样？",
+  "useSearch": true
+}
+```
+
+**使用示例**：
+```java
+ChannelServer server = new ChannelServer(messageBus, 8080);
+server.start();
+```
+### 5.18 定时任务系统 (CronScheduler)
+
+> 非核心功能，按"从能跑到跑得好"原则后置。
+
+**功能说明**：基于 cron 表达式的定时任务调度器，支持在指定时间执行任务。
+
+**支持的 cron 表达式格式**：
+```
+┌───────────── 分钟 (0 - 59)
+│ ┌───────────── 小时 (0 - 23)
+│ │ ┌───────────── 日期 (1 - 31)
+│ │ │ ┌───────────── 月份 (1 - 12)
+│ │ │ │ ┌───────────── 星期 (0 - 6) (周日=0)
+│ │ │ │ │
+* * * * *
+```
+
+**使用示例**：
+```java
+CronScheduler scheduler = new CronScheduler(messageBus);
+scheduler.schedule("0 * * * *", () -> {
+    messageBus.publish(OutboundMessage.builder()
+        .channel("system")
+        .content("每分钟执行一次")
+        .build());
+});
+```
+
+**支持的特殊字符**：
+- `*` : 匹配任何值
+- `?` : 不指定值（用于日期和星期）
+- `,` : 列出多个值
+- `-` : 指定范围
+- `/` : 步长
+### 5.19 V3 CLI 模式 (CliChannel)
+
+**入口**：`NanobotCliApplication` → Spring Boot 容器 → `CliChannel.start()`
 
 ```
-Tool 调用
-  → 1. PreToolUseHook 链 (deny/allow/modify/passthrough)
-  → 2. Guards 守卫 (PathGuard → CommandGuard → NetworkGuard，永远执行)
-  → 3. RuleEngine 规则 (deny → ask → allow 优先级链)
-  → 4. PermissionMode 判定 (PLAN/DEFAULT/ACCEPT_EDITS/BYPASS)
-  → execute() 或 deny
+┌───────────────────────────────────────────────┐
+│                 CliChannel                     │
+│  ┌──────────┐  ┌──────────┐  ┌─────────────┐  │
+│  │ Scanner  │  │ JLine    │  │ Markdown     │  │
+│  │ (行输入) │  │ Terminal │  │ Renderer     │  │
+│  │          │  │ (Esc检测)│  │ (流式渲染)   │  │
+│  └──────────┘  └──────────┘  └─────────────┘  │
+│  ┌──────────────────────────────────────────┐  │
+│  │  交互式权限确认 (1/2/3 数字选择)          │  │
+│  │  AskUser 工具注入 (CLI stdin)            │  │
+│  │  流式响应回调 (MarkdownRenderer)         │  │
+│  └──────────────────────────────────────────┘  │
+└───────────────────────────────────────────────┘
 ```
 
-**Guard 守卫层**（Strategy 模式）：
+**关键特性**：
+- **JLine Terminal**：跨平台 Esc 键检测，独立于 Scanner 的原始按键流
+- **MarkdownRenderer**：流式输出 Markdown 内容（代码块、标题、列表）
+- **交互式权限**：`1=允许 2=之后都放行 3=拒绝`
+- **流式取消**：`Esc` 中断当前回复
+- **命令系统**：`/` 前缀自动路由到 CommandRegistry
+- **会话恢复**：`--resume <key>` 启动参数
 
-| Guard | 检查内容 | 适用工具 |
-|-------|---------|---------|
-| `PathGuard` | 文件路径必须在工作区内 | read_file, write_file, glob, grep 等 |
-| `CommandGuard` | Shell 命令黑/白名单过滤 | exec |
-| `NetworkGuard` | URL SSRF 防护，IP 范围过滤 | web_fetch, web_search |
-
-**RuleEngine**：`deny规则` > `ask规则`（需交互确认） > `allow规则` > `默认(模式判定)`
-
-**交互式权限确认**（CLI 模式）：
-- `1=允许` 执行本次
-- `2=之后都放行` 当前进程内信任，不再询问
-- `3=拒绝`
-
----
-
-### 5.22 内置工具一览
-
-**文件工具**：
-
-| 工具 | 只读 | 说明 |
-|------|------|------|
-| `read_file` | ✅ | 读取文件内容（支持行范围） |
-| `write_file` | ❌ | 创建或覆盖文件 |
-| `edit_file` | ❌ | 精确字符串替换编辑 |
-| `list_dir` | ✅ | 列目录（支持递归，path 默认 `.`） |
-| `glob` | ✅ | 通配符文件搜索（pattern 默认 `*`） |
-| `grep` | ✅ | 文件内容搜索（path 默认 `.`） |
-
-**Shell 工具**：
-
-| 工具 | 只读 | 说明 |
-|------|------|------|
-| `exec` | ❌ | 执行 shell 命令。自动检测 PowerShell/pwsh，避免 cmd /c 吃掉转义符 |
-
-**Web 工具**：
-
-| 工具 | 只读 | 说明 |
-|------|------|------|
-| `web_search` | ✅ | 网页搜索（支持百度/Brave/Bing） |
-| `web_fetch` | ✅ | 抓取网页内容转 Markdown |
-
-**任务工具**：
-
-| 工具 | 只读 | 说明 |
-|------|------|------|
-| `task_create` | ❌ | 创建任务（对标 Claude Code） |
-| `task_list` | ✅ | 列出任务，支持状态过滤 |
-| `task_update` | ❌ | 更新任务状态/依赖 |
-
-**交互工具**：
-
-| 工具 | 只读 | 说明 |
-|------|------|------|
-| `ask_user` | ✅ | LLM 在关键决策点向用户提问 |
-| `get_current_time` | ✅ | 获取当前时间 |
-
-**子 Agent 工具**：
-
-| 工具 | 只读 | 说明 |
-|------|------|------|
-| `spawn` | ❌ | 动态创建子 Agent 执行任务 |
-| `spawn_check` | ✅ | 检查子 Agent 任务状态 |
+**消息发送流程**：
+```
+用户输入 → scanner.nextLine()
+    → 命令? → CommandRegistry.execute()
+    → 消息? → InboundMessage(sessionId, content, channel="cli")
+            → MessageBus.publishInbound()
+            → 等待流式完成 (currentRequestId)
+```
 
 ---
+### 5.20 V2 Spring Boot 模式
 
+**入口**：`NanobotApplication` → 内嵌 Tomcat + Spring MVC
+
+**REST API**：
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/chat` | POST | 同步聊天，`waitForSessionResponse` 阻塞等待 |
+| `/api/chat/stream` | POST | SSE 流式聊天，`SseEmitter` 实时推送 |
+| `/api/sessions` | GET | 列出所有会话 |
+| `/api/sessions/{key}` | GET | 获取会话消息历史 |
+| `/api/sessions/{key}` | PATCH | 重命名会话 `{"name":"..."}` |
+| `/api/sessions/{key}` | DELETE | 删除会话 |
+| `/api/health` | GET | 健康检查 |
+
+**前端页面**：
+- `/` — `index.html`（聊天界面）
+- `/sessions.html` — 会话管理（列表、查看详情、重命名、删除）
+
+**WebSocket**：`NanobotWebSocketEndpoint`（`/ws`），Jakarta WebSocket 注解，流式响应通过 `StreamResponseCallback` → `session.sendText()`
+
+**配置类**：`NanobotConfig` 创建 Spring Bean（MessageBus, ToolRegistry, AgentLoop, SessionManager 等），注入到 `NanobotRunner` 静态字段
+
+---
+### 5.21 V1 独立模式
+
+**入口**：`Nanobot.java`，手动组装所有组件，无需 Spring。
+
+**ChannelServer**：内嵌 HTTP 服务器（`com.sun.net.httpserver.HttpServer`）
+- `ChatHandler` — 处理 `POST /api/chat`，支持同步和 SSE 流式
+- `WebSocketHandler` — WebSocket 升级握手
+- `WebSocketConnection` — 原始 WebSocket 帧读写（`WebSocketFrame` 手动解析/组装）
+
+**WebSocketFrame**：WebSocket 协议帧的完整实现
+- `text(msg)` / `close()` / `ping()` / `pong()` 工厂方法
+- `send(OutputStream)` 序列化帧
+- `parse(InputStream)` 反序列化帧（含掩码处理）
+
+---
+### 5.22 子 Agent 系统 (Subagent)
+
+**核心组件**：
+
+| 组件 | 说明 |
+|------|------|
+| `Subagent` | 子 Agent 接口：`execute(task)` 异步执行任务 |
+| `SubagentContext` | 子 Agent 上下文：任务数据 + 共享状态 + 父子通信 |
+| `SubagentCommunication` | 通信管理器：消息队列、事件发布/订阅、共享状态存储 |
+| `AgentCoordinator` | 协调器：任务分配、能力匹配、并行执行、结果汇总 |
+| `FileInbox` | 文件邮箱：基于文件系统的异步通信（`.nanobot/inbox/`） |
+| `SimpleSubagent` | 简单实现：使用独立 LLM 调用执行子任务 |
+
+**通信模式**：
+```
+主 Agent (Lead)                子 Agent 1              子 Agent 2
+     │                             │                       │
+     ├─ send(task) ──────────────→ │                       │
+     │                             ├─ execute(task)        │
+     │                             └─ sendToParent(result) →│
+     ├─ broadcast(msg) ───────────┼──────────────────────→ │
+     │                             │                       │
+     ├─ receive() ←───────────────┤                       │
+     └─ 汇总结果                                          │
+```
+
+**SubagentCommunication 核心方法**：
+- `send(from, to, msg)` — 点对点消息
+- `broadcast(from, msg)` — 广播给所有子 Agent
+- `sendToParent(childId, msg)` — 子→父汇报
+- `receive(agentId)` — 非阻塞接收
+- `setSharedState(key, value)` / `getSharedState(key)` — 跨 Agent 共享状态
+- `registerParentChild(parent, child)` — 注册父子关系
+
+**SpawnTool**：主 Agent 通过 `spawn` 工具动态创建子 Agent 并分配任务。
+
+---
 ## 六、新手学习路线
 
 ### 6.1 学习阶段规划
