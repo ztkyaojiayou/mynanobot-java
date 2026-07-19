@@ -1747,7 +1747,11 @@ Tool 接口（契约）
   └── execute(params)   执行逻辑（异步 CompletableFuture）
 ```
 
-**17 个内置工具**：
+通过 `ToolRegistry` 统一注册和调度。LLM 调用时，`getDefinitions()` 生成 Function Schema 列表发送给 LLM；LLM 返回 tool_calls 后，`execute(name, params)` 查找 → 验证参数 → 权限检查 → 执行。
+
+#### 5.9.2 17 个内置工具 ★
+
+> 这些是编程 Agent 的核心武器。按类型分组如下。
 
 | 工具 | 类型 | 只读 | 说明 |
 |------|------|------|------|
@@ -1755,11 +1759,11 @@ Tool 接口（契约）
 | `write_file` | 文件 | ❌ | 创建或覆盖文件 |
 | `edit_file` | 文件 | ❌ | 精确字符串替换编辑 |
 | `list_dir` | 文件 | ✅ | 列目录（path 默认 `.`，支持递归） |
-| `glob` | 文件 | ✅ | 通配符文件搜索（pattern 默认 `*`） |
-| `grep` | 文件 | ✅ | 文件内容搜索（path 默认 `.`） |
-| `exec` | Shell | ❌ | 执行命令（自动检测 PowerShell/pwsh） |
-| `web_search` | Web | ✅ | 网页搜索（百度千帆 / Bing / Brave） |
-| `web_fetch` | Web | ✅ | 抓取网页内容转 Markdown |
+| `glob` | 文件 | ✅ | 通配符文件搜索（pattern 默认 `*`，自动跳过 .git 等） |
+| `grep` | 文件 | ✅ | 文件内容搜索（path 默认 `.`，支持大小写/递归） |
+| `exec` | Shell | ❌ | 执行命令（自动检测 PowerShell/pwsh，防 cmd /c 吃转义） |
+| `web_search` | Web | ✅ | 网页搜索（百度千帆 AI 搜索 / Bing / Brave） |
+| `web_fetch` | Web | ✅ | 抓取网页内容转 Markdown（Jsoup 解析） |
 | `task_create` | 任务 | ❌ | 创建追踪任务 |
 | `task_list` | 任务 | ✅ | 列出任务，支持状态过滤 |
 | `task_update` | 任务 | ❌ | 更新任务状态/依赖 |
@@ -1769,7 +1773,7 @@ Tool 接口（契约）
 | `spawn_check` | 子Agent | ✅ | 检查子 Agent 任务状态 |
 | （MCP 动态工具） | MCP | 视具体工具 | 通过 MCP 协议动态加载 |
 
-#### 5.9.2 工具执行流程
+#### 5.9.3 工具执行流程
 
 ```
 ToolRegistry.execute(name, params)
@@ -1780,7 +1784,7 @@ ToolRegistry.execute(name, params)
         └─ 结果包装: [TOOL_OK] / [TOOL_ERR]
 ```
 
-#### 5.9.3 参数默认值
+#### 5.9.4 参数默认值
 
 | 工具 | 参数 | 默认值 | 理由 |
 |------|------|--------|------|
@@ -1788,7 +1792,7 @@ ToolRegistry.execute(name, params)
 | `glob` | `pattern` | `"*"` | 展示所有文件 |
 | `grep` | `path` | `"."` | 默认搜索当前目录 |
 
-#### 5.9.4 Plan Mode 工具过滤
+#### 5.9.5 Plan Mode 工具过滤
 
 Plan Mode 激活时 `getDefinitions(true)` 只返回只读工具，从源头杜绝写操作。
 
