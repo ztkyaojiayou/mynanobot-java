@@ -990,7 +990,116 @@ mvn test
 
 > 📖 完整安全模块文档: [docs/features.md](docs/features.md)
 
-### 5.3 定时任务系统 (CronScheduler)
+### 5.3 Agent Loop — 核心循环 ★
+
+> Agent Loop 是 AI Agent 的心脏。理解它就理解了 Agent 是如何"活着"的。
+
+#### 什么是 Agent Loop
+
+Agent Loop 是 AI Agent 的核心控制循环，遵循 **感知→思考→行动→观察** 的基本模式：
+
+```
+┌──────────────────────────────────────────────────────┐
+│                  Agent Loop 核心循环                  │
+│                                                      │
+│   ┌──────────┐    ┌──────────┐    ┌──────────┐       │
+│   │ PERCEIVE │───▶│  THINK   │───▶│   ACT    │       │
+│   │ (感知)   │    │ (思考)   │    │ (行动)   │       │
+│   └──────────┘    └──────────┘    └──────────┘       │
+│        ▲                                 │           │
+│        │         ┌──────────┐           │            │
+│        └─────────│ OBSERVE  │◀──────────┘            │
+│                  │ (观察)   │                        │
+│                  └──────────┘                        │
+└──────────────────────────────────────────────────────┘
+```
+
+**一次循环的完整过程**：
+
+| 阶段 | 对应组件 | 做什么 |
+|------|---------|--------|
+| **PERCEIVE** | MessageBus.consumeInbound() | 从消息队列取出用户输入 |
+| **THINK** | AgentRunner.run() | 调用 LLM，解析响应（文本 or 工具调用） |
+| **ACT** | Tool.execute() | 并行执行 LLM 请求的工具（读文件/搜索/Shell…） |
+| **OBSERVE** | executeTools() → messages.add() | 工具结果注入消息历史，准备下一轮 |
+| **LOOP** | runInternal(iteration+1) | 递归回到 THINK，直到 LLM 不再请求工具 |
+
+#### 本项目实现：双层架构
+
+```
+AgentLoop（状态机引擎 — 管理"做什么"）
+    │  RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND
+    │
+    └── RUN 状态内部嵌套 AgentRunner（执行引擎 — 管理"怎么做"）
+         │
+         └── runInternal() 递归循环
+              ├── LLM 调用
+              ├── 工具执行
+              └── 结果注入 → 递归
+```
+
+**AgentLoop 职责**（状态机层）：
+- 恢复会话历史、压缩过长的上下文
+- 构建 System Prompt（身份+NANOBOT.md+PlanMode+Rules）
+- 调度 RUN 状态，保存结果，发送响应
+- 管理生命周期钩子和流式回调
+
+**AgentRunner 职责**（执行引擎层）：
+- 调用 LLM API（chat/chatStream）
+- 解析 tool_calls，执行工具（并行），收集结果
+- 递归循环直到 LLM 返回纯文本
+- 防护：迭代上限、费用上限、降级兜底
+
+#### 关键设计决策
+
+| 决策 | 模式 | 理由 |
+|------|------|------|
+| **双层分离** | AgentLoop(状态机) + AgentRunner(循环) | 状态管理和 LLM 调用独立演进 |
+| **递归非循环** | runInternal() 递归 | 每轮自然携带更新后的 messages |
+| **State 模式** | 7 个独立 StateHandler | 新增状态只需实现接口+注册 |
+| **工具并行执行** | CompletableFuture.allOf | 同轮多工具同时跑，减少延迟 |
+| **流式双路径** | SSE直推 + MessageBus | 覆盖 HTTP 同步和 WebSocket 两种场景 |
+| **单线程消费** | 单 daemon 线程 | 保证同一会话消息串行，防并发冲突 |
+
+#### 循环终止条件
+
+AgentRunner 在以下任一条件满足时停止循环：
+
+1. **LLM 返回纯文本**（无 tool_calls）→ 正常结束
+2. **达到 maxToolIterations**（默认 100）→ 配额耗尽
+3. **达到 maxTurns** → 轮次上限
+4. **费用超 maxCost** → 预算用尽
+5. **用户取消**（Esc 中断）→ 手动停止
+6. **连续 3 次工具失败** → 降级兜底，强制不带工具回答
+
+#### 一个完整的循环示例
+
+```
+用户: "帮我查今天天气，然后保存到 weather.txt"
+    │
+    ▼ PERCEIVE: MessageBus 收到消息
+    │
+    ▼ THINK [iteration=0]: 调用 LLM
+    │   LLM 返回: tool_calls=[web_search("今天天气"), write_file("weather.txt", ...)]
+    │
+    ▼ ACT: 并行执行 web_search + write_file
+    │   web_search → "北京今天晴，25°C"
+    │   write_file → 写入成功
+    │
+    ▼ OBSERVE: 工具结果注入 messages
+    │
+    ▼ THINK [iteration=1]: 再次调用 LLM（messages 含搜索结果+写入结果）
+    │   LLM 返回: "已查询天气并保存到 weather.txt，北京今天晴，25°C"
+    │   （无 tool_calls → 循环结束）
+    │
+    ▼ RESPOND: 发送响应给用户
+```
+
+---
+
+### 5.4 定时任务系统 (CronScheduler)
+
+> 非核心功能，按"从能跑到跑得好"原则后置。
 
 **功能说明**：基于 cron 表达式的定时任务调度器，支持在指定时间执行任务。
 
@@ -1023,7 +1132,7 @@ scheduler.schedule("0 * * * *", () -> {
 - `-` : 指定范围
 - `/` : 步长
 
-### 5.4 记忆压缩系统 (Consolidator)
+### 5.5 记忆压缩系统 (Consolidator)
 
 **功能说明**：当对话历史超过 token 预算时，自动压缩历史消息，保留关键信息。
 
@@ -1051,7 +1160,7 @@ boolean needsConsolidation(List<Map<String, Object>> messages)
 int getCurrentUsage(List<Map<String, Object>> messages)
 ```
 
-### 5.5 长期记忆系统 (Dream)
+### 5.6 长期记忆系统 (Dream)
 
 **功能说明**：实现 AI Agent 的长期记忆功能，允许 Agent 存储和检索长期信息。
 
@@ -1086,7 +1195,7 @@ CompletableFuture<MemoryEntry> consolidate(MemoryEntry newMemory)
 void cleanup()
 ```
 
-### 5.6 多通道接入系统 (ChannelServer)
+### 5.7 多通道接入系统 (ChannelServer)
 
 **功能说明**：提供 HTTP 和 WebSocket 通道的统一管理，允许客户端通过多种方式与 Agent 交互。
 
@@ -1136,7 +1245,7 @@ ChannelServer server = new ChannelServer(messageBus, 8080);
 server.start();
 ```
 
-### 5.7 状态机流程（已重构为 State 模式）
+### 5.8 状态机流程（已重构为 State 模式）
 
 `AgentLoop` 采用 **State 模式** 管理消息处理，每个状态对应一个独立的 `AgentState` 实现类：
 
@@ -1167,7 +1276,7 @@ RestoreState CompactSt CommandSt BuildSt  RunSt   SaveSt  RespondSt
 | SAVE | ok | RESPOND | 保存会话状态 |
 | RESPOND | ok | DONE | 发送响应 |
 
-### 5.8 核心消息处理全链路详解
+### 5.9 核心消息处理全链路详解
 
 > **本节目标**：完整梳理一条用户消息从进入系统到生成响应的全链路，理解每一层的职责、数据流转和关键代码路径。
 
@@ -1544,7 +1653,7 @@ chatStream(messages, tools, onDelta)
 
 ---
 
-### 5.9 模块结构
+### 5.10 模块结构
 
 ```
 nanobot-java/
@@ -1610,7 +1719,7 @@ nanobot-java/
 └── pom.xml
 ```
 
-### 5.10 命令系统 (Command)
+### 5.11 命令系统 (Command)
 
 **设计模式**：Command 模式。所有 CLI/WebSocket/HTTP 命令通过 `CommandRegistry` 统一分发。
 
@@ -1657,7 +1766,7 @@ nanobot-java/
 
 ---
 
-### 5.11 身份系统 (Identity)
+### 5.12 身份系统 (Identity)
 
 **三件套**：`.nanobot/` 目录下的三个 Markdown 文件，控制 Agent 的行为和个性。
 
@@ -1683,7 +1792,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 5.12 V3 CLI 模式 (CliChannel)
+### 5.13 V3 CLI 模式 (CliChannel)
 
 **入口**：`NanobotCliApplication` → Spring Boot 容器 → `CliChannel.start()`
 
@@ -1722,7 +1831,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 5.13 V2 Spring Boot 模式
+### 5.14 V2 Spring Boot 模式
 
 **入口**：`NanobotApplication` → 内嵌 Tomcat + Spring MVC
 
@@ -1748,7 +1857,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 5.14 V1 独立模式
+### 5.15 V1 独立模式
 
 **入口**：`Nanobot.java`，手动组装所有组件，无需 Spring。
 
@@ -1764,7 +1873,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 5.15 子 Agent 系统 (Subagent)
+### 5.16 子 Agent 系统 (Subagent)
 
 **核心组件**：
 
@@ -1802,7 +1911,7 @@ getSystemPrompt(currentDate) =
 
 ---
 
-### 5.16 核心接口设计
+### 5.17 核心接口设计
 
 #### Tool 接口
 
@@ -1912,7 +2021,7 @@ public class MCPToolWrapper implements Tool {
 
 ---
 
-### 5.17 MCP (Model Context Protocol) 系统
+### 5.18 MCP (Model Context Protocol) 系统
 
 **MCP**（Model Context Protocol）是由 Cursor 编辑器提出的标准化协议，用于连接 AI Agent 与外部工具/服务。Nanobot 通过 MCP 支持，可以动态加载和使用第三方工具，而无需修改核心代码。
 
@@ -1989,7 +2098,7 @@ public class MCPToolWrapper implements Tool {
 
 ---
 
-### 5.18 Skills 技能系统
+### 5.19 Skills 技能系统
 
 **Skills** 是参考 Claude Code 设计的可复用技能系统，允许用户定义可复用的工作流、指令集和领域知识。Skills 可以通过斜杠命令手动调用，也可以根据对话场景自动触发。
 
@@ -2125,7 +2234,7 @@ List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
 
 ---
 
-### 5.19 Rules 规则系统
+### 5.20 Rules 规则系统
 
 **Rules** 是参考 Claude Code 的设计理念实现的全局规则系统，通过自然语言指令定义 Agent 的行为规范。规则告诉模型"在这个项目中你应该遵循什么规范"。
 
@@ -2256,7 +2365,7 @@ String systemPrompt = "你是一个 AI Agent。\n\n" + rulesPrompt;
 
 ---
 
-### 5.20 安全系统详解
+### 5.21 安全系统详解
 
 **PermissionMode 四种模式**：
 
@@ -2295,7 +2404,7 @@ Tool 调用
 
 ---
 
-### 5.21 内置工具一览
+### 5.22 内置工具一览
 
 **文件工具**：
 
