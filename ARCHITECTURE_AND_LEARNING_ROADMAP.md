@@ -3424,6 +3424,90 @@ Nanobot / Claude Code（终端产品）
 
 **这就是 Subagent vs 独立 Agent 的核心取舍——简单 vs 灵活，低延迟 vs 独立扩展。**
 
+#### 6.9.5 混合架构——同一个服务中既有 Subagent 又调用外部 Agent
+
+实际生产中，**纯 Subagent 和纯独立 Agent 都不是常态**。更常见的是混合架构——主服务内部用 Subagent 做任务分解，同时调用外部团队的独立 Agent 获取专业能力。
+
+还是上面那个代码审查场景，把它升级：
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                  PR 审查主服务 (Nanobot)                       │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │              AgentCoordinator                          │  │
+│  └────┬──────────┬──────────┬──────────┬─────────────────┘  │
+│       │          │          │          │                     │
+│  ┌────▼───┐ ┌───▼───┐ ┌───▼──┐ ┌─────▼──────┐              │
+│  │searcher│ │ lint  │ │dep-  │ │ summarizer │              │
+│  │(内部)   │ │(内部)  │ │check │ │  (内部)     │              │
+│  │Subagent│ │Subagent│ │(内部) │ │ Subagent   │              │
+│  └────────┘ └───────┘ └──────┘ └────────────┘              │
+│                                                              │
+│  这些 4 个 Subagent 够用吗？不够——有的事自己干不了：           │
+│    ❌ 安全团队维护了最新的 CVE 漏洞库，我们不能硬编码规则       │
+│    ❌ 合规团队有一整套 License 合规检查逻辑，代码闭源          │
+│    ❌ 性能团队有专属的 Benchmark 集群，需要调他们的 API        │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+       │                    │                    │
+       │ A2A                │ A2A                │ A2A
+       ▼                    ▼                    ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐
+│ SecurityAgent │  │ComplianceAgent│  │  PerfBenchmarkAgent │
+│  (安全团队)    │  │  (合规团队)   │  │    (性能团队)         │
+│              │  │              │  │                      │
+│ 独立部署     │  │ 独立部署      │  │  独立部署             │
+│ Agent Card:  │  │ Agent Card:  │  │  Agent Card:         │
+│ - cve_scan   │  │ - lic_check  │  │  - jmh_run           │
+│ - owasp_top10│  │ - export_ctrl│  │  - profile_heap      │
+│ - vuln_alert │  │ - gdpr_audit │  │  - throughput_test   │
+│              │  │              │  │                      │
+│ 通过 Nacos   │  │ 通过 Nacos   │  │  通过 Nacos          │
+│ Agent        │  │ Agent        │  │  Agent               │
+│ Registry     │  │ Registry     │  │  Registry            │
+│ 动态发现     │  │ 动态发现     │  │  动态发现             │
+└──────────────┘  └──────────────┘  └──────────────────────┘
+```
+
+**全链路**：
+
+```
+Step 1-3 (Subagent): searcher + lint + dep-check 同一 JVM 内并行执行
+  → 发现: SQL 注入 + log4j CVE + checkstyle 问题
+  → 但 CVE 扫描用的是本地规则库，半年没更新了
+
+Step 4 (A2A 调外部): AgentCoordinator → Nacos Agent Registry
+  → "谁有最新的漏洞数据？" ← SecurityAgent (capability: cve_scan)
+  → A2A Task {id:"task-004", file:"pom.xml", context:"log4j 1.2.17"}
+  ← SecurityAgent: "确认 CVE-2021-44228 (CVSS 10.0)。此外还发现:
+      CVE-2024-xxxxx (上周新披露), CVE-2024-yyyyy (本月新披露)
+      这些在本地规则库中不存在——外部 Agent 的知识是实时的"
+
+Step 5 (A2A 调外部): AgentCoordinator → Nacos Agent Registry
+  → "谁管合规？" ← ComplianceAgent (capability: lic_check)
+  → A2A Task {id:"task-005", file:"pom.xml"}
+  ← ComplianceAgent: "发现 com.example:internal-lib (Apache 2.0)
+      与你们项目使用的 GPL 3.0 存在兼容性问题——需要法务审批"
+
+Step 6 (Subagent): summarizer 汇总内部 + 外部所有结果
+  → 生成最终审查报告（内部 Subagent 发现 + 外部 Agent 补充）
+
+Step 7 (A2A 通知): AgentCoordinator → NotificationAgent
+  → 把报告推送到企业微信 / Slack / 邮件
+```
+
+**这个混合架构说明了关键设计原则**：
+
+```
+选择 Subagent 的条件:                    选择独立 Agent 的条件:
+  ✅ 自己能做的                             ✅ 别人做得更好的
+  ✅ 不需要独立扩缩容                        ✅ 由其他团队维护的
+  ✅ 不需要独立迭代发布                      ✅ 需要独立扩缩容的
+  ✅ 低延迟要求                             ✅ 知识需要实时更新的
+  ✅ 共享内存/文件系统更方便                  ✅ 需要隔离部署/权限管控的
+```
+
 ---
 
 ### 6.10 多 Agent vs 单服务多 Subagent —— 决策指南
