@@ -1138,8 +1138,8 @@ Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 | **MessageBus** | 消息总线，异步队列通信 | `bus/MessageBus.java` |
 | **ToolRegistry** | 工具注册中心，支持只读过滤 | `tools/ToolRegistry.java` |
 | **Tool** | 工具接口，定义工具契约 | `tools/Tool.java` |
-| **LLMProvider** | LLM 提供商接口 | `providers/LLMProvider.java` |
-| **ProviderFactory** | 策略工厂，按模型名匹配 Provider | `providers/ProviderFactory.java` |
+| **LLMProvider** | LLM 提供商接口（详见 5.22） | `providers/LLMProvider.java` |
+| **ProviderFactory** | 策略工厂，按模型名匹配 Provider（详见 5.22） | `providers/ProviderFactory.java` |
 | **SessionManager** | 会话业务层（锁管理+协调） | `session/SessionManager.java` |
 | **SessionStore** | 会话存储层（纯文件 I/O） | `session/SessionStore.java` |
 | **MemoryStore** | 内存持久化存储 | `memory/MemoryStore.java` |
@@ -2492,6 +2492,292 @@ CronScheduler
 
 ---
 
+### 5.22 LLM Provider 体系 — DeepSeek API 集成详解 ★
+
+> **为什么单开一章**：LLM Provider 是 Agent 与大模型交互的唯一通道。理解 DeepSeek API 的请求/响应格式、流式解析、工具调用回环，是后续对接任何新模型的基础。
+
+文件：`providers/LLMProvider.java` + `providers/ProviderFactory.java` + `providers/impl/DeepSeekProvider.java`
+
+#### 5.22.1 架构总览
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                    AgentRunner                            │
+│  "我需要调用 LLM，给我回复"                                │
+└────────────┬─────────────────────────────────────────────┘
+             │ LLMProvider.chat(messages, tools)
+             ▼
+┌──────────────────────────────────────────────────────────┐
+│                  ProviderFactory                          │
+│  model="deepseek-chat" → new DeepSeekProvider(apiKey)     │
+│  model="gpt-4o"        → new OpenAIProvider(apiKey)       │
+└────────────┬─────────────────────────────────────────────┘
+             ▼
+┌──────────────────────────────────────────────────────────┐
+│  DeepSeekProvider (implements LLMProvider)                │
+│  POST https://api.deepseek.com/chat/completions           │
+│  Header: Authorization: Bearer sk-xxx                     │
+│  Body: { model, messages, tools, stream, ... }            │
+└────────────┬─────────────────────────────────────────────┘
+             │ HTTP 200
+             ▼
+┌──────────────────────────────────────────────────────────┐
+│  LLMResponse                                             │
+│  ├─ content (文本回复)                                     │
+│  ├─ toolCalls (工具调用请求)                                │
+│  └─ finishReason / error                                   │
+└──────────────────────────────────────────────────────────┘
+```
+
+**设计要点**：
+
+1. **接口统一**：`LLMProvider` 定义 `chat()` / `chatStream()` 两个核心方法，所有 Provider 实现同一套接口
+2. **策略匹配**：`ProviderFactory` 按 `model` 名前缀匹配 Provider（`deepseek*` → DeepSeek, `gpt-*` → OpenAI, 兜底 → OpenAI 兼容）
+3. **API Key 解析优先级**：配置文件 > 环境变量（`DEEPSEEK_API_KEY` / `OPENAI_API_KEY`）
+4. **异步 CompletableFuture**：所有网络 IO 通过 `CompletableFuture.supplyAsync` 异步执行
+
+#### 5.22.2 消息格式（OpenAI 兼容）
+
+DeepSeek API 与 OpenAI 完全兼容，请求/响应格式一致。
+
+**请求体结构**：
+
+```json
+{
+  "model": "deepseek-chat",
+  "max_tokens": 8192,
+  "temperature": 0.7,
+  "stream": true,
+  "messages": [
+    {"role": "system", "content": "你是 Nanobot，一个 AI 助手..."},
+    {"role": "user", "content": "帮我读一下 pom.xml"},
+    {"role": "assistant", "content": null, "tool_calls": [
+      {"id": "call_001", "type": "function",
+       "function": {"name": "read_file", "arguments": "{\"path\":\"pom.xml\"}"}}
+    ]},
+    {"role": "tool", "tool_call_id": "call_001", "content": "<xml>..."},
+    {"role": "assistant", "content": "你的 pom.xml 内容如下..."}
+  ],
+  "tools": [
+    {"type": "function", "function": {"name": "read_file", "description": "...", "parameters": {...}}}
+  ]
+}
+```
+
+**四种消息角色**：
+
+| role | 来源 | 说明 |
+|------|------|------|
+| `system` | BuildState 构建 | Agent 人格、规则、当前日期、NANOBOT.md |
+| `user` | 用户输入 | 用户发送的消息 |
+| `assistant` | LLM 返回 | AI 回复，可能包含 `tool_calls`（LLM 决定调工具） |
+| `tool` | ToolRegistry 执行结果 | 工具执行后的返回值，通过 `tool_call_id` 关联 |
+
+**关键细节**：DeepSeek API 要求 assistant 消息中 `tool_calls[].function.arguments` 必须是 **JSON 字符串**（如 `"{\"path\":\"pom.xml\"}"`），不能是 JSON 对象。`buildRequestBody()` 中专门做了格式转换。
+
+#### 5.22.3 非流式调用（chat）
+
+```
+AgentRunner
+  │
+  ├─ provider.chat(messages, tools)
+  │     ├─ buildRequestBody()  : 构造 JSON
+  │     ├─ POST /chat/completions
+  │     └─ parseResponse()     : 解析 JSON → LLMResponse
+  │
+  └─ response.isToolCall() ?
+       ├─ YES → AgentRunner 执行工具 → 结果追加到 messages → 再次 chat()
+       └─ NO  → 返回文本内容给用户
+```
+
+**响应解析**（`parseResponse`）：
+
+```json
+// 普通文本回复
+{
+  "choices": [{
+    "message": {"content": "你的 pom.xml 是..."},
+    "finish_reason": "stop"
+  }]
+}
+// → LLMResponse.success(content, "stop", null)
+
+// 工具调用回复
+{
+  "choices": [{
+    "message": {
+      "content": null,
+      "tool_calls": [{
+        "id": "call_001",
+        "function": {"name": "read_file", "arguments": "{\"path\":\"pom.xml\"}"}
+      }]
+    }
+  }]
+}
+// → LLMResponse.toolCalls([ToolCallRequest("call_001", "read_file", {path:"pom.xml"})], model)
+```
+
+#### 5.22.4 流式调用（chatStream）★ 核心难点
+
+流式调用是 DeepSeek 集成中最复杂的部分，核心难点在于 **工具调用的 arguments 是逐字符流式返回的**，需要跨 SSE delta 拼接。
+
+**SSE 数据流示例**（每行一个 `data:` 事件）：
+
+```
+data: {"choices":[{"delta":{"content":"你"}}]}
+data: {"choices":[{"delta":{"content":"好"}}]}
+data: {"choices":[{"delta":{"content":"！"}}]}
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_001","function":{"name":"read_file"}}]}}]}
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"pa"}}]}}]}
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\":"}}]}}]}
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"pom"}}]}}]}
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":".xml\"}"}}]}}]}
+data: [DONE]
+```
+
+**ToolCallAccumulator — 按 index 分桶拼接**：
+
+```
+delta 1: tool_calls[0] → id="call_001", name="read_file"
+delta 2: tool_calls[0] → arguments="{\"pa"
+delta 3: tool_calls[0] → arguments="th\":"
+delta 4: tool_calls[0] → arguments="\"pom"
+delta 5: tool_calls[0] → arguments=".xml\"}"
+
+    │
+    ▼  (按 index 分桶，argsBuilder.append 拼接)
+    
+accumulators[0]:
+  id = "call_001"
+  name = "read_file"  
+  argsBuilder = "{\"path\":\"pom.xml\"}"  ← 完整 JSON
+    │
+    ▼  (buildToolCalls: 按 index 排序 → 构建 ToolCallRequest)
+    
+List<ToolCallRequest> [
+  {id: "call_001", name: "read_file", arguments: {path: "pom.xml"}}
+]
+```
+
+**为什么不直接用一个 StringBuilder**：LLM 可能**并行调用多个工具**（tool_calls 数组有多项），每一项的 arguments 碎片交替到达。按 `index` 分桶保证每个工具的 arguments 独立拼接不混淆。
+
+**流式解析主循环**（`chatStream()` 核心代码）：
+
+```java
+// 逐行读取 SSE（Server-Sent Events）
+try (BufferedReader reader = ...) {
+    String line;
+    while ((line = reader.readLine()) != null) {
+        if (!line.startsWith("data: ")) continue;   // 跳过空行和注释
+        String json = line.substring(6);             // 去掉 "data: " 前缀
+        if ("[DONE]".equals(json)) continue;          // 流结束信号
+        
+        JsonNode chunk = objectMapper.readTree(json);
+        JsonNode delta = chunk.get("choices")[0].get("delta");
+        
+        if (delta.has("content")) {
+            String text = delta.get("content").asText();
+            fullContent.append(text);
+            onDelta.accept(text);  // 实时推送给前端
+        }
+        if (delta.has("tool_calls")) {
+            toolCallMode = true;
+            parseToolCallsFromDelta(delta.get("tool_calls"), accumulators);
+        }
+    }
+}
+// 流结束后：从 accumulators 构建完整的 ToolCallRequest 列表
+```
+
+#### 5.22.5 工具调用回环（Tool Call Loop）
+
+这是 Agent 区别于普通 Chatbot 的核心流程：
+
+```
+Round 1:
+  LLM → "我需要读文件" → tool_calls: [read_file("pom.xml")]
+  AgentRunner → ToolRegistry.execute("read_file", {path:"pom.xml"})
+  → tool result 作为 tool 消息追加到 messages
+
+Round 2:
+  LLM → (收到文件内容) → "文件内容是...建议你..." → content: "建议你..."
+  → finish_reason="stop" → 输出给用户
+```
+
+**AgentRunner 循环控制**（伪码）：
+
+```java
+for (int i = 0; i < maxIterations; i++) {
+    LLMResponse response = provider.chat(messages, tools);
+    
+    if (!response.shouldExecuteTools()) {
+        return response.getContent();  // 文本回复 → 结束
+    }
+    
+    for (ToolCallRequest tc : response.getToolCalls()) {
+        // 权限检查
+        if (webSearchDisabled && tc.getName().startsWith("web_")) continue;
+        
+        Object result = toolRegistry.execute(tc.getName(), tc.getArguments());
+        messages.add(Message.ofTool(result.toString(), tc.getId()));
+    }
+    // 继续下一轮，LLM 看到 tool 结果后决定下一步
+}
+```
+
+#### 5.22.6 如何对接新模型
+
+假设要接入 **Mistral**，只需三步：
+
+**Step 1**：创建 `MistralProvider implements LLMProvider`
+
+```java
+public class MistralProvider implements LLMProvider {
+    public CompletableFuture<LLMResponse> chat(List<Message> messages, List<JsonNode> tools) {
+        // POST https://api.mistral.ai/v1/chat/completions
+        // Header: Authorization: Bearer <apiKey>
+        // Body: 与 OpenAI 兼容格式
+    }
+    public CompletableFuture<LLMResponse> chatStream(...) { /* SSE 流式 */ }
+}
+```
+
+**Step 2**：在 `ProviderFactory.registerDefaults()` 注册策略
+
+```java
+register(new ProviderStrategy() {
+    @Override public boolean supports(String model) {
+        return model.startsWith("mistral");
+    }
+    @Override public LLMProvider create(Config config, String model) {
+        return new MistralProvider(apiKey, model);
+    }
+});
+```
+
+**Step 3**：`config.yaml` 添加配置
+
+```yaml
+providers:
+  mistral:
+    apiKey: ""
+    apiBase: "https://api.mistral.ai/v1"
+```
+
+**判断工作量的关键点**：
+
+| 差异项 | 工作量 | 说明 |
+|--------|:--:|------|
+| API 兼容 OpenAI 格式 | 低 | 可直接复用 `buildRequestBody` 和 `parseResponse` 逻辑 |
+| 认证方式不同（如 OAuth） | 中 | 需改造 HTTP Header 构造 |
+| 响应格式不同（如 Anthropic 的 content block） | 高 | 需重写 `parseResponse` 和流式解析 |
+| 不支持 tool calling | — | 放弃该 Provider 的工具调用能力 |
+| 流式格式不同 | 高 | SSE 换行策略、delta 结构、`[DONE]` 信号均可能不同 |
+
+**本项目已验证兼容的 API**：DeepSeek API、OpenAI API。任何 OpenAI 兼容 API（如 vLLM、Ollama、LocalAI）理论上零修改接入。
+
+---
+
 ## 六、nanobot CLI 实战指南
 
 > **阅读目标**：掌握 nanobot CLI 的日常使用方式、常用命令和最佳实践，像使用 Claude Code 一样高效。
@@ -3383,6 +3669,7 @@ Nanobot-Java 的核心价值在于：
 1. 第三章：动手构建 Agent（建立感性认识）
 2. 第四章：架构概览（建立全局地图）
 3. 第五章 5.1-5.5：核心模块（Agent Loop / 状态机 / 全链路 / 流式 / 工具）
+4. 第五章 5.22：LLM Provider 体系 — 理解 Agent 如何与 DeepSeek API 交互，学会对接新模型
 4. 第五章 5.6-5.10：进阶模块（身份 / System Prompt / Plan Mode / 上下文 / 记忆）
 5. 第六章：nanobot CLI 实战（日常使用）
 6. 第七章：Claude Code 实战（对标学习）
