@@ -490,6 +490,15 @@ public class AgentLoop {
         stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(c));
     }
 
+    /** 长期记忆引擎 */
+    private com.nanobot.memory.Dream dream;
+
+    /** 设置长期记忆引擎，同时更新 SaveState 处理器 */
+    public void setDream(com.nanobot.memory.Dream d) {
+        this.dream = d;
+        stateHandlers.put(TurnState.SAVE, new com.nanobot.core.state.SaveState(sessionManager, d));
+    }
+
     // ==================== 响应发送 ====================
 
     /**

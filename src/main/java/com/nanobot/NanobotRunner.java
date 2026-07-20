@@ -91,6 +91,11 @@ public class NanobotRunner implements ApplicationRunner {
         skillManager = initSkills();
         provider = initProvider();
         dream = initDream();
+        // 注入长期记忆引擎到 AgentLoop
+        if (agentLoop != null && dream != null) {
+            agentLoop.setDream(dream);
+            logger.info("Dream injected into AgentLoop");
+        }
         verifySpringBeans();
         registerShutdownHook();
 

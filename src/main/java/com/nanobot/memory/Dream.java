@@ -5,6 +5,8 @@ import com.nanobot.providers.LLMResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
@@ -87,7 +89,7 @@ public class Dream {
      * @param messages 消息列表
      * @return 存储的记忆条目列表
      */
-    public CompletableFuture<List<MemoryEntry>> extractAndStore(String sessionId, 
+    public CompletableFuture<List<MemoryEntry>> extractAndStore(String sessionId,
                                                                List<Map<String, Object>> messages) {
         return analyzeMessages(messages)
             .thenApply(entries -> {
@@ -96,6 +98,10 @@ public class Dream {
                     if (storeMemory(sessionId, entry)) {
                         stored.add(entry);
                     }
+                }
+                if (!stored.isEmpty()) {
+                    // 自动持久化到 MEMORY.md
+                    saveToMemoryFile(Paths.get(".nanobot").toAbsolutePath().normalize());
                 }
                 logger.info("Extracted {} memories from session {}", stored.size(), sessionId);
                 return stored;
@@ -217,37 +223,78 @@ public class Dream {
     }
     
     /**
-     * 解析 LLM 返回的记忆响应
+     * 解析 LLM 返回的记忆响应（JSON 数组 → MemoryEntry 列表）
      */
     private List<MemoryEntry> parseMemoryResponse(String response) {
         try {
-            // 简单解析，实际应用中应使用 JSON 解析器
             if (response == null || response.isBlank()) {
                 return Collections.emptyList();
             }
-            
+
             // 提取 JSON 数组
             int start = response.indexOf('[');
             int end = response.lastIndexOf(']');
-            
-            if (start == -1 || end == -1) {
-                // 如果不是 JSON，创建单个记忆条目
+
+            if (start == -1 || end == -1 || start >= end) {
+                // 非 JSON 格式，将全文作为单条记忆
                 MemoryEntry entry = new MemoryEntry();
                 entry.setId(UUID.randomUUID().toString());
                 entry.setContent(response.trim());
-                entry.setKeywords(Arrays.asList("general"));
+                entry.setKeywords(List.of("general"));
                 entry.setImportance(0.5);
                 entry.setTimestamp(LocalDateTime.now());
-                return Collections.singletonList(entry);
+                return List.of(entry);
             }
-            
-            // 简化处理：返回空列表，实际应用中应解析 JSON
-            return Collections.emptyList();
-            
+
+            String jsonArray = response.substring(start, end + 1);
+            ObjectMapper mapper = new ObjectMapper();
+            List<Map<String, Object>> rawList = mapper.readValue(
+                    jsonArray,
+                    new TypeReference<List<Map<String, Object>>>() {});
+
+            List<MemoryEntry> entries = new ArrayList<>();
+            for (Map<String, Object> raw : rawList) {
+                MemoryEntry entry = new MemoryEntry();
+                entry.setId(UUID.randomUUID().toString());
+                entry.setContent(Objects.toString(raw.get("content"), "").trim());
+                entry.setImportance(parseDouble(raw.get("importance"), 0.5));
+                entry.setTimestamp(LocalDateTime.now());
+
+                // 解析 keywords
+                Object kwObj = raw.get("keywords");
+                List<String> keywords = new ArrayList<>();
+                if (kwObj instanceof List<?> kwList) {
+                    for (Object item : kwList) {
+                        keywords.add(Objects.toString(item, ""));
+                    }
+                }
+                entry.setKeywords(keywords);
+
+                if (!entry.getContent().isBlank()) {
+                    entries.add(entry);
+                }
+            }
+            return entries;
+
         } catch (Exception e) {
-            logger.error("Failed to parse memory response", e);
-            return Collections.emptyList();
+            logger.warn("Failed to parse memory response, treating as plain text: {}", e.getMessage());
+            // 降级：将全文作为单条记忆
+            MemoryEntry entry = new MemoryEntry();
+            entry.setId(UUID.randomUUID().toString());
+            entry.setContent(response != null ? response.trim() : "");
+            entry.setKeywords(List.of("general"));
+            entry.setImportance(0.3);
+            entry.setTimestamp(LocalDateTime.now());
+            return entry.getContent().isBlank() ? Collections.emptyList() : List.of(entry);
         }
+    }
+
+    private static double parseDouble(Object val, double defaultVal) {
+        if (val instanceof Number n) return n.doubleValue();
+        if (val instanceof String s) {
+            try { return Double.parseDouble(s); } catch (NumberFormatException ignored) {}
+        }
+        return defaultVal;
     }
     
     /**

@@ -10,6 +10,7 @@ import com.nanobot.cron.CronScheduler;
 import com.nanobot.identity.IdentityManager;
 import com.nanobot.mcp.MCPManager;
 import com.nanobot.memory.Consolidator;
+import com.nanobot.memory.Dream;
 import com.nanobot.memory.MemoryStore;
 import com.nanobot.providers.LLMProvider;
 import com.nanobot.providers.impl.DeepSeekProvider;
@@ -247,6 +248,15 @@ public class NanobotConfig {
         return new Consolidator(llmProvider, budget);
     }
 
+    @Bean
+    public Dream dream(LLMProvider llmProvider, Config config) {
+        int maxMemories = config.getMemory().getDream().getMaxMemories();
+        Dream d = new Dream(llmProvider, maxMemories);
+        java.nio.file.Path baseDir = java.nio.file.Paths.get(".nanobot").toAbsolutePath().normalize();
+        d.loadFromMemoryFile(baseDir);
+        return d;
+    }
+
     @Bean(destroyMethod = "stop")
     public AgentLoop agentLoop(
             MessageBus messageBus,
@@ -257,6 +267,7 @@ public class NanobotConfig {
             RuleManager ruleManager,
             IdentityManager identityManager,
             Consolidator consolidator,
+            Dream dream,
             Config config) {
         AgentLoop agentLoop = new AgentLoop(
             messageBus,
@@ -269,6 +280,7 @@ public class NanobotConfig {
             identityManager
         );
         agentLoop.setConsolidator(consolidator);
+        agentLoop.setDream(dream);
         // 启动 AgentLoop
         agentLoop.start();
         return agentLoop;
