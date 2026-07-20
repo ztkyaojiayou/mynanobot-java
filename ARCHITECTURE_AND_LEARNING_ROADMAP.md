@@ -3117,11 +3117,285 @@ Nanobot / Claude Code（终端产品）
 
 ---
 
+### 6.7 多 Agent 协作：从 Subagent 到 A2A 协议
+
+#### 6.7.1 一个 Subagent ≠ 一个独立 Agent
+
+回顾第五章 5.21（子 Agent 系统）和 AgentScope 的 9 种多 Agent 模式，这里有一个关键概念需要厘清：
+
+```
+同一服务内的 Subagent                    跨服务的独立 Agent
+┌──────────────────────┐          ┌──────────┐     ┌──────────┐
+│ 主 Agent (Nanobot)    │          │ Agent A  │     │ Agent B  │
+│  ├─ Subagent "搜索"   │          │ 数据分析  │     │ 报表生成  │
+│  ├─ Subagent "计算"   │          │ (独立进程)│     │ (独立进程)│
+│  └─ Subagent "总结"   │          └────┬─────┘     └────┬─────┘
+│                      │               │ A2A 协议       │
+│  共享内存空间、同一 JVM │               └───────┬───────┘
+│  AgentCoordinator 调度 │                       │
+└──────────────────────┘               ┌────────┴────────┐
+                                       │  Nacos 3.x      │
+                                       │  Agent Registry │ ← 动态发现
+                                       └─────────────────┘
+```
+
+| 维度 | 同服务的 Subagent | 跨服务的独立 Agent |
+|------|-----------------|-------------------|
+| **进程** | 同一个 JVM 进程 | 各自独立进程/容器 |
+| **发现机制** | AgentCoordinator 内部调度 | Nacos Agent Registry 服务发现 |
+| **通信协议** | 方法调用 / 内存消息队列 | A2A 协议（HTTP/gRPC + Task 生命周期） |
+| **能力描述** | 枚举标签（"search", "calc"） | Agent Card（结构化 JSON） |
+| **故障隔离** | Subagent 崩溃可能影响主进程 | 天然隔离，一个挂了不影响其他 |
+| **扩展方式** | 代码内注册新 Subagent 类型 | 注册新 Agent 到 Registry |
+| **适用规模** | 单应用内的任务分解 | 企业级跨团队、跨服务的 Agent 协作 |
+
+**一句话**：Subagent 是 Agent 的"多线程"，独立 Agent 是 Agent 的"微服务"。从 Subagent 到独立 Agent 的跨越，本质是从**单进程内部分工**升级到**分布式服务协作**。
+
+#### 6.7.2 双协议标准：MCP + A2A
+
+2025 年，社区在 Agent 通信协议上收敛到两个互补的开放标准：
+
+```
+          MCP (Anthropic)                A2A (Google)
+          Agent ↔ 工具                  Agent ↔ Agent
+    ┌──────────────────┐          ┌──────────────────┐
+    │ 数据库 / API      │          │  Agent B: 报表专家 │
+    │ 文件系统           │          │  Agent C: 客服专家 │
+    │ 搜索引擎           │          │  Agent D: 数据分析 │
+    └──────────────────┘          └──────────────────┘
+           ▲                               ▲
+           │ MCP                            │ A2A
+           │                               │
+    ┌──────┴──────────────────────────────┴──────┐
+    │              Agent A (主控)                  │
+    │  通过 MCP 操作工具，通过 A2A 委托其他 Agent   │
+    └─────────────────────────────────────────────┘
+```
+
+**A2A 协议的四个核心要素**：
+
+| 要素 | 说明 | 示例 |
+|------|------|------|
+| **Agent Card** | JSON 元数据文件，声明 Agent 身份、能力、接口 | `{"name":"DataAgent","capabilities":["sql_query","statistical_analysis"],"endpoint":"https://..."}` |
+| **Task 生命周期** | 每个委派任务有标准状态机 | `created → in-progress → completed/failed` |
+| **多模态消息** | 支持文本 + 图片 + 结构化数据 | 分析结果可以是 JSON + Markdown 混合 |
+| **安全认证** | OpenAPI 授权 + TLS 加密 | 企业级 Agent 间安全通信 |
+
+---
+
+### 6.8 实战案例：电商智能客服多 Agent 系统
+
+> 以下是一个真实的生产级多 Agent 协作架构，模拟某电商平台的售后处理流程。
+
+#### 6.8.1 业务场景
+
+用户发起售后请求："我买的手机屏幕有坏点，我要退货。"
+
+这涉及到四个专业领域，单个 Agent 难以全部精通。
+
+#### 6.8.2 架构设计
+
+```
+                            ┌─────────────────────────┐
+                            │    Nacos 3.x             │
+                            │  ┌───────────────────┐   │
+                            │  │ Agent Registry    │   │
+                            │  │ IntentAgent       │   │
+                            │  │ OrderAgent        │   │
+                            │  │ InventoryAgent    │   │
+                            │  │ NotificationAgent │   │
+                            │  └───────────────────┘   │
+                            │  ┌───────────────────┐   │
+                            │  │ MCP Registry      │   │
+                            │  │ 订单查询API        │   │
+                            │  │ 库存查询API        │   │
+                            │  │ 物流退回API        │   │
+                            │  │ 短信/邮件发送API   │   │
+                            │  └───────────────────┘   │
+                            └─────────────────────────┘
+                                       │
+          ┌────────────────────────────┼────────────────────────────┐
+          │ A2A                        │ A2A                    A2A │
+          ▼                            ▼                            ▼
+┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
+│   IntentAgent    │    │   OrderAgent     │    │ InventoryAgent   │
+│   (意图识别)      │    │   (订单处理)      │    │   (库存协调)      │
+│                  │    │                  │    │                  │
+│ Agent Card:      │    │ Agent Card:      │    │ Agent Card:      │
+│ - intent_classify│    │ - order_query    │    │ - stock_check    │
+│ - sentiment      │    │ - refund_process │    │ - warehouse_notify│
+│ - priority_rank  │    │ - status_track   │    │ - return_label   │
+└────────┬─────────┘    └────────┬─────────┘    └────────┬─────────┘
+         │ MCP                    │ MCP                    │ MCP
+         ▼                        ▼                        ▼
+┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
+│  NLP 分类模型     │    │  订单数据库        │    │  WMS 仓库系统     │
+│  短信/邮件 API    │    │  退款网关          │    │  物流退回 API     │
+└──────────────────┘    └──────────────────┘    └──────────────────┘
+                                       │
+                              ┌────────┴────────┐
+                              │ NotificationAgent│
+                              │   (通知推送)      │
+                              │ Agent Card:      │
+                              │ - sms_send       │
+                              │ - email_send     │
+                              │ - push_notify    │
+                              └──────────────────┘
+```
+
+#### 6.8.3 协作全链路
+
+```
+用户: "手机屏幕有坏点，我要退货"
+  │
+  ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Step 1: IntentAgent 接收请求                                  │
+│   → Nacos MCP Registry 搜索可用的 NLP 模型                    │
+│   → 调用意图识别 MCP 工具                                     │
+│   → 输出: {                                                   │
+│       "intent": "refund_request",                             │
+│       "sentiment": "negative",                                │
+│       "priority": "high",                                     │
+│       "entities": {"product": "手机", "issue": "屏幕坏点"}     │
+│     }                                                         │
+│   → A2A 委派给 OrderAgent                                     │
+│     Task {id: "task-001", type: "order_lookup", ...}          │
+└──────────────────────────────────────────────────────────────┘
+  │
+  ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Step 2: OrderAgent 处理售后                                   │
+│   → Nacos Agent Registry 查询 "谁管库存？"                    │
+│     ← InventoryAgent (capability: warehouse_notify)           │
+│   → MCP: 查询订单数据库 → 订单号 #12345，金额 ¥3999           │
+│   → MCP: 调退款网关 → 发起原路退款                             │
+│   → A2A 委派给 InventoryAgent                                 │
+│     Task {id: "task-002", type: "return_label", ...}          │
+└──────────────────────────────────────────────────────────────┘
+  │
+  ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Step 3: InventoryAgent 库存协调                               │
+│   → MCP: 查 WMS 仓库系统 → 确认退货仓有库容                   │
+│   → MCP: 调物流退回 API → 生成退货单号 RTN-88921              │
+│   → Task 完成 → 返回 {return_label: "RTN-88921"}              │
+└──────────────────────────────────────────────────────────────┘
+  │
+  ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Step 4: NotificationAgent 通知用户                            │
+│   → A2A 接收汇总结果                                           │
+│   → MCP: 发送短信 "您的退货 RTN-88921 已受理，预计3个工作日内退款"│
+│   → MCP: 发送邮件（含退货单 PDF）                              │
+└──────────────────────────────────────────────────────────────┘
+  │
+  ▼
+用户收到短信 + 邮件 → 售后完成
+```
+
+**关键点**：每个 Agent 只专注于自己的领域。IntentAgent 不懂订单、OrderAgent 不懂库存、InventoryAgent 不懂通知。但通过 **Agent Registry 动态发现 + A2A 标准通信 + MCP 工具调用**，它们无缝协作完成了一个单个 Agent 难以胜任的复杂任务。
+
+#### 6.8.4 Nacos 在其中的角色
+
+```
+每新增一个 Agent（比如加一个 PricingAgent 做动态定价）：
+  1. 注册 Agent Card 到 Nacos Agent Registry
+  2. 注册它需要的新 MCP 工具到 Nacos MCP Registry
+  3. 其他 Agent 通过 MCP Router 的语义匹配自动发现新能力
+  4. 零代码改动即可参与协作
+```
+
+---
+
+### 6.9 多 Agent vs 单服务多 Subagent —— 决策指南
+
+| 场景 | 推荐方案 | 理由 |
+|------|---------|------|
+| 个人 AI 编程助手，需要搜索+计算+总结 | **Subagent** | Nanobot 的 AgentCoordinator 足够，单进程零延迟 |
+| 一个 Spring Boot 应用内，需要多个 AI 模块协作 | **Subagent** | 共享内存、直接方法调用、无需网络开销 |
+| 电商售后系统，订单/库存/物流分属不同团队 | **独立 Agent + A2A** | 各自独立部署、独立迭代、独立扩缩容 |
+| 跨部门协作，Agent 由不同团队开发和维护 | **独立 Agent + A2A** | Agent Card 是团队间的 API 契约 |
+| 需要水平扩展（某个 Agent 扛不住高并发） | **独立 Agent + K8s HPA** | 独立 Agent 可以单独扩缩，Subagent 随主进程 |
+| 10 万并发请求分发到数百个 Agent | **Nacos + A2A** | 服务发现 + 负载均衡 + 故障摘除 |
+
+**核心判断标准**：
+
+```
+是否跨进程？ ─No─→ Subagent（同服务内调度）
+    │
+   Yes
+    │
+是否需要独立扩缩容？ ─Yes─→ 独立 Agent + A2A + Nacos
+    │
+   No
+    │
+是否由不同团队维护？ ─Yes─→ 独立 Agent + A2A（Agent Card 是 API 契约）
+    │
+   No
+    │
+是不是简单任务分解？ ─Yes─→ Subagent 就够了
+```
+
+---
+
+### 6.10 Nacos 3.x AI 资产管理 —— 核心组件速览
+
+Nacos 3.0 将定位从"微服务注册中心"升级为 **"AI Agent 应用的动态服务发现、配置管理和智能体管理平台"**。
+
+#### 6.10.1 四维注册表
+
+```
+传统 Nacos                         Nacos 3.x
+┌──────────────┐             ┌──────────────────────────────┐
+│ Service      │             │ Service Registry  (微服务)    │
+│ Registry     │             │ MCP Registry      (工具)     │
+│              │             │ Agent Registry    (智能体)    │
+│ Config       │             │ Prompt Registry   (提示词)   │
+│ Center       │             │ Skill Registry    (技能)     │
+└──────────────┘             │ Config Center                │
+                             └──────────────────────────────┘
+```
+
+| 注册表 | 管什么 | 杀手能力 |
+|--------|--------|---------|
+| **MCP Registry** | Agent 可调用的工具/API | 存量 HTTP 接口**零代码**转 MCP 服务；语义搜索自动匹配 |
+| **Agent Registry** | Agent 实例 + Agent Card | A2A 协议原生支持；按能力标签动态发现 |
+| **Prompt Registry** | System Prompt 模板 | 版本控制、A/B 测试、灰度发布、差量推送（带宽省 72%） |
+| **Skill Registry** | 可复用技能组件 | Docker 沙箱隔离、恶意代码扫描（98%+ 识别率） |
+
+#### 6.10.2 MCP Router —— Agent 的统一工具入口
+
+```
+Agent → "我需要查订单、发短信、生成退货单"
+
+MCP Router (从 200 个工具中自动匹配 3-5 个)
+  ├─ search_mcp_server("订单查询")  → 订单数据库 MCP 服务
+  ├─ search_mcp_server("短信发送")  → 阿里云短信 MCP 服务
+  └─ search_mcp_server("物流退货")  → 物流退回 MCP 服务
+```
+
+内置三个标准工具：`search_mcp_server`（搜索）→ `add_mcp_server`（安装）→ `use_mcp_tool`（调用）。
+
+#### 6.10.3 版本演进路线
+
+| 版本 | 时间 | 新增 |
+|------|------|------|
+| 3.0 | 2025 Q2 | MCP Registry + 零信任安全 + 存量接口一键转 MCP |
+| 3.1 | 2025 Q3 | A2A Registry + Agent Card 注册发现 |
+| 3.2 | 2026 Q1 | Prompt/Skill Registry + Nacos Copilot + CLI |
+
+---
+
+> **本章小结**：从 Spring AI 的 "给 API 套个壳" 到 AgentScope 的 "企业级 Agent 平台"，到 Nanobot 的 "开箱即用的终端产品"，再到 Nacos 3.x 的 "让 Agent 像微服务一样被发现和管理"——Java AI 生态正在经历从 "能调模型" 到 "多 Agent 自治协作" 的范式转变。理解这个演进脉络，才能看清每个项目的定位和你自己的位置。
+
+---
+
 ## 七、nanobot CLI 实战指南
 
 > **阅读目标**：掌握 nanobot CLI 的日常使用方式、常用命令和最佳实践，像使用 Claude Code 一样高效。
 
-### 6.1 启动与环境
+### 7.1 启动与环境
 
 ```bash
 # 把 scripts/ 目录加到 PATH
@@ -3152,7 +3426,7 @@ nanobot --resume cli-1234567890
 
 ---
 
-### 6.2 命令速查
+### 7.2 命令速查
 
 | 命令 | 别名 | 功能 | 示例 |
 |------|------|------|------|
@@ -3171,7 +3445,7 @@ nanobot --resume cli-1234567890
 
 ---
 
-### 6.3 核心工作流
+### 7.3 核心工作流
 
 #### 6.3.1 工作流 1：自由对话（Vibe Coding）
 
@@ -3215,7 +3489,7 @@ AI 使用只读工具探索项目 → 输出计划:
 
 ---
 
-### 6.4 权限模式选择指南
+### 7.4 权限模式选择指南
 
 ```
 信任度低 ←──────────────────────────────→ 信任度高
@@ -3243,7 +3517,7 @@ AI 使用只读工具探索项目 → 输出计划:
 
 ---
 
-### 6.5 会话管理
+### 7.5 会话管理
 
 ```
 > /resume                  # 查看历史会话
@@ -3259,7 +3533,7 @@ AI 使用只读工具探索项目 → 输出计划:
 
 ---
 
-### 6.6 NANOBOT.md — 项目的 AI 记忆文件
+### 7.6 NANOBOT.md — 项目的 AI 记忆文件
 
 `/init` 命令会在项目根目录生成 `NANOBOT.md`，后续每次对话 AI 都会自动加载它。
 
@@ -3278,7 +3552,7 @@ mvn compile && mvn test && ./scripts/nanobot
 
 ---
 
-### 6.7 实用技巧
+### 7.7 实用技巧
 
 1. **善用 Esc 中断**：AI 生成跑偏了，按 `Esc` 立即停止
 2. **先 /init 再干活**：进入新项目第一件事
@@ -3293,7 +3567,7 @@ mvn compile && mvn test && ./scripts/nanobot
 
 > **为什么要学 Claude Code？** 本项目全程使用 Claude Code 构建。Claude Code 是 Anthropic 官方出品的 AI 编程 Agent CLI 工具，是目前 Agent-Driven Development 的标杆产品。掌握它，你就能理解本项目的设计目标——用 Java 复刻一个类 Claude Code 的 Agent 框架。
 
-### 7.1 Claude Code 是什么
+### 8.1 Claude Code 是什么
 
 Claude Code 是 Anthropic 推出的**终端原生 AI 编程助手**，运行在命令行中，不是一个 IDE 插件。
 
@@ -3319,7 +3593,7 @@ $ claude
 
 ---
 
-### 7.2 安装与启动
+### 8.2 安装与启动
 
 ```bash
 # 安装 Claude Code（需要 Node.js 18+）
@@ -3343,7 +3617,7 @@ claude login
 
 ---
 
-### 7.3 核心命令速查
+### 8.3 核心命令速查
 
 | 命令 | 功能 |
 |------|------|
@@ -3364,7 +3638,7 @@ claude login
 
 ---
 
-### 7.4 核心工作流
+### 8.4 核心工作流
 
 #### 7.4.1 工作流 1：Vibe Coding（对话式编程）
 
@@ -3436,7 +3710,7 @@ Claude: 再加持久化 → 验证 → 完成
 
 ---
 
-### 7.5 CLAUDE.md — 项目的 AI 记忆
+### 8.5 CLAUDE.md — 项目的 AI 记忆
 
 这是 Claude Code 最核心的功能之一，也是本项目 `NANOBOT.md` + `/init` 的灵感来源。
 
@@ -3466,7 +3740,7 @@ A Java 17 AI Agent framework built with Spring Boot 3.2.
 
 ---
 
-### 7.6 权限系统
+### 8.6 权限系统
 
 Claude Code 的 4 级权限模式是本项目 `PermissionManager` + `PermissionMode` 的对标对象：
 
@@ -3483,7 +3757,7 @@ Claude Code 的 4 级权限模式是本项目 `PermissionManager` + `PermissionM
 
 ---
 
-### 7.7 Claude Code 的架构思想
+### 8.7 Claude Code 的架构思想
 
 Claude Code 的架构直接启发了本项目的核心设计：
 
@@ -3505,7 +3779,7 @@ Claude Code 的架构直接启发了本项目的核心设计：
 
 ---
 
-### 7.8 实战建议
+### 8.8 实战建议
 
 **1. 先 `/init` 再干活**：进入新项目第一件事就是 `/init`，让 Claude Code 理解项目。
 
