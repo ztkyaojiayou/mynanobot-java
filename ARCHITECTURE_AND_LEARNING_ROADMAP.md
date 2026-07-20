@@ -1061,7 +1061,7 @@ Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 4. **DeepSeek API 的调用细节**——流式参数拼接、tool_calls 解析
 5. **Agent 的核心设计模式**——消息总线解耦、策略工厂选择 Provider、Repository 分离 I/O
 
-> 📖 接下来建议阅读 **第四~五章**（架构详解），那里会对每个模块做深度剖析。也可以跳到 **第六章**（nanobot CLI 实战）直接使用本项目。
+> 📖 接下来建议阅读 **第四~五章**（架构详解），那里会对每个模块做深度剖析。也可以跳到 **第六章**（主流框架对比）了解生态全貌，或跳到 **第七章**（nanobot CLI 实战）直接使用本项目。
 
 ---
 
@@ -2778,7 +2778,321 @@ providers:
 
 ---
 
-## 六、nanobot CLI 实战指南
+## 六、主流 AI 开发框架全景对比
+
+> **阅读目标**：理解 Nanobot 在 Java AI 开发生态中的位置，建立从"库 → 框架 → Agent 运行时 → Agent 终端产品"的层次认知。
+
+在深入理解了 Nanobot 每个核心模块的实现之后，本章将目光拉远，把市面上主流的 Java AI 开发框架放在一起比较。这不是"谁更好"的排名，而是帮你理解**每个框架解决什么问题、不解决什么问题**。
+
+### 6.1 Java AI 开发生态的四层金字塔
+
+```
+                         ┌────────────┐
+                        /  终端 Agent  \          ← 用户直接使用，开箱即用
+                       /    (Nanobot)   \
+                      └──────────────────┘
+                     ┌──────────────────────┐
+                    /   Agent 运行时框架       \    ← 内置 Loop + 记忆 + 会话
+                   / (AgentScope, Nanobot)    \
+                  └────────────────────────────┘
+                 ┌──────────────────────────────────┐
+                /    Agent 框架 (有 Loop)              \ ← 有 Agent Loop
+               /   (Spring AI Alibaba Agent)          /
+              └──────────────────────────────────────┘
+             ┌──────────────────────────────────────────┐
+            /    AI 集成库 (无 Loop)                       \ ← 工具 + 调模型
+           /   (Spring AI, LangChain4j)                  /
+          └──────────────────────────────────────────────┘
+```
+
+**每往上一层，框架帮你多接管一个决策。** 底层告诉你"这是锤子"，顶层直接帮你把钉子钉好。
+
+### 6.2 五个框架一览
+
+| 框架 | 定位 | 一句话 |
+|------|------|--------|
+| **Spring AI** | LLM 集成库 | "把 LLM 调用变成 Spring Bean 之间的对话" |
+| **LangChain4j** | LLM 集成库 | "Java 版 LangChain，Orchestration 框架" |
+| **Spring AI Alibaba Agent** | Agent 框架 | "Spring AI + 阿里生态 + ReAct Loop" |
+| **AgentScope Java** | Agent 运行时框架 | "阿里企业级多 Agent 编排 + Harness 工程化底座" |
+| **Nanobot** | Agent 终端产品 | "启动即用的 Claude Code 级 AI 编程助手" |
+
+---
+
+### 6.3 逐框架深度对比
+
+#### 6.3.1 Spring AI — 最底层的 LLM 集成库
+
+**仓库**：`spring-projects/spring-ai` | **定位**：把 LLM 调用融入 Spring 生态
+
+```
+Spring AI 核心抽象：
+
+  ChatClient.call(prompt)
+    → ChatModel (OpenAI/DeepSeek/Ollama...)
+    → ToolCallback (@Tool 注解方法)
+    → Advisor 链 (拦截器)
+    → ChatMemory (对话历史存储接口)
+    → VectorStore (RAG 检索)
+```
+
+**Spring AI 做了什么**：
+- 统一了不同 LLM Provider 的 API 差异（OpenAI/DeepSeek/Ollama 同一套接口）
+- `@Tool` 注解自动生成 Function Calling Schema → `Method.invoke()` 反射执行
+- `ChatMemory` 接口 + 默认 `InMemoryChatMemory` 实现
+- `VectorStore` 抽象，可接入 PgVector、Milvus、Pinecone
+- ETL 管道：`DocumentReader` → `DocumentTransformer` → `DocumentWriter`
+
+**Spring AI 没做什么**：
+- **没有 Agent Loop**：`ChatClient.call()` 只做一次 LLM 调用+一次工具执行，不会自动循环
+- **没有会话管理**：对话历史靠开发者手动拼接 `List<Message>`
+- **没有权限控制**：工具调用无安全检查
+- **没有上下文治理**：Token 超限不会自动压缩
+- **不独立运行**：必须有 Spring Boot 应用包裹它
+
+**典型使用场景**：在已有的 Spring Boot 业务应用中加一个"智能问答"功能。
+
+---
+
+#### 6.3.2 LangChain4j — 更丰富的 Orchestration 抽象
+
+**仓库**：`langchain4j/langchain4j` | **定位**：Java 版 LangChain，编排 LLM 工作流
+
+```
+LangChain4j 核心抽象：
+
+  ChatLanguageModel  ← 同 Spring AI 的 ChatModel
+  ToolSpecification  ← 同 Spring AI 的 @Tool
+  ChatMemory         ← 对话历史存储
+  AiServices         ← ★ 核心创新：接口代理
+  Chain/Router       ← 工作流编排
+  EmbeddingStore     ← RAG 向量存储
+```
+
+**LangChain4j 独有的亮点**：
+
+`AiServices` — 声明式 AI 服务接口代理：
+
+```java
+interface Assistant {
+    String chat(String userMessage);  // 框架自动处理 LLM 调用
+}
+
+Assistant assistant = AiServices.create(Assistant.class, model);
+String answer = assistant.chat("你好");  // 无需手动拼 prompt
+```
+
+**LangChain4j vs Spring AI 核心差异**：
+
+| | Spring AI | LangChain4j |
+|------|-----------|-------------|
+| 设计哲学 | Spring 生态原生 | 框架无关，可独立使用 |
+| Agent Loop | ❌ 无 | ❌ 无（同样是单次调用） |
+| AI 服务代理 | 无 | ✅ AiServices 接口代理 |
+| RAG 支持 | ✅ ETL 管道 | ✅ 更丰富的 Document Loader |
+| 工作流编排 | 基础 | ✅ Chain + Router + 条件分支 |
+| 学习曲线 | Spring 开发者友好 | 更通用，概念更多 |
+
+**和 Spring AI 一样没做的**：Agent Loop、会话全生命周期管理、权限、长期记忆。两者本质同级——都是**LLM 集成库**。
+
+---
+
+#### 6.3.3 Spring AI Alibaba Agent — 补上了 Agent Loop
+
+**定位**：Spring AI + 阿里云生态 + **ReAct Agent Loop**
+
+```
+Spring AI Alibaba Agent = Spring AI 基础
+                        + DashScope (通义千问) Provider
+                        + 阿里云中间件集成 (RocketMQ/Nacos/Redis)
+                        + ReActAgent (★ 这是关键跨越)
+```
+
+**和 Spring AI 的核心区别 —— 多了一个 Agent Loop**：
+
+```java
+// Spring AI (无 Loop): 你需要自己写
+while (!done) {
+    response = chatClient.call(messages);
+    if (response.hasToolCalls()) {
+        result = tool.execute(response.getToolCall());
+        messages.add(result);  // 你管理历史
+    } else {
+        done = true;
+    }
+}
+
+// Spring AI Alibaba Agent (有 Loop):
+ReActAgent agent = ReActAgent.builder()
+    .model(model)
+    .tools(tools)
+    .memory(memory)
+    .build();
+agent.call("帮我分析这份数据");  // Loop 全自动
+```
+
+**但它仍然是一个"嵌入型 Agent"**：
+- 你的 Spring Boot 应用是主体，Agent 是其中一个组件
+- 去掉 Agent，业务系统照常运行 → **AI-Augmented**
+
+---
+
+#### 6.3.4 AgentScope Java — 企业级 Agent 运行时框架
+
+**仓库**：`agentscope-ai/agentscope-java` | **定位**：阿里开源的生产级多 Agent 编排 + Harness 工程化底座
+
+这是目前 Java 生态中**最接近 Nanobot 的框架**，但设计目标完全不同。
+
+```
+AgentScope 双层架构：
+
+  HarnessAgent（工程化封装层）
+  ├─ Workspace     : 结构化工作目录 (AGENTS.md/MEMORY.md/knowledge/skills)
+  ├─ 双层记忆      : 流水账 → 后台合并精炼 → MEMORY.md + SQLite FTS5 检索
+  ├─ 上下文压缩    : 四道防线 (阈值触发 → 结构化保留 → 卸载到磁盘 → 兜底)
+  ├─ 权限系统      : 三态决策 (允许/需审批/拒绝)
+  ├─ Middleware     : 五阶段洋葱模型
+  └─ 多 Agent 模式 : Pipeline/Routing/Handoffs/Supervisor/Subagents/Skills
+       │
+  ReActAgent（纯推理引擎 — 完全无状态）
+  ├─ Record + Sealed Class 不可变消息
+  ├─ 28 种类型化 AgentEvent
+  └─ Project Reactor 全链路非阻塞
+```
+
+**AgentScope 比 Nanobot 强的地方**：
+
+| 维度 | AgentScope | Nanobot |
+|------|-----------|---------|
+| 并发模型 | Project Reactor（数万并发） | CompletableFuture（单机并发） |
+| 多 Agent | ✅ 9 种开箱即用协作模式 | ✅ 基础 AgentCoordinator |
+| 消息系统 | Record + Sealed Class 编译期类型安全 | POJO 运行时校验 |
+| 企业部署 | GraalVM <200ms、K8s HPA、Redis | 单机 JVM |
+| 分布式 | Dubbo/Nacos/OSS/Redis 共享 | 本地文件系统 |
+| 生态 | 阿里云全系 + Spring Boot | 独立运行 |
+
+**Nanobot 比 AgentScope 强的地方**：
+
+| 维度 | Nanobot | AgentScope |
+|------|---------|-----------|
+| 启动方式 | `./nanobot` 零配置 | 需写启动类 + Spring Boot |
+| CLI 交互 | 全屏终端、Esc 中断、实时渲染 | 依赖外部 UI 或 API |
+| 互动性 | `[y/N]` 权限确认、流式打断 | 通过事件流需要自己实现 UI |
+| 学习成本 | 2.6 万行，纯手写，什么都看得见 | 框架体系庞大，概念多 |
+| 安装体验 | 一个 fat JAR + 脚本 | Maven/Gradle 依赖 + 配置 |
+
+**AgentScope 不是终端产品**。它是一个强大的 Agent SDK——你得写 `@Tool` Bean、写启动类、配 Spring Boot、部署到 K8s。Nanobot 是 `./nanobot` 一敲就开始干活。
+
+---
+
+#### 6.3.5 Nanobot — Agent 终端产品
+
+**定位**：像 Claude Code 一样的独立 AI 编程助手，开箱即用。
+
+Nanobot 从设计之初就不是"给开发者用的 Agent 框架"，而是"开发者直接用的 Agent"。这个定位决定了它在架构上的每一个选择：
+
+```
+不做的：
+  ❌ 不需要 Spring Boot 包裹          → V3 CLI 零依赖启动
+  ❌ 不需要写 @Tool Bean             → 17 个内置工具 + MCP 扩展
+  ❌ 不需要配置 GraalVM              → JVM 直接跑
+  ❌ 不需要 K8s 部署                 → 本地单机即服务
+  ❌ 不需要 Redis 共享 Session       → 本地 JSONL 文件持久化
+
+做到的：
+  ✅ Agent Loop（8 状态 State 模式）   ✅ 4 层记忆自动提取
+  ✅ Plan Mode（先计划后审批）         ✅ 4 级权限管道
+  ✅ CLI 全屏终端 + Esc 中断           ✅ SSE/WebSocket/HTTP 多通道
+  ✅ NANOBOT.md 项目记忆自动生成       ✅ Consolidator 自动压缩
+```
+
+---
+
+### 6.4 全维度对比矩阵
+
+| 维度 | Spring AI | LangChain4j | Spring AI Alibaba Agent | AgentScope Java | Nanobot |
+|------|:--:|:--:|:--:|:--:|:--:|
+| **定位** | LLM 库 | LLM 库 | Agent 框架 | Agent 运行时 | Agent 终端 |
+| **Agent Loop** | ❌ | ❌ | ✅ ReAct | ✅ ReAct | ✅ 8 状态 State |
+| **工具系统** | ✅ @Tool | ✅ @Tool | ✅ @Tool | ✅ @Tool + MCP | ✅ 17 内置 + @ToolDef + MCP |
+| **对话记忆** | ChatMemory 接口 | ChatMemory 接口 | ChatMemory + 阿里云 | ✅ 双层 + FTS5 | ✅ 4 层 + Dream |
+| **会话管理** | ❌ 手动 | ❌ 手动 | ❌ 手动 | ✅ Redis 共享 | ✅ JSONL 本地 |
+| **上下文压缩** | ❌ | ❌ | ❌ | ✅ 四道防线 | ✅ Consolidator |
+| **权限安全** | ❌ | ❌ | ❌ | ✅ 三态决策 | ✅ 4 层管道 |
+| **Plan Mode** | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **多 Agent** | ❌ | ❌ | ❌ | ✅ 9 模式 | ✅ 基础编排 |
+| **CLI 独立运行** | ❌ | ❌ | ❌ | ❌ | ✅ ./nanobot |
+| **流式中断** | ❌ | ❌ | ❌ | 事件流 | ✅ Esc |
+| **并发模型** | 同步 | 同步 | 同步 | Project Reactor | CompletableFuture |
+| **消息类型安全** | 运行时 | 运行时 | 运行时 | ✅ Sealed Class | 运行时 |
+| **企业部署** | Spring Boot | 框架无关 | Spring Boot + 阿里云 | ✅ K8s/GraalVM/Redis | 单机 JVM |
+| **代码规模** | — | — | — | 十余万行 | 2.6 万行 |
+| **学习曲线** | 低（Spring 生态） | 中（概念多） | 中 | 高（体系庞大） | 低（纯手写透明） |
+| **AI-Native 程度** | AI-Augmented | AI-Augmented | AI-Augmented | ✅ AI-Native* | ✅ AI-Native |
+| **适用场景** | 给业务系统加 AI | 复杂的 LLM 工作流编排 | 阿里生态的 Agent 模块 | 企业级 Agent 平台 | 个人/团队 AI 编程助手 |
+
+> \* AgentScope 本身是 AI-Native 框架，但它构建的应用可以是 AI-Native 也可以是 AI-Augmented。
+
+---
+
+### 6.5 选型指南
+
+```
+你的目标是什么？
+
+  "已有 Spring Boot 应用，想加个智能对话"
+    → Spring AI 或 LangChain4j（够用，零学习负担）
+
+  "想用通义千问 + 阿里云全家桶"
+    → Spring AI Alibaba（开箱即用）
+
+  "想加一个能自主循环调工具的 Agent 模块"
+    → Spring AI Alibaba Agent（有 Loop 了）
+
+  "要做企业级多 Agent 平台，支撑数十个 Agent 协作"
+    → AgentScope Java（Harness + 9 种多 Agent 模式 + 分布式）
+
+  "要一个能直接在终端里用的 AI 编程助手，像 Claude Code 那样"
+    → Nanobot（零配置启动，17 个内置工具，CLI 全屏交互）
+
+  "想学习 Agent 底层是怎么实现的，每一行代码都能看懂"
+    → Nanobot（2.6 万行纯手写，从 MessageBus 到 Dream 全透明）
+```
+
+---
+
+### 6.6 框架演进的必然路径
+
+观察上面的对比矩阵，有一条清晰的演进线：
+
+```
+Spring AI（库）
+  │
+  │  + Agent Loop + 阿里云集成
+  ▼
+Spring AI Alibaba Agent（框架）
+  │
+  │  + Harness + 多 Agent + 分布式 + 记忆体系
+  ▼
+AgentScope Java（运行时平台）
+  │
+  │  + 零配置 + CLI 交互 + 终端体验
+  ▼
+Nanobot / Claude Code（终端产品）
+```
+
+每一层都在上一层的基础上**多接管一个维度的决策**：
+
+1. **库**让你不用写 HTTP 调用代码
+2. **框架**让你不用写 while 循环
+3. **运行时**让你不用管分布式、记忆、多 Agent 调度
+4. **终端产品**让你不用写任何代码，直接开始对话
+
+这就是从"帮开发者省代码"到"帮开发者省决策"的演进。
+
+---
+
+## 七、nanobot CLI 实战指南
 
 > **阅读目标**：掌握 nanobot CLI 的日常使用方式、常用命令和最佳实践，像使用 Claude Code 一样高效。
 
@@ -2950,7 +3264,7 @@ mvn compile && mvn test && ./scripts/nanobot
 ---
 
 
-## 七、Claude Code 实战指南
+## 八、Claude Code 实战指南
 
 > **为什么要学 Claude Code？** 本项目全程使用 Claude Code 构建。Claude Code 是 Anthropic 官方出品的 AI 编程 Agent CLI 工具，是目前 Agent-Driven Development 的标杆产品。掌握它，你就能理解本项目的设计目标——用 Java 复刻一个类 Claude Code 的 Agent 框架。
 
@@ -3190,7 +3504,7 @@ Claude Code 的架构直接启发了本项目的核心设计：
 
 ---
 
-## 八、Harness 规范体系 — Claude Code 的结构化使用方式
+## 九、Harness 规范体系 — Claude Code 的结构化使用方式
 
 Vibe Coding 的问题在于"随意"——没有规格约束、没有变更追踪、没有质量门禁。**Harness** 体系是在 Claude Code 之上叠加一套轻量级开发规范，让 AI 编码从"随意"走向"可控"。
 
@@ -3381,7 +3695,7 @@ git commit -m "feat: xxx"
 ```
 
 ---
-## 九、新手学习路线
+## 十、新手学习路线
 
 ### 9.1 学习阶段规划
 
@@ -3427,7 +3741,7 @@ git commit -m "feat: xxx"
 
 ---
 
-## 十、关键技术选型
+## 十一、关键技术选型
 
 | 功能 | 技术方案 | 理由 |
 |------|---------|------|
@@ -3444,7 +3758,7 @@ git commit -m "feat: xxx"
 
 ---
 
-## 十一、配置说明
+## 十二、配置说明
 
 ### 11.1 配置文件位置
 
@@ -3509,7 +3823,7 @@ memory:
 
 ---
 
-## 十二、编译、启动与部署
+## 十三、编译、启动与部署
 
 ### 12.1 环境要求
 
@@ -3569,7 +3883,7 @@ mvn exec:java -Dexec.mainClass="com.nanobot.v1.Nanobot"
 
 ---
 
-## 十三、调试与日志
+## 十四、调试与日志
 
 ### 13.1 日志配置
 
@@ -3586,7 +3900,7 @@ mvn exec:java -Dexec.mainClass="com.nanobot.v1.Nanobot"
 
 ---
 
-## 十四、扩展建议
+## 十五、扩展建议
 
 ### 14.1 添加新工具
 
@@ -3626,7 +3940,7 @@ mcp_servers:
 
 ---
 
-## 十五、常见问题
+## 十六、常见问题
 
 ### Q1：如何配置 API Key？
 
@@ -3646,7 +3960,7 @@ Jackson（JSON）、SLF4J + Logback（日志）、Spring Boot 3.2（V2 模式）
 
 ---
 
-## 十六、学习资源
+## 十七、学习资源
 
 1. **本项目文档**：第四章（架构概览）+ 第五章（核心模块详解）
 2. **第三章教程**：从 0 到 1 逐步构建 Agent
@@ -3655,7 +3969,7 @@ Jackson（JSON）、SLF4J + Logback（日志）、Spring Boot 3.2（V2 模式）
 
 ---
 
-## 十七、总结
+## 十八、总结
 
 Nanobot-Java 的核心价值在于：
 
@@ -3670,6 +3984,7 @@ Nanobot-Java 的核心价值在于：
 2. 第四章：架构概览（建立全局地图）
 3. 第五章 5.1-5.5：核心模块（Agent Loop / 状态机 / 全链路 / 流式 / 工具）
 4. 第五章 5.22：LLM Provider 体系 — 理解 Agent 如何与 DeepSeek API 交互，学会对接新模型
-4. 第五章 5.6-5.10：进阶模块（身份 / System Prompt / Plan Mode / 上下文 / 记忆）
-5. 第六章：nanobot CLI 实战（日常使用）
-6. 第七章：Claude Code 实战（对标学习）
+5. 第五章 5.6-5.10：进阶模块（身份 / System Prompt / Plan Mode / 上下文 / 记忆）
+6. 第六章：主流 AI 框架对比 — 建立 "库→框架→运行时→终端产品" 的层次认知
+7. 第七章：nanobot CLI 实战（日常使用）
+8. 第八章：Claude Code 实战（对标学习）
