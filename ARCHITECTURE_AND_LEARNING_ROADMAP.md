@@ -3181,6 +3181,171 @@ Nanobot / Claude Code（终端产品）
 | **多模态消息** | 支持文本 + 图片 + 结构化数据 | 分析结果可以是 JSON + Markdown 混合 |
 | **安全认证** | OpenAPI 授权 + TLS 加密 | 企业级 Agent 间安全通信 |
 
+#### 6.7.3 A2A 调用全链路：发现→调用→返回
+
+A2A 协议的本质是**服务发现与业务调用分离**——Nacos 只管"谁在哪、能干什么"，实际通信是 Agent 之间直连：
+
+```
+消费方 Agent                         Nacos 3.x                   提供方 Agent
+    │                                  │                            │
+    │ ① 发现                           │                            │
+    │ "谁有 cve_scan 能力？"            │                            │
+    │─────────────────────────────────►│                            │
+    │◄── AgentCard {                   │                            │
+    │     name: "SecurityAgent",       │                            │
+    │     endpoint: "10.0.1.5:8090",   │                            │
+    │     capabilities: ["cve_scan"],  │                            │
+    │     protocols: ["http","grpc"]   │                            │
+    │   }                             │                            │
+    │                                  │                            │
+    │ ② 调用 — 直连，不经过 Nacos        │                            │
+    │──────────────────────────────────────────────────────────────►│
+    │  POST /a2a/jsonrpc (HTTP)  或    │                            │
+    │  gRPC call                   或  │                            │
+    │  RocketMQ message            或  │                            │
+    │  SSE stream (流式)               │                            │
+    │                                  │                            │
+    │ ③ 返回                           │                            │
+    │◄──────────────────────────────────────────────────────────────┤
+    │                                  │                            │
+    │ ④ 健康检查 (持续，gRPC 长连接)     │                            │
+    │                                  │◄── 心跳 5s/次 ─────────────┤
+```
+
+**和微服务的类比**：Nacos 之于 Agent，就像 Nacos 之于 Dubbo/gRPC 微服务——注册中心只做服务发现，不代理业务流量。
+
+#### 6.7.4 四种调用方式
+
+A2A 协议不强制单一通信模式，而是提供 **Task 状态机 + 多传输层** 的组合，让调用方按场景选择：
+
+```
+A2A Task 状态机（9 个状态）:
+
+Submitted → Working ─┬─→ Completed     ← 正常完成，终态
+                     ├─→ Failed         ← 执行失败，终态
+                     ├─→ Canceled       ← 调用方取消，终态
+                     ├─→ Rejected       ← 提供方拒绝，终态
+                     ├─→ InputRequired  ← 暂停，等调用方补充信息
+                     └─→ AuthRequired   ← 暂停，等调用方认证
+```
+
+| 模式 | 协议 | 工作方式 | 适合 |
+|------|------|---------|------|
+| **同步调用** | HTTP JSON-RPC | `agent.invoke(msg)` → Task 全程走完 → 阻塞返回终态 | 短任务（查订单 100ms） |
+| **轮询异步** | HTTP JSON-RPC | `invoke()` 立即返回 taskId → 之后 `tasks/get?id=xxx` 查询 | 长任务 + 不想等 |
+| **流式 SSE** | HTTP SSE 长连接 | `agent.stream(msg)` → `onDelta(chunk)` 逐块推 → `onComplete()` | 实时生成（审计报告逐条输出） |
+| **长连接推送** | gRPC / WebSocket | 注册 webhook → 任务完成时 Server 主动推送 | 极长任务（压测跑 30 分钟） |
+
+**同步调用示例**：
+
+```java
+// Spring AI Alibaba — A2aRemoteAgent
+A2aRemoteAgent securityAgent = A2aRemoteAgent.builder()
+    .name("SecurityAgent")
+    .agentCardProvider(agentCardProvider)
+    .connectTimeout(Duration.ofSeconds(10))
+    .readTimeout(Duration.ofSeconds(30))
+    .build();
+
+// 阻塞等待，直到 Task 状态变为 Completed/Failed
+Optional<OverAllState> result = securityAgent.invoke(
+    Map.of("action", "cve_scan", "file", "pom.xml")
+);
+```
+
+**流式 SSE 调用示例**：
+
+```java
+// Spring AI Alibaba — 流式返回
+@GetMapping(value = "stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+public Flux<ServerSentEvent<String>> stream(@RequestParam("question") String question) {
+    return rootAgent.stream(Map.of("input", List.of(new UserMessage(question))))
+        .mapNotNull(output -> {
+            if (output instanceof StreamingOutput chunk) {
+                return ServerSentEvent.<String>builder().data(chunk.chunk()).build();
+            }
+            return null;
+        });
+}
+```
+
+**多 Agent 并发调用示例**：
+
+```java
+// 并发调三个独立 Agent，等全部返回后汇总
+CompletableFuture<OverAllState> f1 = CompletableFuture.supplyAsync(() ->
+    securityAgent.invoke(...));
+CompletableFuture<OverAllState> f2 = CompletableFuture.supplyAsync(() ->
+    complianceAgent.invoke(...));
+CompletableFuture<OverAllState> f3 = CompletableFuture.supplyAsync(() ->
+    perfAgent.invoke(...));
+
+CompletableFuture.allOf(f1, f2, f3).join();
+// 汇总三个结果
+```
+
+#### 6.7.5 A2A "异步"的实质——仍是 Request-Response
+
+这是理解 A2A 协议最关键的洞察：**A2A 的"异步"只是把一次长调用拆成了多次短 HTTP 请求，每一跳都是 request-response**。
+
+```
+A2A "同步":
+  Client ──req──► Server
+  Client ◄──res── Server          ← 一次 HTTP round-trip
+
+A2A "轮询异步":
+  Client ──req──► Server
+  Client ◄──{task_id, status:"Working"}── Server    ← 第 1 次 request-response
+  ...过几秒...
+  Client ──tasks/get?id=xxx──► Server               ← 第 2 次 request-response
+  Client ◄──{task_id, status:"Completed"}── Server
+
+A2A "webhook 推送":
+  Client ──req + webhook_url──► Server
+  Client ◄──{task_id, status:"Working"}── Server    ← 第 1 次 request-response
+  ...过几分钟...
+  Server ──POST webhook_url──► Client               ← Server 反调，仍是 HTTP request-response!
+```
+
+**本质没变**——底层永远是 `Client 发 → Server 回` 的 HTTP 请求-响应模型。A2A 只是在上面抽象了一个 Task 状态机，用 `task_id` 把多次 request-response 关联起来，让你"感觉像是异步的"。
+
+这和外卖 App 查骑手位置完全一样——每次刷新都是一个新的 HTTP 请求，后端不会主动推给你。
+
+#### 6.7.6 真正的异步——RocketMQ A2A 传输层
+
+上面三种模式的共同问题：**Client 必须主动发起每一跳**，无论是轮询还是注册 webhook（webhook 本质是"Server 替 Client 发了一次 HTTP POST"）。
+
+真正的消息驱动异步需要中间加一个 Broker：
+
+```
+A2A over HTTP (伪异步):
+  Client ──► Server ──► Client     ← 每一跳都是 HTTP，有来有回
+  调用方明确知道被调用方是谁           ← 耦合
+
+RocketMQ A2A (真异步):
+  Client ──publish──► Topic: a2a.task.request
+  Client 不等回复，立即返回，继续干别的
+  ...过一会儿...
+  Topic: a2a.task.result ──push──► Client (Consumer 回调)
+  Client 收到结果，触发回调函数
+  
+  关键差异:
+  - Client 发完就忘 (fire-and-forget)
+  - Client 不知道谁在处理 (完全解耦)
+  - 没有挂起的 HTTP 连接，没有轮询
+  - 一个 Task 可以广播给多个 Agent 并行处理
+```
+
+| 方式 | 协议层 | 实质 | 耦合度 |
+|------|--------|------|:--:|
+| A2A `invoke()` | HTTP JSON-RPC | 一次 request-response，阻塞到 Task 终态 | 高 |
+| A2A `tasks/get` 轮询 | HTTP JSON-RPC | 多次 request-response，每次主动查询 | 高 |
+| A2A webhook 推送 | HTTP POST | Server 反调 Client，仍是 request-response | 中 |
+| A2A SSE 流式 | HTTP 长连接 | 一次请求，Server 持续推送事件 | 中 |
+| **RocketMQ A2A** | **消息队列** | **发完即忘，Broker 推结果——真正的异步** | **低** |
+
+**结论**：A2A 标准协议没有脱离 HTTP 的 request-response 模型。它定义了 Task 状态机和 AgentCard 格式，但不强制传输层。阿里开源的 RocketMQ A2A 传输层是第一个把"真正的消息驱动异步"带入 A2A 生态的实现——适合高并发、长任务、弱耦合的场景。
+
 ---
 
 ### 6.8 实战案例：电商智能客服多 Agent 系统
