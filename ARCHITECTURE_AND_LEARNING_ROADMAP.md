@@ -2810,14 +2810,14 @@ providers:
 
 ### 6.2 五个框架一览
 
-| 项目 | 定位 | 一句话 |
-|------|------|--------|
-| **Spring AI** | LLM 集成库 | "把 LLM 调用变成 Spring Bean 之间的对话" |
-| **LangChain4j** | LLM 集成库 | "Java 版 LangChain，Orchestration 框架" |
-| **spring-ai-alibaba-dashscope** | LLM 集成库 | "通义千问 DashScope SDK，Spring AI 的阿里版" |
-| **spring-ai-alibaba-agent** | Agent 框架 | "在 DashScope SDK 之上加了 ReAct Agent Loop" |
-| **AgentScope Java** | Agent 运行时平台 | "阿里企业级多 Agent 编排 + Harness 工程化底座" |
-| **Nanobot** | Agent 终端 | "启动即用的 Claude Code 级 AI 编程助手" |
+| 项目 | Maven 坐标 | 定位 | 一句话 |
+|------|----------|------|--------|
+| **Spring AI** | `org.springframework.ai:spring-ai-core` | LLM 集成库 | "把 LLM 调用变成 Spring Bean 之间的对话" |
+| **LangChain4j** | `dev.langchain4j:langchain4j` | LLM 集成库 | "Java 版 LangChain，Orchestration 框架" |
+| **DashScope SDK** | `com.alibaba.cloud.ai:spring-ai-alibaba-starter-dashscope` | LLM 集成库 | "通义千问 SDK，Spring AI 的阿里版" |
+| **Alibaba Agent** | `com.alibaba.cloud.ai:spring-ai-alibaba-agent-framework` | Agent 框架 | "在 DashScope SDK 之上加了 ReAct Agent Loop" |
+| **AgentScope Java** | `io.agentscope:agentscope` | Agent 运行时平台 | "阿里企业级多 Agent 编排 + Harness 工程化底座" |
+| **Nanobot** | 无 Maven 坐标 — `./nanobot` CLI | Agent 终端 | "启动即用的 Claude Code 级 AI 编程助手" |
 
 ---
 
@@ -2825,7 +2825,7 @@ providers:
 
 #### 6.3.1 Spring AI — 最底层的 LLM 集成库
 
-**仓库**：`spring-projects/spring-ai` | **定位**：把 LLM 调用融入 Spring 生态
+**仓库**：`spring-projects/spring-ai` | **Maven**：`org.springframework.ai:spring-ai-core` | **定位**：把 LLM 调用融入 Spring 生态
 
 ```
 Spring AI 核心抽象：
@@ -2858,7 +2858,7 @@ Spring AI 核心抽象：
 
 #### 6.3.2 LangChain4j — 更丰富的 Orchestration 抽象
 
-**仓库**：`langchain4j/langchain4j` | **定位**：Java 版 LangChain，编排 LLM 工作流
+**仓库**：`langchain4j/langchain4j` | **Maven**：`dev.langchain4j:langchain4j` | **定位**：Java 版 LangChain，编排 LLM 工作流
 
 ```
 LangChain4j 核心抽象：
@@ -2899,9 +2899,9 @@ String answer = assistant.chat("你好");  // 无需手动拼 prompt
 
 ---
 
-#### 6.3.3 spring-ai-alibaba-dashscope — 通义千问 SDK
+#### 6.3.3 spring-ai-alibaba-starter-dashscope — 通义千问 SDK
 
-**Maven artifact**：`com.alibaba.cloud.ai:spring-ai-alibaba-dashscope` | **定位**：Spring AI 的阿里云版，和 Spring AI 同级
+**Maven**：`com.alibaba.cloud.ai:spring-ai-alibaba-starter-dashscope` | **定位**：Spring AI 的阿里云版，和 Spring AI 同级
 
 这是最底层——只做一件事：把通义千问（qwen-*）的 DashScope API 封装成 Spring AI 的 `ChatModel` 接口，让开发者用 Spring AI 统一 API 调通义模型。同时内置阿里云中间件适配（RocketMQ、Nacos、Redis 等）。
 
@@ -2916,9 +2916,9 @@ spring-ai-alibaba-dashscope 做了什么：
 
 ---
 
-#### 6.3.4 spring-ai-alibaba-agent — 补上了 Agent Loop
+#### 6.3.4 spring-ai-alibaba-agent-framework — 补上了 Agent Loop
 
-**Maven artifact**：`com.alibaba.cloud.ai:spring-ai-alibaba-agent` | **定位**：在 DashScope SDK 之上加 ReAct Agent Loop
+**Maven**：`com.alibaba.cloud.ai:spring-ai-alibaba-agent-framework` | **定位**：在 DashScope SDK 之上加 ReAct Agent Loop
 
 这是同一个 groupId 下的另一个 artifact，**不替代** dashscope，而是**叠加**：
 
@@ -2961,7 +2961,7 @@ agent.call("帮我分析这份数据");  // Loop 全自动
 
 #### 6.3.5 AgentScope Java — 企业级 Agent 运行时平台
 
-**仓库**：`agentscope-ai/agentscope-java` | **定位**：阿里开源的生产级多 Agent 编排 + Harness 工程化底座
+**仓库**：`agentscope-ai/agentscope-java` | **Maven**：`io.agentscope:agentscope` | **定位**：阿里开源的生产级多 Agent 编排 + Harness 工程化底座
 
 这是目前 Java 生态中**在架构层级上最接近 Nanobot 的项目**，但设计目标完全不同——AgentScope 是"帮开发者搭 Agent 平台"，Nanobot 是"开发者直接用的 Agent 终端"。
 
@@ -3007,9 +3007,11 @@ AgentScope 双层架构：
 
 ---
 
-#### 6.3.6 Nanobot — Agent 终端（不是框架）
+#### 6.3.6 Nanobot — Agent 终端（不是框架也不是库）
 
-**定位**：像 Claude Code 一样的独立 AI 编程助手，开箱即用。和上面五个项目有本质区别——它不是库、不是框架、不是运行时平台，而是**最终产品**。
+**仓库**：`ztkyaojiayou/mynanobot-java` | **安装**：`git clone` + `./scripts/nanobot` | **定位**：像 Claude Code 一样的独立 AI 编程助手
+
+和上面五个项目有本质区别——没有 Maven 坐标，不引入到其他项目。它不是库、不是框架、不是运行时平台，而是**最终产品**。
 
 Nanobot 的设计前提是"开发者打开终端直接对话"，不是"开发者在 IDE 里引入一个 Maven 依赖然后写 Agent 代码"。这个定位决定了它在架构上的每一个选择：
 
