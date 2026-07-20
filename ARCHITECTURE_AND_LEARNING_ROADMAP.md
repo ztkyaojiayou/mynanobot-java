@@ -1150,7 +1150,7 @@ Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 | **MCPClient / StdioMCPClient / HttpMCPClient** | MCP 客户端实现（Template Method） | `mcp/` |
 | **CronScheduler** | 定时任务调度器 | `cron/CronScheduler.java` |
 | **Consolidator** | 记忆压缩器 | `memory/Consolidator.java` |
-| **Dream** | 长期记忆系统 | `memory/Dream.java` |
+| **Dream** | 长期记忆系统（✅ 已接入自动提取） | `memory/Dream.java` |
 | **PermissionManager** | 权限编排器（Guard→Mode→Rule 管道） | `security/PermissionManager.java` |
 | **PathGuard / CommandGuard / NetworkGuard** | 守卫层（Strategy 模式） | `security/guard/` |
 | **RuleEngine** | 规则引擎，deny→ask→allow 优先级链 | `security/rule/RuleEngine.java` |
@@ -2026,7 +2026,7 @@ SessionManager (业务层)
 
 #### 5.9.6 长期记忆 (Dream)
 
-跨会话的关键信息提取和持久化。详见 5.10 记忆系统。
+**每轮对话结束后自动触发**：SaveState 异步调用 `dream.extractAndStore()`，LLM 分析本轮对话 → 提取关键信息 → 写入 `.nanobot/MEMORY.md`。详见 5.10 记忆系统。
 
 #### 5.9.7 NANOBOT.md — 项目级上下文
 
@@ -2119,34 +2119,64 @@ SessionManager (业务层)
 
 文件：`memory/Dream.java`
 
-**输入**：压缩后的对话摘要（或对话结束时由 LLM 提炼的关键信息）
+**✅ 已实现自动化**（2026-07-20）：Dream 通过 `setDream()` 注入 AgentLoop，`SaveState` 在执行 `saveHistory()` 后异步触发 `extractAndStore()`，全程 fire-and-forget 不阻塞响应。
 
-**提取逻辑**（LLM 驱动的关键信息提取）：
+**自动化流程**：
 
 ```
-发送给 LLM 的 prompt:
-  "从以下对话中提取值得长期记住的信息（用户偏好、重要决策、
-    项目约定、个人习惯等）。只提取可跨会话重用的信息。"
-
-LLM 返回:
-  [
-    "用户偏好用 JWT 而非 Session 做认证",
-    "项目 API 前缀统一用 /api/v1",
-    "用户不喜欢过度设计，偏好简洁方案"
-  ]
+用户发消息 → AgentLoop 状态机
+  → SAVE: sessionManager.saveHistory(...)
+    → dream.extractAndStore(sessionId, messages)   // 异步，不阻塞响应
+      → analyzeMessages(messages)                  // 调 LLM 分析对话
+        → LLM 返回: [{content, keywords, importance}]
+          → parseMemoryResponse()                   // Jackson 解析 JSON
+            → storeMemory() × N                     // 存入 ConcurrenthashMap
+              → saveToMemoryFile()                  // 持久化写入 MEMORY.md
 ```
 
-**存储**：`{workspace}/memory/dream.json`
+**输入**：当前会话的完整 messages 列表（包含 system/user/assistant 消息）
 
+**提取 Prompt**（发送给 LLM）：
+```
+请从以下对话中提取值得长期记忆的信息：
+  user: 我喜欢用 JWT 做认证，不喜欢 Session
+  assistant: 好的，我来用 JWT 实现...
+  ...
+请以 JSON 格式输出记忆条目，每个条目包含：
+- content: 记忆内容
+- keywords: 关键词数组
+- importance: 重要性(0-1)
+```
+
+**LLM 返回**：
 ```json
 [
-  {"content": "用户偏好用 JWT 而非 Session 做认证", "created": "2026-07-15T10:30:00"},
-  {"content": "项目 API 前缀统一用 /api/v1", "created": "2026-07-15T10:30:00"},
-  ...
+  {"content": "用户偏好 JWT 认证而非 Session", "keywords": ["auth", "jwt", "preference"], "importance": 0.8},
+  {"content": "项目 API 前缀统一用 /api/v1", "keywords": ["api", "convention"], "importance": 0.7}
 ]
 ```
 
-**加载时机**：`BuildState` 中读取 dream.json → 注入 System Prompt
+**存储**：`{workspace}/memory/MEMORY.md`（Markdown 格式，按关键词分组）
+
+```markdown
+---
+name: project-memory
+description: 项目长期记忆
+updated: 2026-07-20 13:39:00
+---
+
+# 长期记忆
+
+## Auth
+- 2026-07-20: 用户偏好 JWT 认证而非 Session
+
+## Api
+- 2026-07-20: 项目 API 前缀统一用 /api/v1
+```
+
+**加载时机**：启动时 `Dream.loadFromMemoryFile()` 从 MEMORY.md 加载到内存。后续 BuildState 注入功能（暂无）可调用 `dream.retrieve(query)` 检索相关记忆注入 system prompt。
+
+**容错**：LLM 返回非 JSON 时，将全文作为单条 `importance=0.3` 的记忆降级存储。
 
 #### 5.10.5 项目记忆 (NANOBOT.md)
 
@@ -2176,12 +2206,14 @@ mvn test
 Agent 启动
   │
   ├─ Layer 4 (项目记忆): NANOBOT.md — BuildState 加载一次
-  ├─ Layer 3 (长期记忆): dream.json — BuildState 加载一次
+  ├─ Layer 3 (长期记忆): MEMORY.md — Dream.loadFromMemoryFile() 启动加载
   │
   └─ 每次对话:
        ├─ Layer 2 (短期记忆): JSONL 加载 → messages 列表
-       │   └─ 如果 token 超阈值 → Layer 2 压缩 → 可能产生 Layer 3 输入
-       └─ Layer 1 (感知记忆): 用户输入 → LLM 响应 → 追加到 messages
+       │   └─ 如果 token 超阈值 → CompactState → LLM 摘要压缩
+       ├─ Layer 1 (感知记忆): 用户输入 → LLM 响应 → 追加到 messages
+       └─ ★ 每轮结束: SaveState → dream.extractAndStore() 异步提取长期记忆
+            → LLM 分析对话 → 写入 MEMORY.md（自动，不阻塞）
 ```
 
 ---
