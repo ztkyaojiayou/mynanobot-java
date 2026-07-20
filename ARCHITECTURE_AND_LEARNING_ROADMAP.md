@@ -3308,7 +3308,125 @@ Nanobot / Claude Code（终端产品）
 
 ---
 
-### 6.9 多 Agent vs 单服务多 Subagent —— 决策指南
+### 6.9 单服务多 Subagent 实战案例 —— 代码审查助手
+
+上面的电商案例用的是跨服务独立 Agent（A2A + Nacos）。现在看一个**同服务 Subagent 模式**的生产案例——代码审查助手。
+
+#### 6.9.1 业务场景
+
+开发团队提交 PR，需要对代码进行**多维度审查**：安全检查、性能分析、代码风格、依赖风险。
+
+#### 6.9.2 架构设计
+
+```
+┌────────────────────────────────────────────────┐
+│            单个 JVM 进程 (Nanobot)              │
+│                                                │
+│  ┌──────────────────────────────────────────┐  │
+│  │          AgentCoordinator                │  │
+│  │  接收用户命令、分解任务、调度 Subagent      │  │
+│  └──────────┬──────┬──────┬──────┬──────────┘  │
+│             │      │      │      │              │
+│      ┌──────▼──┐ ┌─▼───┐ ┌▼────┐ ┌▼─────────┐ │
+│      │searcher │ │audit│ │lint │ │dependency│ │
+│      │ 代码搜索 │ │安全 │ │风格 │ │ 依赖分析  │ │
+│      │         │ │审计 │ │检查 │ │          │ │
+│      │能力标签: │ │能力: │ │能力:│ │能力:     │ │
+│      │ - grep  │ │- CVE │ │- chk│ │- pom.xml │ │
+│      │ - glob  │ │匹配  │ │style│ │- CVE扫描 │ │
+│      │ - read  │ │- 注入│ │- fmt│ │- 版本冲突│ │
+│      │         │ │检测  │ │校验 │ │          │ │
+│      └────┬────┘ └──┬──┘ └──┬─┘ └────┬─────┘ │
+│           │         │       │         │        │
+│           │  同一进程内直接方法调用，零网络延迟   │        │
+│           │  共享 ToolRegistry & 文件系统       │        │
+└───────────┼─────────┼───────┼─────────┼────────┘
+            │         │       │         │
+            ▼         ▼       ▼         ▼
+       ┌────────────────────────────────────┐
+       │       代码仓库 + 工作目录            │
+       │   src/main/java/.../*.java         │
+       │   pom.xml / build.gradle           │
+       └────────────────────────────────────┘
+```
+
+#### 6.9.3 协作全链路
+
+```
+用户: "审查这次 PR 的代码，重点关注安全漏洞和性能问题"
+  │
+  ▼
+┌──────────────────────────────────────────────────────┐
+│ Step 1: AgentCoordinator 分解任务                     │
+│   主 Agent 分析请求 → 拆成 4 个并行子任务:             │
+│   - searcher:   找出 PR 中所有变更的 Java 文件         │
+│   - audit:      用已知 CVE 模式匹配变更代码            │
+│   - lint:       跑 checkstyle 检查代码风格             │
+│   - dependency: 检查 pom.xml 依赖是否有已知漏洞        │
+└──────────────────────────────────────────────────────┘
+  │  (4 个 Subagent 并行执行，共享 ToolRegistry)
+  │
+  ├─→ searcher: glob("**/*.java") + grep("变更的类")
+  │     → [OrderService.java, PaymentUtil.java, ...] (6 files)
+  │
+  ├─→ audit: read_file + grep("SELECT.*WHERE.*\+" | "Runtime.exec" | ...)
+  │     → ⚠️ PaymentUtil.java:42 发现 SQL 拼接，疑似注入漏洞
+  │     → ⚠️ OrderService.java:108 发现 Runtime.exec() 调用
+  │
+  ├─→ lint: exec("mvn checkstyle:check")
+  │     → ⚠️ 3 处缩进不规范, 1 处方法名不符合驼峰
+  │
+  └─→ dependency: read_file("pom.xml") + exec("mvn dependency:analyze")
+        → ⚠️ log4j-core 1.2.17 有 CVE-2021-44228 高危漏洞
+        → ⚠️ 建议升级到 2.17.1+
+
+  ▼
+┌──────────────────────────────────────────────────────┐
+│ Step 2: summarizer (另一个 Subagent) 汇总报告          │
+│   "以下是本次 PR 审查结果:                            │
+│                                                      │
+│   🔴 高危 (必须修复):                                  │
+│   1. PaymentUtil.java:42 — SQL 注入漏洞               │
+│      WHERE 子句使用了字符串拼接                │
+│   2. log4j-core 1.2.17 — CVE-2021-44228 (Log4Shell)  │
+│      建议立即升级到 2.17.1+                           │
+│                                                      │
+│   🟡 中危 (建议修复):                                  │
+│   3. OrderService.java:108 — Runtime.exec() 调用      │
+│      建议改用 ProcessBuilder                          │
+│                                                      │
+│   🟢 提示:                                            │
+│   4. 3 处代码风格问题 (checkstyle)                     │
+│   5. 1 个未使用的依赖 (maven dependency:analyze)       │
+│                                                      │
+│   是否要我帮你修复这些高危问题？"                        │
+└──────────────────────────────────────────────────────┘
+```
+
+**关键点**：4 个 Subagent 在**同一 JVM 内并行运行**，共享 ToolRegistry。searcher 的输出可以直接被 audit/lint/dependency 消费——不需要序列化、不走网络、零延迟。AgentCoordinator 在主线程汇总结果，最后交给 summarizer 生成报告。
+
+#### 6.9.4 同样的需求，用独立 Agent 实现会怎样？
+
+```
+如果用 A2A + Nacos 的独立 Agent 架构做同样的事:
+
+优势:
+  ✅ SecurityAuditAgent 可以由安全团队独立维护和迭代
+  ✅ 可以水平扩展（PR 量大时起多个实例）
+  ✅ 挂了不影响主 Agent，可以重试
+
+代价:
+  ❌ 每个 Subagent 调用变成了一次 HTTP/gRPC 网络请求
+  ❌ 需要 Agent Card 注册、A2A Task 序列化/反序列化
+  ❌ 需要部署 5 个独立服务（而非 1 个）
+  ❌ 调试复杂——跨进程链路追踪需要 OpenTelemetry
+```
+
+**这就是 Subagent vs 独立 Agent 的核心取舍——简单 vs 灵活，低延迟 vs 独立扩展。**
+
+---
+
+### 6.10 多 Agent vs 单服务多 Subagent —— 决策指南
 
 | 场景 | 推荐方案 | 理由 |
 |------|---------|------|
@@ -3339,7 +3457,7 @@ Nanobot / Claude Code（终端产品）
 
 ---
 
-### 6.10 Nacos 3.x AI 资产管理 —— 核心组件速览
+### 6.11 Nacos 3.x AI 资产管理 —— 核心组件速览
 
 Nacos 3.0 将定位从"微服务注册中心"升级为 **"AI Agent 应用的动态服务发现、配置管理和智能体管理平台"**。
 
