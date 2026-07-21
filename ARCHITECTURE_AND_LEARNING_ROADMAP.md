@@ -2022,13 +2022,18 @@ SessionManager (业务层)
 
 #### 5.9.5 记忆压缩 (Consolidator)
 
-当 token 数超过阈值时，把旧消息发给 LLM 做摘要，替换原文。详见 5.10 记忆系统。
+当 token 数超过阈值时自动触发，把旧消息发给 LLM 做摘要，替换原文。
+
+**手动触发**：`/compact` 命令可随时手动压缩，无视 token 阈值。
+
+详见 5.10 记忆系统。
 
 #### 5.9.6 长期记忆 (Dream)
 
 **完整闭环**（提取→存储→检索→注入）：
 
-- **提取（异步）**：SaveState fire-and-forget → `dream.extractAndStore()` → LLM 分析对话 → 写入 `.nanobot/memory/MEMORY.md`
+- **自动提取（异步 + 节流）**：SaveState fire-and-forget → `dream.extractAndStore()`。每轮对话检查字符增量，增量不足 5000 字则跳过，避免频繁调 LLM
+- **手动提取（同步）**：`/remember` 命令可随时手动提取，无视增量阈值，执行 `.join()` 等待 LLM 返回结果
 - **注入（同步）**：BuildState → `dream.retrieve(userMessage, 5)` → 关键词匹配 → 注入 system prompt
 
 详见 5.10 记忆系统。
@@ -2151,11 +2156,38 @@ updated: 2026-07-21 13:39:00
 - 2026-07-21: 项目 API 前缀统一用 /api/v1
 ```
 
-##### 5.10.4.2 提取（异步，fire-and-forget）
+##### 5.10.4.2 提取（异步 + 增量节流，fire-and-forget）
+
+**自动触发机制**：每轮对话 SAVE 阶段触发，但受增量节流控制。
+
+**节流策略**：`EXTRACTION_MIN_NEW_CHARS = 5000`（≈1500 tokens，约 3-5 轮对话）
+
+```
+extractAndStore(sessionId, messages):
+  currentChars = countTotalChars(messages)
+  lastChars = lastExtractionCharCount[sessionId]
+  newChars = currentChars - lastChars
+
+  if newChars < 5000 && lastChars > 0:
+    → 跳过，return 空列表    ← 零 LLM 调用，零费用
+
+  lastExtractionCharCount[sessionId] = currentChars
+  → 继续提取...
+```
+
+| 场景 | 行为 |
+|------|------|
+| 新会话首次提取 | 不跳过（lastChars==0），立即提取 |
+| 后续轮次增量 < 5000 字 | 跳过，不调 LLM |
+| 后续轮次增量 ≥ 5000 字 | 触发提取，更新基线 |
+| `/remember` 手动命令 | 无视阈值，强制触发 |
+
+**提取流程**：
 
 ```
 SaveState.execute()
   └─ dream.extractAndStore(sessionId, messages)  // CompletableFuture，不阻塞
+       ├─ countTotalChars() → 增量检查 → 不足则跳过
        └─ analyzeMessages(messages)              // 调 LLM 分析对话
             └─ LLM 返回 JSON: [{content, keywords, importance}]
                  └─ parseMemoryResponse()        // Jackson 解析
@@ -2392,6 +2424,10 @@ public interface Command {
 | `/plan approve` | — | 审批计划并执行 | ❌ |
 | `/resume [key]` | — | 列出/恢复历史会话 | ✅ |
 | `/clear` | — | 清空会话上下文 | ✅ |
+| `/compact` | — | 手动压缩对话历史（LLM 摘要） | ✅ |
+| `/remember` | — | 手动提取长期记忆（LLM 分析） | ✅ |
+
+**注意**：`/compact` 和 `/remember` 虽标记为短路（不进入 LLM 对话），但内部会同步调用 LLM 完成压缩/提取，然后直接返回结果。其余短路命令为零 LLM 调用。
 
 **短路机制**：`isShortcut()=true` 的命令在 `CommandState` 直接处理，不进 Agent Loop LLM 调用，省 token。
 
@@ -3895,7 +3931,7 @@ nanobot --resume cli-1234567890
 ║       my-nanobot CLI 模式       ║
 ║  基于 Java 的 AI Agent助手      ║
 ╚══════════════════════════════════╝
-输入消息开始对话，/exit 退出系统，/clear 清上下文，Esc 中断当前回复
+输入消息开始对话，/exit 退出，/clear 清上下文，/compact 压缩，/remember 记，Esc 中断
 
 >
 ```
@@ -3916,6 +3952,8 @@ nanobot --resume cli-1234567890
 | `/resume` | — | 列出最近 5 个会话 | `/resume` |
 | `/resume <key>` | — | 恢复到指定会话 | `/resume cli-1234567890` |
 | `/clear` | — | 清空当前会话上下文 | `/clear` |
+| `/compact` | — | 手动压缩对话历史（LLM 摘要旧消息） | `/compact` |
+| `/remember` | — | 手动提取长期记忆（无视增量阈值） | `/remember` |
 | `/exit` | `/q`, `/quit` | 退出 CLI | `/exit` |
 | `Esc` | — | 中断当前流式回复 | 按 `Esc` 键 |
 
@@ -4003,6 +4041,8 @@ AI 使用只读工具探索项目 → 输出计划:
 
 > /resume cli-1784128421194  # 恢复指定会话
 > /clear                    # 清空当前上下文
+> /compact                  # 手动压缩对话历史
+> /remember                 # 手动提取长期记忆
 ```
 
 **Web 界面**：访问 `http://localhost:8080/sessions.html`，支持查看、重命名、删除会话。
