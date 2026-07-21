@@ -41,10 +41,16 @@ public class Dream {
     private static final Logger logger = LoggerFactory.getLogger(Dream.class);
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     
+    /** 两次提取之间最少新增字符数（≈ 1500 tokens），避免每轮对话都调 LLM */
+    private static final int EXTRACTION_MIN_NEW_CHARS = 5000;
+
     private final LLMProvider llmProvider;
     private final Map<String, MemoryEntry> memories = new ConcurrentHashMap<>();
     private final int maxMemories;
     private final Path memoryDir;
+
+    /** 记录每个 session 上次提取时的总字符数，用于增量节流 */
+    private final Map<String, Integer> lastExtractionCharCount = new ConcurrentHashMap<>();
 
     /**
      * 创建长期记忆系统
@@ -86,14 +92,29 @@ public class Dream {
     }
     
     /**
-     * 从对话中提取并存储记忆
-     * 
+     * 从对话中提取并存储记忆（增量节流：新增字符不足阈值则跳过）。
+     *
      * @param sessionId 会话 ID
      * @param messages 消息列表
-     * @return 存储的记忆条目列表
+     * @return 存储的记忆条目列表（跳过时返回空列表）
      */
     public CompletableFuture<List<MemoryEntry>> extractAndStore(String sessionId,
                                                                List<Map<String, Object>> messages) {
+        // ── 增量节流：新增内容不够就不提取 ──
+        int currentChars = countTotalChars(messages);
+        int lastChars = lastExtractionCharCount.getOrDefault(sessionId, 0);
+        int newChars = currentChars - lastChars;
+
+        if (newChars < EXTRACTION_MIN_NEW_CHARS && lastChars > 0) {
+            // 首次提取 (lastChars==0) 不跳过；后续增量不足才跳过
+            logger.debug("Dream extraction skipped: only {} new chars (need {}), session={}",
+                    newChars, EXTRACTION_MIN_NEW_CHARS, sessionId);
+            return CompletableFuture.completedFuture(Collections.emptyList());
+        }
+
+        logger.info("Dream extracting: {} new chars since last extraction, session={}", newChars, sessionId);
+        lastExtractionCharCount.put(sessionId, currentChars);
+
         return analyzeMessages(messages)
             .thenApply(entries -> {
                 List<MemoryEntry> stored = new ArrayList<>();
@@ -109,6 +130,18 @@ public class Dream {
                 logger.info("Extracted {} memories from session {}", stored.size(), sessionId);
                 return stored;
             });
+    }
+
+    /** 估算消息列表的总字符数（所有 role + content 的字符累计） */
+    private static int countTotalChars(List<Map<String, Object>> messages) {
+        int total = 0;
+        for (Map<String, Object> msg : messages) {
+            Object content = msg.get("content");
+            if (content instanceof String s) {
+                total += s.length();
+            }
+        }
+        return total;
     }
     
     /**
