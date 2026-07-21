@@ -1,7 +1,7 @@
 # Nanobot-Java —— 手搓AI Agent项目总结文档
 
 > **项目定位*：从零自研的 Java版AI Agent 运行时基础设施（非 LangChain 套壳，无SpringAI框架），参考港大 Nanobot 架构
-> 并融合 Claude Code 设计理念。117 源文件，~26,000 行 Java 代码，通过claudecode+deepseek+vibe-coding 1人独立完成。
+> 并融合 Claude Code 设计理念。130 源文件，~27,000 行 Java 代码，通过claudecode+deepseek+vibe-coding 1人独立完成。
 
 ---
 
@@ -12,7 +12,7 @@
 市面上大部分 "AI Agent" 项目本质是 LangChain/Spring AI 的配置封装。本项目**手写实现了 Agent 运行时需要的全部基础设施**：
 
 - **消息总线**：异步生产者-消费者模式，解耦 LLM 调用与通道接入
-- **工具注册中心**：16 个工具的注册、发现、执行、权限校验统一入口
+- **工具注册中心**：27 个工具的注册、发现、执行、权限校验统一入口
 - **四步安全管道**：Hook → Guards × 3 → RuleEngine → PermissionMode，纵深防御
 - **流式引擎**：一份 onDelta 数据流，SSE/WebSocket/CLI 多渠道并发订阅
 
@@ -101,7 +101,7 @@ RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE
 - **加新通道**：实现 ~60 行适配器 + `addStreamResponseCallback()` → 零改动核心
 - **加新安全策略**：实现 Guard 接口 or 注册 Rule → 管道自动编排
 - **加新 LLM Provider**：实现 LLMProvider 接口 → AgentRunner 透明切换
-- **加新记忆类型**：扩展 MemoryStore → 系统提示词自动注入
+- **加新记忆类型**：扩展 Dream/MemoryLoader → 系统提示词自动注入
 
 ### 1.2 三维度工程体系化落地
 
@@ -228,7 +228,7 @@ PreToolUse Hook → Guards(PathGuard/CommandGuard/NetworkGuard) → RuleEngine(d
 - 为什么 Tool 接口的 `execute()` 返回 `CompletableFuture<Object>` 而非 `String`？支持长时间异步工具（网络请求）不阻塞线程池
 - 为什么参数用 `Map<String, Object>` 而非强类型 DTO？LLM 生成的参数是动态 JSON，用 Map 避免反序列化失败
 
-**成果**：16 个工具中，9 个用 `@ToolDef` 方法级注解（BuiltinTools），7 个实现 Tool 接口。两者共存，互不干扰。
+**成果**：27 个工具中，9 个用 `@ToolDef` 方法级注解（BuiltinTools），7 个实现 Tool 接口。两者共存，互不干扰。
 
 ### 难点 8：三版本架构设计 —— 一套核心支持 3 个入口
 
@@ -250,23 +250,31 @@ PreToolUse Hook → Guards(PathGuard/CommandGuard/NetworkGuard) → RuleEngine(d
 
 **成果**：三版本文件数 5+8+3=16，核心模块 101 个文件零版本耦合。
 
-### 难点 9：记忆系统三层架构设计 —— 短期/中期/长期的边界与协作
+### 难点 9：记忆系统三层架构设计 —— 从手动维护到全自动闭环
 
 **挑战**：对话历史、token 预算、长期记忆是三个不同时间尺度的需求，如果混在一起会互相干扰——压缩太激进丢失上下文，太保守撑爆窗口。
 
-**架构设计**：
+**架构演进**：
 ```
-短期 (history.jsonl)    → 对话级别，自动加载/保存，JSONL 增量追加
-中期 (Consolidator)     → 窗口级别，usage>90%budget → LLM 总结旧消息 → system 替换
-长期 (MemoryStore/Dream)→ 跨会话级别，MEMORY.md 文件管理 + Dream 定期巩固 + NANOBOT.md 项目记忆
+v1 (已废弃):
+  短期 (history.jsonl)    → 对话级别，JSONL 增量追加
+  中期 (Consolidator)     → usage>90%budget → LLM 总结 → system 替换
+  长期 (MemoryStore)      → 手动维护 MEMORY.md/SOUL.md/USER.md，从未接入AgentLoop
+  问题: MemoryStore 是死代码(420行)，Dream 从不解析LLM返回的JSON(只返回空列表占位)
+
+v2 (当前):
+  短期 (history.jsonl)    → 不变
+  中期 (Consolidator + /compact 命令) → 自动压缩 + 手动触发
+  长期 (Dream + MemoryLoader) → SAVE状态自动触发提取 → 增量节流(5000字符/1500token阈值) → Jackson解析JSON → 自动持久化MEMORY.md → BUILD状态注入System Prompt
+  手动入口: /remember 跳过节流立即提取, /compact 跳过阈值立即压缩
 ```
 
-**关键决策点**：
-- 压缩对象选择：为什么优先压缩 assistant+tool 消息，而不是 user 消息？—— 旧回答和工具结果信息密度低，用户意图需要保留
-- 压缩触发阈值：为什么 90% 而不是 80% 或 95%？—— 太早频繁压缩增加 LLM 调用次数（费钱），太晚可能来不及压缩就溢出
-- Dream 和 Consolidator 的职责边界：Dream 管跨会话的长期记忆（"用户喜欢简洁回答"），Consolidator 管当前会话的 tokoken 预算
-
-**未解决的取舍**：Token 估算使用 char_count/4，会产生 ~20% 误差。精确方案需引入 tiktoken 分词器（JTokkit），但增加 ~2MB 依赖和模型特定的 tokenizer 配置复杂度。当前方案在 200K 窗口下误差裕度足够。
+**关键设计决策**：
+- **删除 MemoryStore（420 行）**：与 Dream 职责重叠，且从未接入 AgentLoop。记忆管理统一由 Dream + MemoryLoader 负责
+- **增量节流**：`EXTRACTION_MIN_NEW_CHARS = 5000`（≈1500 tokens），新增字符不足阈值时跳过 LLM 调用。首次提取(lastChars=0)不跳过
+- **真正的 JSON 解析**：旧 Dream.parseMemoryResponse() 只返回空列表（注释写着"实际应用中应解析JSON"）。现在用 Jackson ObjectMapper 解析 LLM 返回的 JSON 数组
+- **全自动闭环**：SaveState → Dream.extractAndStore() → BuildState.appendMemories()，无需人工干预
+- **首次启动体验**：MemoryLoader/IdentityLoader 自动生成模板文件，不再静默返回空列表
 
 ### 难点 10：MCP 协议集成 —— 外部工具的发现、生命周期与故障隔离
 
@@ -328,6 +336,40 @@ Agent 的核心循环是 `LLM → tool_calls → 执行 → 结果回注 → LLM
 
 **方案**：`onDelta` 只做轻量操作——追加到 StringBuilder 或调用 `StreamResponseCallback.onStreamData()`（各通道的输出端）。所有重操作（权限检查、文件写入）在 `runner.run()` 返回后统一处理。
 
+### 难点 12：Skills 渐进式加载 —— 对标 Claude Code 的 use_skill 元工具
+
+**挑战**：Skills 系统需要让 LLM 自主发现和调用技能，但不能每个 Skill 注册一个独立 tool——tools 数组会膨胀，LLM 工具选择准确率暴跌。
+
+**方案对比**：
+
+| | 方案A (每Skill独立tool) | 方案B (use_skill元工具) |
+|------|------|------|
+| tools 数组大小 | N个技能 = N个额外tool | 始终只多1个 |
+| LLM 选择准确率 | 技能>10时暴跌 | 不受技能数量影响 |
+| Skill 全文加载 | 自动注入（无法控制时机） | LLM 自主决定何时调用 |
+
+**最终方案B — 两层渐进式加载**：
+
+```
+第一层: BuildState 注入技能目录（仅名称+描述，~50 token）
+  "## 可用技能（Skills）
+   - code-review — 代码审查：检查安全漏洞、代码质量
+   - refactor — 结构化重构：识别代码异味
+   - doc-generator — 文档生成：为Java类生成Javadoc
+   - test-writer — 单元测试编写：JUnit5+Mockito+AssertJ
+   - dependency-check — 依赖分析：检查pom.xml冲突和漏洞"
+
+第二层: LLM判断需要某技能 → tool_calls=[{use_skill, name="code-review"}]
+  → UseSkillTool.execute() 从 SkillRegistry 查到 SKILL.md 全文
+  → 技能全文作为 tool 结果注入 → LLM 按指令执行
+```
+
+**关键设计决策**：
+- **为什么用 function calling 而不是新协议？** 复用现有机制，零额外 API 依赖，DeepSeek/OpenAI 全支持
+- **为什么 System Prompt 只放目录不放全文？** 5个技能全文 ~2000 token，目录 ~50 token。省下的 token 留给真正有用的上下文
+- **手动 / 命令入口保留**：`/code-review` 在 CommandState 中拦截（内置命令优先级高于技能匹配），直接返回技能全文，不进 LLM
+- **auto-trigger 开关**：每个 Skill 的 frontmatter 中有 `auto-trigger: true/false`，控制是否允许 LLM 自主匹配。dependency-check 设 false（涉及 pom.xml 变更，需用户明确确认）
+
 
 ---
 
@@ -343,7 +385,7 @@ Agent 的核心循环是 `LLM → tool_calls → 执行 → 结果回注 → LLM
 | 流式输出     | DeepSeek SSE → onDelta → StreamResponseCallback 列表广播         |
 | 并行工具执行   | 只读工具线程池并发，写工具保持顺序，结果数组保证有序                                   |
 
-### 3.2 工具系统（16 个）
+### 3.2 工具系统（27 个）
 
 | 类别    | 工具                                                    |
 | ----- | ----------------------------------------------------- |
@@ -352,8 +394,10 @@ Agent 的核心循环是 `LLM → tool_calls → 执行 → 结果回注 → LLM
 | Shell | exec(stderr分离, 默认120s/最大600s)                         |
 | 网络    | web_search(4 providers), web_fetch(Jsoup)             |
 | Agent | spawn(同步+异步inbox), spawn_check, ask_user(交互确认)        |
+| 技能    | use_skill(元工具，一个工具管所有Skill，渐进式加载)                |
 | 任务    | task_create/list/update(JSON持久化)                      |
-| 其他    | get_current_time, BuiltinTools(@ToolDef注解注册)          |
+| 内置    | BuiltinTools 10个(@ToolDef注解: base64编解码、四则运算、随机数、文本统计、日期时间) |
+| 其他    | get_current_time                                           |
 
 ### 3.3 安全体系
 
@@ -376,13 +420,15 @@ Agent 的核心循环是 `LLM → tool_calls → 执行 → 结果回注 → LLM
 | WebSocket | @ServerEndpoint /ws, onMessage → publishInbound → callback |
 | CLI       | 类 Claude Code，Markdown 彩色渲染，当前目录即工作区                       |
 
-### 3.5 上下文管理
+### 3.5 上下文与记忆管理
 
 | 功能               | 说明                                        |
 | ---------------- | ----------------------------------------- |
 | 会话持久化            | history.jsonl，JSONL 格式，按 sessionKey 隔离    |
-| Token 压缩         | Consolidator，usage>budget×90% → LLM 总结旧消息 |
-| NANOBOT.md       | `/init` 生成，doBuild() 自动注入 system prompt   |
+| Token 压缩         | Consolidator 自动触发 + `/compact` 手动触发        |
+| 长期记忆提取       | Dream 自动提取(5000字符节流) + `/remember` 手动触发 |
+| NANOBOT.md       | `/init` 生成，BuildState 自动注入 system prompt   |
+| 技能目录注入       | BuildState 注入技能名称+描述，LLM 自主匹配调用       |
 | maxTurns/maxCost | 预算控制，超限自动停止                               |
 
 ---
@@ -406,7 +452,7 @@ Agent 的核心循环是 `LLM → tool_calls → 执行 → 结果回注 → LLM
 2. **多通道支持**：同一套核心逻辑驱动 HTTP/SSE/WebSocket/CLI 四种交互方式
 3. **安全纵深防御**：4 层权限检查（Hook→Guard→Rule→Mode），不可绕过
 4. **上下文管理**：自动会话持久化、token 预算管理、历史压缩、长期记忆
-5. **对标生产级 Agent**：16 个工具、流式输出、并发工具执行、子 Agent、MCP 协议
+5. **对标生产级 Agent**：27 个工具、流式输出、并发工具执行、子 Agent、MCP 协议
 
 ### A — Action（行动）
 
@@ -421,7 +467,7 @@ Agent 的核心循环是 `LLM → tool_calls → 执行 → 结果回注 → LLM
 - 实现 AgentRunner LLM 递归调用循环（工具调用 → 执行 → 结果回注 → 递归直到纯文本）
 - 实现 StreamResponseCallback 回调列表机制，一份流式数据 SSE/WS/CLI 三通道并发消费
 - 实现 Consolidator 上下文压缩器（token 超 90% 预算 → LLM 自动总结旧消息）
-- 实现 16 个工具，包括 EditFile 唯一性校验（对齐 Claude Code）、Exec stderr 分离、ReadFile 分页
+- 实现 27 个工具，包括 EditFile 唯一性校验（对齐 Claude Code）、Exec stderr 分离、ReadFile 分页
 
 **踩坑与修复**：
 
@@ -437,13 +483,17 @@ Agent 的核心循环是 `LLM → tool_calls → 执行 → 结果回注 → LLM
 - 实现 SpawnTool 子 Agent + FileInbox 异步通信
 - 对标 Claude Code 优化所有工具描述
 - 实现 NANOBOT.md 项目记忆（`/init` 生成，后续对话自动注入）
+- **记忆系统重构**：删除 MemoryStore 死代码(420行)，Dream 实现全自动闭环（提取→节流→JSON解析→持久化→检索→注入）
+- **新增 /compact、/remember 命令**：手动压缩上下文 + 手动记忆提取
+- **实现 use_skill 元工具**：对标 Claude Code 渐进式加载，一个工具管所有 Skill，tools 数组不膨胀
+- **目录结构扁平化**：去掉 .nanobot/workspace/ 冗余层级，首次启动自动生成模板文件
 
 ### R — Result（成果）
 
 **工程指标**：
 
 - 117 个源文件，~26,000 行 Java 代码
-- 16 个工具，4 种权限模式，4 种交互通道
+- 27 个工具，4 种权限模式，4 种交互通道
 - 异步消息总线支持 HTTP/SSE/WebSocket/CLI 四种通道，核心代码零重复
 
 **技术成果**：
@@ -532,7 +582,7 @@ doBuild() 构造 system prompt（按优先级）:
 ├── ❶ 身份 + 日期指令（首位效应）
 │    IdentityManager.getSystemPrompt(currentDate)
 │    "你的名字是 my-nanobot，绝对不是 Claude..."
-│    "今天是 2026-07-17，这是真实日期..."
+│    "今天是 2026-07-21，这是真实日期..."
 │
 ├── ❷ SOUL + IDENTITY + USER 身份详情
 │    IdentityManager.getCombinedPrompt()
@@ -541,17 +591,22 @@ doBuild() 构造 system prompt（按优先级）:
 │    useSearch=false → "不要使用 web_search/web_fetch"
 │    useSearch=true → 跳过此行（LLM 自行决定）
 │
-├── ❹ NANOBOT.md 项目上下文 ★ 对标 CLAUDE.md
+├── ❹ 长期记忆检索注入（Dream）
+│    Dream.retrieve(userMessage, 5) → 关键词匹配+重要性排序
+│    "【长期记忆 — 从过往对话中自动提取】..."
+│
+├── ❺ NANOBOT.md 项目上下文 ★ 对标 CLAUDE.md
 │    if (Files.exists("NANOBOT.md")) → 注入全部内容
 │
-├── ❺ Rules 规则注入
+├── ❻ Skills 技能目录 ★ 对标 Claude Code 渐进式加载
+│    SkillRegistry.getAllSkills() → 仅注入名称+描述
+│    "可用技能: code-review(代码审查), refactor(重构)..."
+│
+├── ❼ Rules 规则注入
 │    RuleManager.getRulesPrompt()
 │    "Java代码风格规范 / 安全编码规范 / 响应格式规范"
 │
-├── ❻ 工具使用指令
-│    "你可以调用工具完成任务... 如果失败请分析原因"
-│
-└── ❼ 工具结果格式说明（近因效应）
+└── ❽ 工具结果格式说明（近因效应）
      "[TOOL_OK] 表示成功，[TOOL_ERR] 表示失败"
 ```
 
@@ -563,6 +618,8 @@ doBuild() 构造 system prompt（按优先级）:
 | **近因效应**       | 工具格式说明放 prompt 最末尾                      | 模型对最近 token 记忆最强              |
 | **对抗训练偏差**     | 日期+身份双重显式声明                             | DeepSeek 训练数据自称 Claude，需强硬覆盖  |
 | **条件注入**       | useSearch → 动态选择工具指令                    | 减少不必要的 token 消耗               |
+| **渐进式技能加载**   | System Prompt仅注入技能目录, LLM按需调use_skill | 对标Claude Code, tools数组不膨胀       |
+| **长期记忆检索**     | Dream.retrieve(query,5) → 关键词+重要性排序     | 跨会话上下文注入，<1ms延迟，零LLM成本     |
 | **项目上下文注入**    | NANOBOT.md → system prompt              | 对标 Claude Code 的 CLAUDE.md 机制 |
 | **Rules 分层管理** | 内置 coding-style/security/response-style | 项目级 .nanobot/rules > 用户级 > 默认 |
 
@@ -597,10 +654,11 @@ RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE
 │   替换为 "[对话历史总结] ..."                      │
 ├──────────────────────────────────────────────────┤
 │ 第三层: 长期记忆（跨会话）                        │
-│   MemoryStore: MEMORY.md/SOUL.md/USER.md 文件管理  │
-│   Dream: 定期调用 LLM 从对话中提取关键事实         │
+│   Dream: 自动提取+增量节流(5000字符阈值)            │
+│   MemoryLoader: MEMORY.md读写+自动模板生成          │
 │   NANOBOT.md: /init 生成的永久项目记忆            │
 │   TaskStore: JSON 持久化的任务追踪                │
+│   /compact + /remember: 手动压缩和记忆提取命令     │
 └──────────────────────────────────────────────────┘
 ```
 
@@ -708,7 +766,7 @@ DeepSeek SSE → provider.chatStream(messages, tools, onDelta)
 | 子 Agent     | SpawnTool → AgentCoordinator              | 4 种能力匹配，同步+异步(inbox)两模式      |
 | 任务追踪        | TaskCreate/List/Update → TaskStore        | JSON 文件持久化                   |
 | MCP 协议      | MCPManager → StdioMCPClient/HttpMCPClient | stdio/sse/streamableHttp 全支持 |
-| 技能系统        | SkillManager                              | .nanobot/skills/ 目录加载        |
+| 技能系统        | SkillManager + use_skill 元工具             | .nanobot/skills/ 目录加载 + 渐进式激活 |
 | 定时任务        | CronScheduler                             | cron 表达式解析 + 调度              |
 | @ToolDef 注解 | ToolScanner 类路径扫描                         | 方法级注解自动注册                    |
 | LLM 双后端     | LLMProvider 接口                            | DeepSeek + OpenAI 统一适配       |
