@@ -1,6 +1,6 @@
 #!/bin/bash
 # Nanobot 启动脚本
-# 用法: ./start.sh [--cli] [-w /path/to/workspace] [--port 8080]
+# 用法: ./start.sh [--cli] [-w /path/to/] [--port 8080]
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"

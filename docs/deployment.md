@@ -124,7 +124,7 @@ nanobot -w /proj-a   # 指定目录
 # config.yaml（或 ~/.nanobot/config.yaml）
 agents:
   defaults:
-    workspace: ".nanobot/workspace"
+    workspace: ".nanobot/"
     model: "deepseek-chat"
     # 预算控制（0=不限）
     maxTurns: 0
@@ -139,6 +139,6 @@ providers:
 命令行覆盖（优先级最高）：
 
 ```bash
-nanobot -w /custom/workspace
+nanobot -w /custom/
 nanobot --maxTurns=20 --maxCost=0.01
 ```

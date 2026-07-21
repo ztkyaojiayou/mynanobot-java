@@ -71,7 +71,7 @@ com.nanobot.security
 统一所有 File Tool 的路径解析，确保不越出工作区。
 
 ```java
-PathGuard guard = new PathGuard("/workspace");
+PathGuard guard = new PathGuard("/");
 guard.addAllowedDir("/tmp");
 Path safe = guard.resolvePath("src/main/App.java");  // 相对路径基于workspace
 Path safe = guard.resolvePath("/tmp/data.json");      // extraAllowedDirs中路径放行

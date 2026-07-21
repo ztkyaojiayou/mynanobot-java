@@ -68,8 +68,8 @@ import java.util.stream.Collectors;
  * ToolRegistry registry = new ToolRegistry();
  * 
  * // 2. 注册内置工具
- * registry.register(new ReadFileTool("/workspace"));
- * registry.register(new WriteFileTool("/workspace"));
+ * registry.register(new ReadFileTool("/"));
+ * registry.register(new WriteFileTool("/"));
  * registry.register(new ExecTool());
  * 
  * // 3. 获取工具定义（用于 LLM）

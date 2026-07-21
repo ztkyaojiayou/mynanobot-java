@@ -28,7 +28,7 @@ import java.util.List;
  *
  * 使用示例：
  * ```java
- * PathGuard guard = new PathGuard(Paths.get("/workspace"));
+ * PathGuard guard = new PathGuard(Paths.get("/"));
  * guard.addAllowedDir(Paths.get("/tmp"));
  * Path safe = guard.resolvePath("src/main/App.java");
  * ```

@@ -124,7 +124,7 @@ mvn spring-boot:run
 - **API Key**: 环境变量 `DEEPSEEK_API_KEY`
 - **搜索提供商**: `baidu_web`（免费，国内可访问，无需 API Key）
 - **默认端口**: `8080`
-- **工作区**: `.nanobot/workspace`
+- **工作区**: `.nanobot/`
 
 ### 5.4 CLI 命令速查
 
