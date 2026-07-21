@@ -14,8 +14,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * COMMAND — 命令分发。处理 /stop、/clear、/compact、/remember、/skills、/rules 等内置命令，
- * 以及技能斜杠调用。
+ * COMMAND — 命令分发。
+ *
+ * <h2>匹配优先级</h2>
+ * <ol>
+ *   <li>内置命令（系统级，不能被技能覆盖）：/stop, /clear, /compact, /remember, /skills, /rules</li>
+ *   <li>技能斜杠调用：/xxx → SkillRegistry 查找，返回 SKILL.md 全文</li>
+ *   <li>都不匹配 → BUILD（当作普通消息进入 LLM 处理）</li>
+ * </ol>
  */
 public class CommandState implements AgentState {
 
@@ -40,17 +46,33 @@ public class CommandState implements AgentState {
         String content = ctx.getMessage().getContent();
         if (content == null || !content.startsWith("/")) return TurnState.BUILD;
 
-        // 技能调用
+        String command = content.split("\\s")[0].toLowerCase();
+
+        // ── ① 内置命令优先（系统级操作不能被用户技能覆盖）──
+        TurnState builtinResult = handleBuiltinCommand(command, ctx);
+        if (builtinResult != null) return builtinResult;
+
+        // ── ② 不是内置命令 → 尝试技能匹配 ──
         if (skillManager != null) {
             SkillManager.SkillCall skillCall = skillManager.parseSlashCommand(content);
             if (skillCall != null) {
-                String result = skillManager.executeSkill(skillCall.skillName(), java.util.Map.of(), skillCall.args());
+                String result = skillManager.executeSkill(
+                        skillCall.skillName(), java.util.Map.of(), skillCall.args());
                 ctx.setFinalContent(result);
                 return TurnState.DONE;
             }
         }
 
-        String command = content.split("\\s")[0].toLowerCase();
+        // ── ③ 都不匹配 → 当作普通 / 开头消息，进入 LLM ──
+        return TurnState.BUILD;
+    }
+
+    /**
+     * 处理内置命令。
+     *
+     * @return 匹配成功返回对应的 TurnState，不匹配返回 null（让调用方继续查技能）
+     */
+    private TurnState handleBuiltinCommand(String command, TurnContext ctx) {
         return switch (command) {
             case "/stop" -> {
                 ctx.cancel();
@@ -65,16 +87,20 @@ public class CommandState implements AgentState {
             case "/compact" -> handleCompact(ctx);
             case "/remember" -> handleRemember(ctx);
             case "/skills" -> {
-                String help = skillManager != null ? skillManager.getRegistry().getHelp() : "技能系统未启用。";
+                String help = skillManager != null
+                        ? skillManager.getRegistry().getHelp()
+                        : "技能系统未启用。";
                 ctx.setFinalContent(help);
                 yield TurnState.DONE;
             }
             case "/rules" -> {
-                String summary = ruleManager != null ? ruleManager.getRulesSummary() : "规则系统未启用。";
+                String summary = ruleManager != null
+                        ? ruleManager.getRulesSummary()
+                        : "规则系统未启用。";
                 ctx.setFinalContent(summary);
                 yield TurnState.DONE;
             }
-            default -> TurnState.BUILD;
+            default -> null;  // 不是内置命令 → 返回 null，让调用方继续
         };
     }
 
@@ -124,7 +150,8 @@ public class CommandState implements AgentState {
                     sb.append("- ").append(entry.getContent()).append("\n");
                 }
                 ctx.setFinalContent(sb.toString().trim());
-                logger.info("Manual memory extraction: {} entries from session {}", stored.size(), sessionId);
+                logger.info("Manual memory extraction: {} entries from session {}",
+                        stored.size(), sessionId);
             }
         } catch (Exception e) {
             logger.error("Manual memory extraction failed", e);
