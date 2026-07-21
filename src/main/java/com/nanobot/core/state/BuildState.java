@@ -3,6 +3,7 @@ package com.nanobot.core.state;
 import com.nanobot.core.TurnContext;
 import com.nanobot.core.TurnState;
 import com.nanobot.identity.IdentityManager;
+import com.nanobot.memory.Dream;
 import com.nanobot.rules.RuleManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,21 +15,25 @@ import java.util.Map;
 import java.util.function.BooleanSupplier;
 
 /**
- * BUILD — 构建系统提示词。注入身份信息、NANOBOT.md、Plan Mode、Rules 等。
+ * BUILD — 构建系统提示词。注入身份信息、长期记忆、NANOBOT.md、Plan Mode、Rules 等。
  */
 public class BuildState implements AgentState {
 
     private static final Logger logger = LoggerFactory.getLogger(BuildState.class);
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy年MM月dd日");
+    private static final int MEMORY_RETRIEVAL_LIMIT = 5; // 每次注入的最多记忆条数
 
     private final IdentityManager identityManager;
     private final RuleManager ruleManager;
     private final BooleanSupplier planModeSupplier; // 支持运行时查询 planMode
+    private final Dream dream; // 可为 null
 
-    public BuildState(IdentityManager identityManager, RuleManager ruleManager, BooleanSupplier planModeSupplier) {
+    public BuildState(IdentityManager identityManager, RuleManager ruleManager,
+                      BooleanSupplier planModeSupplier, Dream dream) {
         this.identityManager = identityManager;
         this.ruleManager = ruleManager;
         this.planModeSupplier = planModeSupplier;
+        this.dream = dream;
     }
 
     @Override
@@ -44,11 +49,13 @@ public class BuildState implements AgentState {
         appendIdentity(systemPrompt, currentDate);
         // 2. 联网搜索开关
         appendSearchHint(systemPrompt, useSearch);
-        // 3. NANOBOT.md 项目记忆
+        // 3. 长期记忆注入（Dream — 从过往对话中提取的相关记忆）
+        appendMemories(systemPrompt, ctx);
+        // 4. NANOBOT.md 项目记忆
         appendNanobotMd(systemPrompt);
-        // 4. Plan Mode 规划模式
+        // 5. Plan Mode 规划模式
         appendPlanMode(systemPrompt);
-        // 5. Rules 规则
+        // 6. Rules 规则
         appendRules(systemPrompt);
 
         // 添加到消息列表
@@ -95,6 +102,26 @@ public class BuildState implements AgentState {
                     如果用户的问题需要最新信息，告知用户可以使用"联网查"功能。
 
                     """);
+        }
+    }
+
+    private void appendMemories(StringBuilder sb, TurnContext ctx) {
+        if (dream == null || dream.getMemoryCount() == 0) return;
+        try {
+            String query = ctx.getMessage() != null ? ctx.getMessage().getContent() : "";
+            if (query == null || query.isBlank()) return;
+
+            List<Dream.MemoryEntry> relevant = dream.retrieve(query, MEMORY_RETRIEVAL_LIMIT).join();
+            if (relevant.isEmpty()) return;
+
+            sb.append("\n【长期记忆 — 从过往对话中自动提取】\n");
+            for (Dream.MemoryEntry entry : relevant) {
+                sb.append("- ").append(entry.getContent()).append("\n");
+            }
+            sb.append("\n");
+            logger.debug("Injected {} relevant memories into context", relevant.size());
+        } catch (Exception e) {
+            logger.debug("Memory retrieval skipped: {}", e.getMessage());
         }
     }
 

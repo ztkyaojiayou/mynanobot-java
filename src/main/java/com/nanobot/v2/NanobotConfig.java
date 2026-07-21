@@ -11,7 +11,6 @@ import com.nanobot.identity.IdentityManager;
 import com.nanobot.mcp.MCPManager;
 import com.nanobot.memory.Consolidator;
 import com.nanobot.memory.Dream;
-import com.nanobot.memory.MemoryStore;
 import com.nanobot.providers.LLMProvider;
 import com.nanobot.providers.impl.DeepSeekProvider;
 import com.nanobot.providers.impl.OpenAIProvider;
@@ -172,11 +171,6 @@ public class NanobotConfig {
     @Bean
     public SessionManager sessionManager(Config config) {
         return new SessionManager(config);
-    }
-
-    @Bean
-    public MemoryStore memoryStore(Config config) {
-        return new MemoryStore(config);
     }
 
     @Bean

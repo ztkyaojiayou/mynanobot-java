@@ -6,7 +6,6 @@ import com.nanobot.config.Config;
 import com.nanobot.config.ConfigLoader;
 import com.nanobot.core.AgentLoop;
 import com.nanobot.mcp.MCPManager;
-import com.nanobot.memory.MemoryStore;
 import com.nanobot.providers.LLMProvider;
 import com.nanobot.providers.impl.DeepSeekProvider;
 import com.nanobot.providers.impl.OpenAIProvider;
@@ -57,7 +56,6 @@ public class Nanobot {
     private LLMProvider provider;
     private ToolRegistry toolRegistry;
     private SessionManager sessionManager;
-    private MemoryStore memoryStore;
     private AgentLoop agentLoop;
     private MCPManager mcpManager;
     private ChannelServer channelServer;
@@ -141,28 +139,25 @@ public class Nanobot {
         // 4. 初始化会话管理器
         sessionManager = new SessionManager(config);
         
-        // 5. 初始化内存存储
-        memoryStore = new MemoryStore(config);
-        
-        // 6. 初始化身份管理器（SOUL, IDENTITY, USER）
+        // 5. 初始化身份管理器（SOUL, IDENTITY, USER）
         identityManager = new IdentityManager(config);
         identityManager.load();
         logger.info("Identity files loaded");
         
-        // 7. 初始化规则管理器（Rules）
+        // 6. 初始化规则管理器（Rules）
         ruleManager = new RuleManager(config);
         ruleManager.loadRules();
         logger.info("Loaded {} rules", ruleManager.getRegistry().size());
         
-        // 8. 初始化技能管理器（Skills）
+        // 7. 初始化技能管理器（Skills）
         skillManager = new SkillManager(config);
         skillManager.loadSkills();
         logger.info("Loaded {} skills", skillManager.getRegistry().size());
         
-        // 9. 初始化 LLM 提供商
+        // 8. 初始化 LLM 提供商
         provider = createProvider();
         
-        // 10. 初始化长期记忆系统（Dream）
+        // 9. 初始化长期记忆系统（Dream）
         int maxMemories = config.getMemory().getDream().getMaxMemories();
         java.nio.file.Path memoryDir = java.nio.file.Paths.get(".nanobot", "memory").toAbsolutePath().normalize();
         dream = new com.nanobot.memory.Dream(provider, maxMemories, memoryDir);

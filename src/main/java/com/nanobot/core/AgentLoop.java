@@ -481,7 +481,7 @@ public class AgentLoop {
         stateHandlers.put(TurnState.RESTORE, new com.nanobot.core.state.RestoreState(sessionManager));
         stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(consolidator));
         stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager));
-        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode));
+        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, dream));
         stateHandlers.put(TurnState.RUN, new com.nanobot.core.state.RunState(runner, config,
                 () -> java.util.List.copyOf(streamResponseCallbacks),
                 msg -> publishProgress(msg)));
@@ -503,11 +503,12 @@ public class AgentLoop {
     private com.nanobot.memory.Dream dream;
 
     /**
-     * 设置长期记忆引擎，同时更新 SaveState 处理器
+     * 设置长期记忆引擎，同时更新 SaveState 和 BuildState 处理器
      */
     public void setDream(com.nanobot.memory.Dream d) {
         this.dream = d;
         stateHandlers.put(TurnState.SAVE, new com.nanobot.core.state.SaveState(sessionManager, d));
+        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, d));
     }
 
     // ==================== 响应发送 ====================

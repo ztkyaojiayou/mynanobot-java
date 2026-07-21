@@ -6,7 +6,6 @@ import com.nanobot.config.ConfigLoader;
 import com.nanobot.core.AgentLoop;
 import com.nanobot.mcp.MCPManager;
 import com.nanobot.memory.Dream;
-import com.nanobot.memory.MemoryStore;
 import com.nanobot.providers.LLMProvider;
 import com.nanobot.providers.ProviderFactory;
 import com.nanobot.identity.IdentityManager;
@@ -46,7 +45,6 @@ public class NanobotRunner implements ApplicationRunner {
     private static MessageBus messageBus;
     private static ToolRegistry toolRegistry;
     private static SessionManager sessionManager;
-    private static MemoryStore memoryStore;
     private static AgentLoop agentLoop;
     private static MCPManager mcpManager;
     private static Dream dream;
@@ -74,11 +72,6 @@ public class NanobotRunner implements ApplicationRunner {
     @Autowired
     private void setSessionManager(SessionManager sessionManager) {
         NanobotRunner.sessionManager = sessionManager;
-    }
-
-    @Autowired
-    private void setMemoryStore(MemoryStore memoryStore) {
-        NanobotRunner.memoryStore = memoryStore;
     }
 
     @Override
@@ -242,10 +235,6 @@ public class NanobotRunner implements ApplicationRunner {
     
     public static SessionManager getSessionManager() {
         return sessionManager;
-    }
-    
-    public static MemoryStore getMemoryStore() {
-        return memoryStore;
     }
     
     public static AgentLoop getAgentLoop() {
