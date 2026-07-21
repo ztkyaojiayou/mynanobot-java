@@ -50,16 +50,22 @@ public class MemoryLoader {
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     
     /**
-     * 从 MEMORY.md 文件加载记忆
+     * 从 MEMORY.md 文件加载记忆（文件不存在时自动生成模板）
      */
     public static List<Dream.MemoryEntry> loadFromFile(Path baseDir) {
         Path memoryFile = baseDir.resolve("MEMORY.md");
-        
+
         if (!Files.exists(memoryFile)) {
-            logger.debug("MEMORY.md not found, returning empty list");
+            logger.info("MEMORY.md not found, generating template at {}", memoryFile);
+            try {
+                Files.createDirectories(baseDir);
+                Files.writeString(memoryFile, getDefaultMemoryTemplate(), StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                logger.warn("Failed to create MEMORY.md template: {}", e.getMessage());
+            }
             return Collections.emptyList();
         }
-        
+
         try {
             String content = Files.readString(memoryFile, StandardCharsets.UTF_8);
             return parseMemory(content);
@@ -223,5 +229,32 @@ public class MemoryLoader {
         } catch (IOException e) {
             logger.error("Failed to save MEMORY.md: {}", e.getMessage());
         }
+    }
+
+    /** MEMORY.md 默认模板（空记忆库，等待 Dream 自动填充） */
+    private static String getDefaultMemoryTemplate() {
+        return """
+                ---
+                name: project-memory
+                description: 项目长期记忆（由 Dream 自动提取）
+                updated: %s
+                ---
+
+                # 长期记忆
+
+                > 此文件由 Nanobot Dream 长期记忆系统自动管理。
+                > 启动时生成模板，对话中自动提取记忆填充。
+                > 也可手动编辑，格式为 Markdown 列表项。
+
+                ## 关于项目
+                - [待自动提取]
+
+                ## 用户偏好
+                - [待自动提取]
+
+                ## 重要决策
+                - [待自动提取]
+                """.formatted(java.time.LocalDateTime.now().format(
+                        java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
     }
 }
