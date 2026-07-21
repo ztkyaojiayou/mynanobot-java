@@ -88,7 +88,7 @@
 
 | 时机 | 加载内容 |
 |------|---------|
-| 任何任务开始 | `CLAUDE.md` + 本文件 + `.harness/rules/`（约束边界） |
+| 任何任务开始 | `NANOBOT.md` + 本文件 + `.harness/rules/`（约束边界） |
 | 需求分析 | `.harness/wiki/业务模型.md` |
 | 设计接口 | `.harness/wiki/接口协议.md` + `数据模型.md` |
 | 编码实现 | 当前需求的 `.harness/changes/<id>/` + `编码规范.md` |

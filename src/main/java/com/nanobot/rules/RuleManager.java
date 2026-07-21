@@ -18,7 +18,7 @@ import java.util.List;
  * 负责规则的加载、管理和提示词生成。
  * 
  * **规则搜索路径**（按优先级）：
- * 1. 项目级：CLAUDE.md（项目根目录）
+ * 1. 项目级：NANOBOT.md（项目根目录）
  * 2. 项目级：.nanobot/rules/*.md
  * 3. 用户级：~/.nanobot/rules/*.md
  * 4. 全局级：内置默认规则
@@ -49,11 +49,12 @@ public class RuleManager {
     }
     
     /**
+     *
      * 初始化规则搜索路径
      */
     private void initRulePaths() {
-        // 1. 项目级规则文件 CLAUDE.md
-        Path claudeMd = Paths.get("CLAUDE.md");
+        // 1. 项目级规则文件 NANOBOT.md
+        Path claudeMd = Paths.get("NANOBOT.md");
         if (Files.exists(claudeMd)) {
             rulePaths.add(claudeMd.toAbsolutePath().normalize());
         }

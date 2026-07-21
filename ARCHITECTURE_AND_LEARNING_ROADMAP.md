@@ -4140,7 +4140,7 @@ claude login
 | `/help` | 列出所有可用命令 |
 | `/clear` | 清空当前对话上下文 |
 | `/compact` | 压缩对话历史（释放 token 预算） |
-| `/init` | 分析项目生成 CLAUDE.md（项目记忆文件） |
+| `/init` | 分析项目生成 NANOBOT.md（项目记忆文件） |
 | `/doctor` | 诊断环境问题 |
 | `/login` / `/logout` | 账号管理 |
 | `/status` | 查看当前会话状态 |

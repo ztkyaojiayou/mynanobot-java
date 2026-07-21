@@ -5,6 +5,8 @@ import com.nanobot.core.TurnState;
 import com.nanobot.identity.IdentityManager;
 import com.nanobot.memory.Dream;
 import com.nanobot.rules.RuleManager;
+import com.nanobot.skill.Skill;
+import com.nanobot.skill.SkillRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,7 +17,8 @@ import java.util.Map;
 import java.util.function.BooleanSupplier;
 
 /**
- * BUILD — 构建系统提示词。注入身份信息、长期记忆、NANOBOT.md、Plan Mode、Rules 等。
+ * BUILD — 构建系统提示词。
+ * 注入身份信息、长期记忆、技能目录、NANOBOT.md、Plan Mode、Rules。
  */
 public class BuildState implements AgentState {
 
@@ -27,13 +30,16 @@ public class BuildState implements AgentState {
     private final RuleManager ruleManager;
     private final BooleanSupplier planModeSupplier; // 支持运行时查询 planMode
     private final Dream dream; // 可为 null
+    private final SkillRegistry skillRegistry; // 可为 null — 用于注入技能目录
 
     public BuildState(IdentityManager identityManager, RuleManager ruleManager,
-                      BooleanSupplier planModeSupplier, Dream dream) {
+                      BooleanSupplier planModeSupplier, Dream dream,
+                      SkillRegistry skillRegistry) {
         this.identityManager = identityManager;
         this.ruleManager = ruleManager;
         this.planModeSupplier = planModeSupplier;
         this.dream = dream;
+        this.skillRegistry = skillRegistry;
     }
 
     @Override
@@ -55,7 +61,9 @@ public class BuildState implements AgentState {
         appendNanobotMd(systemPrompt);
         // 5. Plan Mode 规划模式
         appendPlanMode(systemPrompt);
-        // 6. Rules 规则
+        // 6. 技能目录（名称+描述，让 LLM 知道有哪些技能可用）
+        appendSkillCatalog(systemPrompt);
+        // 7. Rules 规则
         appendRules(systemPrompt);
 
         // 添加到消息列表
@@ -166,6 +174,32 @@ public class BuildState implements AgentState {
                 【工作目录】""" + cwd + """
                 探索建议：先调用 list_dir 了解目录结构。
                 """);
+    }
+
+    /**
+     * 注入技能目录（仅名称+描述，不注入全文）。
+     *
+     * 这是 Claude Code 式的"渐进式加载"：
+     * - 第一层（这里）：只告诉 LLM 有哪些技能可用，省 token
+     * - 第二层（use_skill 工具）：LLM 调用后返回 SKILL.md 全文
+     */
+    private void appendSkillCatalog(StringBuilder sb) {
+        if (skillRegistry == null) return;
+        var skills = skillRegistry.getAllSkills();
+        if (skills.isEmpty()) return;
+
+        sb.append("\n\n## 可用技能（Skills）\n\n");
+        sb.append("以下技能可通过 use_skill 工具激活。");
+        sb.append("如果你判断当前任务需要某个技能，请先调用 use_skill 获取该技能的详细指令，");
+        sb.append("然后严格按指令执行。\n\n");
+
+        for (Skill s : skills) {
+            sb.append("- **").append(s.getName()).append("**");
+            if (s.getDescription() != null && !s.getDescription().isBlank()) {
+                sb.append(" — ").append(s.getDescription());
+            }
+            sb.append("\n");
+        }
     }
 
     private void appendRules(StringBuilder sb) {

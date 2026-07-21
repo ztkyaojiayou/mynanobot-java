@@ -2796,7 +2796,7 @@ List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
 ┌─────────────────────────────────────────────────────────────┐
 │                     规则存储层                              │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │   CLAUDE.md  │  │ .nanobot/    │  │ ~/.nanobot/  │      │
+│  │   NANOBOT.md  │  │ .nanobot/    │  │ ~/.nanobot/  │      │
 │  │ (项目根目录)  │  │ rules/*.md   │  │ rules/*.md   │      │
 │  └────┬────────┘  └────┬────────┘  └────┬─────────┘      │
 │       │                 │                │                  │
@@ -2825,7 +2825,7 @@ List<Skill> matches = skillManager.findMatchingSkills("帮我审查代码");
 
 | 级别 | 路径 | 优先级 | 说明 |
 |------|------|--------|------|
-| **项目级** | `CLAUDE.md` | 高 | 项目根目录下的规则文件 |
+| **项目级** | `NANOBOT.md` | 高 | 项目根目录下的规则文件 |
 | **项目级** | `.nanobot/rules/*.md` | 中 | 项目专属规则目录 |
 | **用户级** | `~/.nanobot/rules/*.md` | 低 | 当前用户全局规则 |
 | **内置** | Built-in | 最低 | 系统默认规则 |
@@ -2879,7 +2879,7 @@ tags: [java, coding]
 
 #### 7.15.7 使用示例
 
-**1. 创建项目级规则文件 CLAUDE.md**：
+**1. 创建项目级规则文件 NANOBOT.md**：
 ```markdown
 ---
 name: project-guide

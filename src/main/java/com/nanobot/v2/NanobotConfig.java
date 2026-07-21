@@ -92,9 +92,10 @@ public class NanobotConfig {
 
     @Bean
     public ToolRegistry toolRegistry(Config config, PermissionManager permissionManager,
-                                      AgentCoordinator agentCoordinator) {
+                                      AgentCoordinator agentCoordinator,
+                                      SkillManager skillManager) {
         ToolRegistry toolRegistry = new ToolRegistry();
-        registerTools(toolRegistry, config, agentCoordinator);
+        registerTools(toolRegistry, config, agentCoordinator, skillManager);
 
         // 注入权限管理器（统一入口）
         toolRegistry.setPermissionManager(permissionManager);
@@ -103,7 +104,8 @@ public class NanobotConfig {
     }
 
     private void registerTools(ToolRegistry toolRegistry, Config config,
-                                AgentCoordinator agentCoordinator) {
+                                AgentCoordinator agentCoordinator,
+                                SkillManager skillManager) {
         // 文件工具（路径验证由 ToolRegistry 中的 PathGuard 统一处理）
         toolRegistry.register(new ReadFileTool());
         toolRegistry.register(new WriteFileTool());
@@ -145,6 +147,11 @@ public class NanobotConfig {
         // 子 Agent spawn 工具
         toolRegistry.register(new SpawnTool(agentCoordinator));
         toolRegistry.register(new SpawnCheckTool());
+
+        // 技能元工具 — 一个工具管所有 Skill（避免每个 Skill 注册独立 tool 导致 tools 数组膨胀）
+        if (skillManager != null) {
+            toolRegistry.register(new UseSkillTool(skillManager.getRegistry()));
+        }
 
         // 自动扫描 @ToolDef 注解的工具（包路径可通过 config.tools.toolScanPackages 配置）
         String scanPkgs = config.getTools().getToolScanPackages();

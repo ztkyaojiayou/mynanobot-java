@@ -16,7 +16,7 @@ import java.util.List;
  * - 支持项目级和全局级规则
  * 
  * **使用方式**：
- * 在项目根目录创建 CLAUDE.md 或 .nanobot/rules/*.md 文件
+ * 在项目根目录创建 NANOBOT.md 或 .nanobot/rules/*.md 文件
  */
 public interface Rule {
     
