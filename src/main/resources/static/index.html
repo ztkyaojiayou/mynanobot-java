@@ -692,6 +692,7 @@
                 const reader = res.body.getReader();
                 const decoder = new TextDecoder();
                 let buf = '';
+                let eventData = '';  // 累积多行 data:xxx 为一个完整事件
                 while (true) {
                     const {done,value} = await reader.read();
                     if (value) { buf += decoder.decode(value,{stream:!done}); }
@@ -699,18 +700,29 @@
                     buf = !done && buf[buf.length-1]!=='\n' ? lines.pop() : '';
                     for (const l of lines) {
                         if (l.startsWith('data:')) {
+                            // 连续多行 data:xxx → 用 \n 拼接，恢复原始换行
                             const d = l.substring(5).replace(/^ /,'');
                             if (d==='[DONE]') { currentStreamingEl = null; break; }
-                            if (d) {
-                                if (!currentStreamingEl) { currentStreamingEl = createStreamEl(); currentStreamingContent = ''; }
-                                currentStreamingContent += d;
-                                currentStreamingEl.innerHTML = md2html(currentStreamingContent);
-                                const msgs = document.getElementById('messages');
-                                msgs.scrollTop = msgs.scrollHeight;
-                            }
+                            eventData += (eventData ? '\n' : '') + d;
+                        } else if (l === '' && eventData) {
+                            // 空行 = SSE 事件分隔符 → 一个完整事件到齐，渲染
+                            if (!currentStreamingEl) { currentStreamingEl = createStreamEl(); currentStreamingContent = ''; }
+                            currentStreamingContent += eventData;
+                            currentStreamingEl.innerHTML = md2html(currentStreamingContent);
+                            const msgs = document.getElementById('messages');
+                            msgs.scrollTop = msgs.scrollHeight;
+                            eventData = '';
                         }
                     }
-                    if (done) { currentStreamingEl = null; break; }
+                    // 流结束或有积压数据 → 最后一次渲染
+                    if (done) {
+                        if (eventData) {
+                            if (!currentStreamingEl) { currentStreamingEl = createStreamEl(); currentStreamingContent = ''; }
+                            currentStreamingContent += eventData;
+                            currentStreamingEl.innerHTML = md2html(currentStreamingContent);
+                        }
+                        currentStreamingEl = null; break;
+                    }
                 }
             } catch(e) {
                 addMsg('bot', '连接失败: ' + e.message);
