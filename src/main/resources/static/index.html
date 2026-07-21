@@ -707,6 +707,10 @@
                         } else if (l === '' && eventData) {
                             // 空行 = SSE 事件分隔符 → 一个完整事件到齐，渲染
                             if (!currentStreamingEl) { currentStreamingEl = createStreamEl(); currentStreamingContent = ''; }
+                            // SSE 事件之间用 \n 分隔（恢复 LLM 输出中的换行）
+                            if (currentStreamingContent && !currentStreamingContent.endsWith('\n')) {
+                                currentStreamingContent += '\n';
+                            }
                             currentStreamingContent += eventData;
                             currentStreamingEl.innerHTML = md2html(currentStreamingContent);
                             const msgs = document.getElementById('messages');
