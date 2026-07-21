@@ -11,19 +11,19 @@ import java.nio.file.Paths;
 /**
  * IdentityManager - 身份管理器
  * ===========================
- *
+ * <p>
  * 管理 Agent 的身份相关文件：
  * - SOUL.md：Agent 身份定义
  * - IDENTITY.md：个性标识
  * - USER.md：用户信息
- *
+ * <p>
  * **文件位置**：.nanobot/
- *
+ * <p>
  * **使用示例**：
  * ```java
  * IdentityManager identityManager = new IdentityManager(config);
  * identityManager.load();
- *
+ * <p>
  * String soulPrompt = identityManager.getSoul().getPrompt();
  * String identityPrompt = identityManager.getIdentity().getPrompt();
  * String userPrompt = identityManager.getUserProfile().getPrompt();
@@ -100,7 +100,7 @@ public class IdentityManager {
 
     /**
      * 获取完整的系统提示词（包含身份信息）
-     *
+     * <p>
      * 首位效应 + 近因效应：身份指令同时放在开头和结尾，
      * 对抗 DeepSeek-chat 等模型训练数据中的身份混淆。
      */
