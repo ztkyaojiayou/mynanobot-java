@@ -767,57 +767,52 @@
 
     // ═══ Markdown → HTML ============================================================
     // 核心策略：先保护代码块 → 处理正文 → 还原代码块
-    // 流式渲染兼容：未闭合的 ``` 内容自动保护，避免被后续正则破坏
+    // 流式渲染兼容：未闭合的 ``` 内容自动保护
     // ==================================================================================
+    // 占位符使用 PUA 字符（Unicode Private Use Area），不会被 escHtml 破坏
+    const PH = { F: '', I: '' }; // F=Fence, I=Inline code
+
     function md2html(text) {
         if (!text) return '';
 
-        // ── 第0步：处理流式渲染中未闭合的代码块（关键！）──
-        // 当 LLM 还在输出代码时，``` 可能只有开头没有结尾
-        // 如果不保护，代码内容会被 heading/br 正则破坏，刷新后才恢复
+        // ── 第0步：处理流式渲染中未闭合的代码块 ──
         let input = text;
-        const pendingFence = { offset: -1, lang: '', content: '' };
+        const pendingFence = { active: false, lang: '', content: '' };
         const idx = input.lastIndexOf('```');
         if (idx >= 0) {
             const before = input.substring(0, idx);
-            // 如果最后一个 ``` 前面有偶数个 ```，说明它是未闭合的开头
             const beforeFences = (before.match(/```/g) || []).length;
             if (beforeFences % 2 === 0) {
-                // 这是未闭合的代码块开头
+                // 未闭合的代码块 → 截断，单独保护
                 const afterFence = input.substring(idx + 3);
-                const firstNewline = afterFence.indexOf('\n');
-                if (firstNewline >= 0) {
-                    pendingFence.lang = afterFence.substring(0, firstNewline).trim();
-                    pendingFence.content = afterFence.substring(firstNewline + 1);
-                } else {
-                    pendingFence.lang = afterFence.trim();
-                    pendingFence.content = '';
-                }
-                pendingFence.offset = idx;
-                // 截掉未闭合部分，先处理前面的完整内容
+                const nl = afterFence.indexOf('\n');
+                pendingFence.lang = nl >= 0 ? afterFence.substring(0, nl).trim() : afterFence.trim();
+                pendingFence.content = nl >= 0 ? afterFence.substring(nl + 1) : '';
+                pendingFence.active = true;
                 input = before;
             }
         }
 
-        // ── 第1步：保护已闭合的代码块（占位符替换）──
-        const fences = []; // 多行代码块
+        // ── 第1步：保护已闭合的代码块 → 占位符 ──
+        const fences = [];
         let h = input.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-            const idx2 = fences.length;
-            fences.push({ lang, code: escHtml(code.trimEnd()) });
-            return '\x00FENCE' + idx2 + '\x00';
+            const i = fences.length;
+            fences.push({ lang, code });
+            return PH.F + i + PH.F;
         });
 
-        const inlines = []; // 行内代码
+        const inlines = [];
         h = h.replace(/`([^`]+)`/g, (_, code) => {
-            const idx2 = inlines.length;
-            inlines.push(escHtml(code));
-            return '\x00INLINE' + idx2 + '\x00';
+            const i = inlines.length;
+            inlines.push(code);
+            return PH.I + i + PH.I;
         });
 
-        // ── 第2步：文本转义（纯文本部分）──
+        // ── 第2步：转义纯文本（占位符是中文字符，escHtml 不会动它）──
         h = escHtml(h);
 
         // ── 第3步：块级元素 ──
+        const M = '%%MARK%%';
         h = h.replace(/^###\s*(.*)$/gm, (_, t) => t.trim() ? '<h3>' + t.trim() + '</h3>' : '');
         h = h.replace(/^##\s*(.*)$/gm, (_, t) => t.trim() ? '<h2>' + t.trim() + '</h2>' : '');
         h = h.replace(/^#\s*(.*)$/gm, (_, t) => t.trim() ? '<h1>' + t.trim() + '</h1>' : '');
@@ -843,16 +838,17 @@
         if (h.length && !h.startsWith('<')) h = '<p>' + h;
         if (h.length && !h.endsWith('>')) h = h + '</p>';
 
-        // ── 第7步：还原已闭合的代码块 ──
-        h = h.replace(/\x00FENCE(\d+)\x00/g, (_, i) => {
+        // ── 第7步：还原代码块（escHtml 仅对代码内容）──
+        h = h.replace(new RegExp(PH.F + '(\\d+)' + PH.F, 'g'), (_, i) => {
             const f = fences[+i];
             const langTag = f.lang ? ' class="language-' + f.lang + '"' : '';
-            return '<pre><code' + langTag + '>' + f.code + '</code></pre>';
+            return '<pre><code' + langTag + '>' + escHtml(f.code.trimEnd()) + '</code></pre>';
         });
-        h = h.replace(/\x00INLINE(\d+)\x00/g, (_, i) => '<code>' + inlines[+i] + '</code>');
+        h = h.replace(new RegExp(PH.I + '(\\d+)' + PH.I, 'g'), (_, i) =>
+            '<code>' + escHtml(inlines[+i]) + '</code>');
 
-        // ── 第8步：追加未闭合的代码块（流式渲染中）──
-        if (pendingFence.offset >= 0) {
+        // ── 第8步：追加未闭合的代码块 ──
+        if (pendingFence.active) {
             const langTag = pendingFence.lang ? ' class="language-' + pendingFence.lang + '"' : '';
             h += '<pre><code' + langTag + '>' + escHtml(pendingFence.content) + '</code></pre>';
         }
