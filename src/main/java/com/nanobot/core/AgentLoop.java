@@ -480,7 +480,7 @@ public class AgentLoop {
     private void initStateHandlers() {
         stateHandlers.put(TurnState.RESTORE, new com.nanobot.core.state.RestoreState(sessionManager));
         stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(consolidator));
-        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager));
+        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, consolidator, dream));
         stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, dream));
         stateHandlers.put(TurnState.RUN, new com.nanobot.core.state.RunState(runner, config,
                 () -> java.util.List.copyOf(streamResponseCallbacks),
@@ -490,11 +490,12 @@ public class AgentLoop {
     }
 
     /**
-     * 设置记忆压缩器，同时更新 CompactState 处理器
+     * 设置记忆压缩器，同时更新 CompactState 和 CommandState 处理器
      */
     public void setConsolidator(com.nanobot.memory.Consolidator c) {
         this.consolidator = c;
         stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(c));
+        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, c, dream));
     }
 
     /**
@@ -503,12 +504,13 @@ public class AgentLoop {
     private com.nanobot.memory.Dream dream;
 
     /**
-     * 设置长期记忆引擎，同时更新 SaveState 和 BuildState 处理器
+     * 设置长期记忆引擎，同时更新 SaveState、BuildState、CommandState 处理器
      */
     public void setDream(com.nanobot.memory.Dream d) {
         this.dream = d;
         stateHandlers.put(TurnState.SAVE, new com.nanobot.core.state.SaveState(sessionManager, d));
         stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, d));
+        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, consolidator, d));
     }
 
     // ==================== 响应发送 ====================
