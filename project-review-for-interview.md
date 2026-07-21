@@ -1,196 +1,197 @@
 # Nanobot-Java 并发控制与锁机制 — 面试深度解析
 
-> 本文档逐场景分析项目中所有锁/并发控制的使用，涵盖：**为什么需要锁、不用锁会怎样、为什么选这个锁而非其他方案**。
+> 基于项目最新代码（2026-07-21），逐场景分析所有并发控制的使用。
+> 每个场景回答三个面试问题：**为什么需要锁、不用会怎样、为什么选这个方案**。
 
 ---
 
 ## 目录
 
-1. [并发模型总览](#1-并发模型总览)
-2. [场景1: MessageBus — 生产者-消费者 + 请求-响应匹配](#2-场景1-messagebus)
-3. [场景2: SessionManager — 每会话独立锁](#3-场景2-sessionmanager)
-4. [场景3: AgentLoop — 生命周期控制 + 回调安全迭代](#4-场景3-agentloop)
-5. [场景4: ChannelServer — wait/notify 线程通信](#5-场景4-channelserver)
-6. [场景5: TurnContext — volatile 保证跨线程可见性](#6-场景5-turncontext)
-7. [场景6: MetricsHook — 指标采集的写保护](#7-场景6-metricshook)
-8. [场景7: MCP 客户端 — 请求-响应配对](#8-场景7-mcp-客户端)
-9. [场景8: WebSocket — 连接管理](#9-场景8-websocket)
-10. [面试速查表](#10-面试速查表)
+1. [并发架构总览](#1-并发架构总览)
+2. [MessageBus — 生产者-消费者 + 请求-响应匹配](#2-messagebus)
+3. [SessionManager — 每会话独立锁（最小粒度）](#3-sessionmanager)
+4. [SessionStore — 故意不用 ConcurrentHashMap](#4-sessionstore)
+5. [AgentLoop — 生命周期 + 流式回调安全迭代](#5-agentloop)
+6. [AgentRunner — CompletableFuture 链式异步](#6-agentrunner)
+7. [TurnContext — volatile 保证跨状态可见性](#7-turncontext)
+8. [ToolRegistry — volatile 缓存 + 并行执行器](#8-toolregistry)
+9. [Dream — 双 CHM：记忆存储 + 增量节流](#9-dream)
+10. [PermissionManager — volatile 模式切换](#10-permissionmanager)
+11. [CliChannel — volatile 中断标志 + Esc 检测](#11-clichannel)
+12. [ChannelServer — synchronized + wait/notify 线程通信](#12-channelserver)
+13. [MCP 客户端 — CHM + CompletableFuture 异步桥接](#13-mcp-客户端)
+14. [MetricsHook — synchronized 多字段联合原子更新](#14-metricshook)
+15. [WebSocket — static CHM 连接注册表](#15-websocket)
+16. [全项目并发原语速查表](#16-全项目并发原语速查表)
+17. [防御性设计模式总结](#17-防御性设计模式总结)
 
 ---
 
-## 1. 并发模型总览
+## 1. 并发架构总览
 
 ```
-                        ┌─────────────────────────────┐
-                        │        HTTP 请求线程池        │
-                        │  (Spring Boot 默认 200 线程)  │
-                        └─────────────┬───────────────┘
-                                      │ publishInbound()
-                                      ▼
-                        ┌─────────────────────────────┐
-                        │     ArrayBlockingQueue      │  ← 有界阻塞队列（生产者-消费者）
-                        │        (容量 100)            │
-                        └─────────────┬───────────────┘
-                                      │ consumeInbound()
-                                      ▼
-                        ┌─────────────────────────────┐
-                        │   AgentLoop (单 daemon 线程) │  ← 单线程消费，串行处理
-                        │   + worker 线程池 (4 线程)    │  ← 异步执行 LLM 调用
-                        └─────────────────────────────┘
-                                      │
-                    ┌─────────────────┼─────────────────┐
-                    ▼                 ▼                  ▼
-            StreamResponseCallback  sessionResponses   SSE/WS push
-            (CopyOnWriteArrayList)  (ConcurrentHashMap)
+                              ┌─────────────────────────────┐
+                              │    HTTP 请求线程池 (~200)     │  Spring Boot 默认
+                              │    WebSocket 线程             │
+                              │    CLI 主线程                 │
+                              └─────────────┬───────────────┘
+                                            │ publishInbound()
+                                            ▼
+                              ┌─────────────────────────────┐
+                              │   ArrayBlockingQueue(100)   │  有界阻塞 (防 OOM)
+                              │        入站消息队列          │  生产者阻塞=背压
+                              └─────────────┬───────────────┘
+                                            │ consumeInbound()
+                                            ▼
+                              ┌─────────────────────────────┐
+                              │  AgentLoop 主循环            │  单 daemon 线程消费
+                              │  (1 线程, 串行处理)          │  消除大部分并发问题
+                              └─────────────┬───────────────┘
+                                            │
+                              ┌─────────────▼───────────────┐
+                              │  messageExecutor (4 线程)    │  异步处理每条消息
+                              │  RUN state → LLM 调用        │
+                              └─────────────┬───────────────┘
+                                            │
+               ┌────────────────────────────┼────────────────────────────┐
+               ▼                            ▼                            ▼
+    StreamResponseCallback       sessionResponses Map          SSE / WS push
+    CopyOnWriteArrayList         ConcurrentHashMap             (直推，不走队列)
+    (SSE/WS 流式输出)             (HTTP sync 匹配)
 ```
 
-**核心设计原则**：消息入站可并发，消息处理是串行的（AgentLoop 单线程消费）。这保证了同一会话的消息不会被并发处理。
+**核心简化策略**：单线程消费入站队列 → 同一会话不会并发处理 → 消除了锁的最复杂场景。
 
 ---
 
-## 2. 场景1: MessageBus
+## 2. MessageBus
 
-### 使用的并发原语
+**文件**: `bus/MessageBus.java`
 
-| 组件 | 类型 | 作用 |
+### 2.1 使用的并发原语
+
+| 字段 | 类型 | 作用 |
 |------|------|------|
-| `inboundQueue` | `ArrayBlockingQueue<InboundMessage>(100)` | 入站消息的阻塞队列 |
-| `sessionResponses` | `ConcurrentHashMap<String, Queue<OutboundMessage>>` | 请求-响应匹配 |
-| `running` | `AtomicBoolean` | 总线运行状态 |
+| `running` | `AtomicBoolean` | 启停状态，shutdown hook 线程写，消费者线程读 |
+| `inboundQueue` | `ArrayBlockingQueue<InboundMessage>(100)` | 所有入口 → AgentLoop 的消息通道 |
+| `sessionResponses` | `ConcurrentHashMap<String, Queue<OutboundMessage>>` | sync HTTP 请求-响应配对 |
 
-### 源码位置
-
-`bus/MessageBus.java`
-
-### 并发场景分析
-
-**场景A: 多用户同时发消息（生产者-消费者）**
+### 2.2 场景A：生产者-消费者
 
 ```
-线程1 (用户A的 HTTP 请求): publishInbound(msgA) → inboundQueue.put(msgA)
-线程2 (用户B的 HTTP 请求): publishInbound(msgB) → inboundQueue.put(msgB)
-线程3 (AgentLoop):         consumeInbound()       → inboundQueue.take() → 取到 msgA
+生产者（多线程）：HTTP handler、WebSocket、CLI
+    → publishInbound(msg)
+    → inboundQueue.put(msg)      ← 队列满时阻塞（背压）
 
-同一时刻: 线程1、线程2 并发写，线程3 读。
+消费者（单线程）：AgentLoop daemon 线程
+    → consumeInbound(timeout)
+    → inboundQueue.poll(1s)     ← 超时返回 null
 ```
 
-**为什么选 `ArrayBlockingQueue`？**
+**为什么用 `ArrayBlockingQueue` 而不是 `LinkedBlockingQueue`？**
 
-```
-ArrayBlockingQueue vs LinkedBlockingQueue:
+| | ArrayBlockingQueue | LinkedBlockingQueue |
+|------|------|------|
+| 容量 | 必须指定（这里是 100） | 可无界（默认 Integer.MAX_VALUE） |
+| 内存 | 预分配数组，无 GC 压力 | 节点动态分配，有 GC |
+| 锁 | 一把锁（put 和 take 共享） | 两把锁（putLock + takeLock） |
+| 背压 | 队列满自动阻塞生产者 | 无界时永不阻塞 → OOM 风险 |
 
-ArrayBlockingQueue:
-  ✅ 有界（容量100），内存可控，队列满时自动背压
-  ✅ 内部一把锁，put/take 竞争同一把锁，实现简单
-  ✅ 预分配数组，无 GC 压力
-
-LinkedBlockingQueue:
-  ❌ 无界（或伪有界），生产者过快会 OOM
-  ✅ put/take 用不同锁（头尾分离），吞吐更高
-  → 但这里只有1个消费者，吞吐不是瓶颈
-
-选 ArrayBlockingQueue 的理由：防止内存溢出 > 极致吞吐
-```
-
-**场景B: HTTP 同步请求-响应匹配**
-
-```java
-// ChatController（HTTP 线程）:
-messageBus.publishInbound(message);                              // ① 发消息
-OutboundMessage response = messageBus.waitForSessionResponse(    // ② 阻塞等待
-    sessionId, requestId, 120, TimeUnit.SECONDS);
-
-// AgentLoop（消费线程）:
-messageBus.publishOutbound(response);                            // ③ 写入响应
-
-// waitForSessionResponse 实现:
-while (未超时) {
-    Queue<OutboundMessage> queue = sessionResponses.get(sessionId);
-    for (Iterator it = queue.iterator(); it.hasNext(); ) {
-        if (requestId.equals(msg.getRequestId())) {
-            it.remove();  // 取完即删 ← 为什么用 Iterator.remove()？
-            return msg;   // 而不是 queue.poll()？
-        }
-    }
-    Thread.sleep(50);  // 轮询间隔
-}
-```
-
-**为什么用 `ConcurrentHashMap` + `LinkedList` + 迭代器遍历，而不是 `ConcurrentLinkedQueue`？**
-
-```
-因为需要"按 requestId 精确匹配"而非"先进先出"。
-
-ConcurrentLinkedQueue 只有 poll()（取头部），无法在中间查找特定 requestId。
-而 ConcurrentHashMap<String, Queue> 允许:
-  ① 多线程安全地 put/get（CHM 的 segment 锁）
-  ② 在 Queue 中遍历（Iterator 不会抛 ConcurrentModificationException）
-  ③ it.remove() 原子删除匹配项（LinkedList 的迭代器 remove 是安全的）
-```
-
-**关键问题：`it.remove()` 为什么不加锁？**
-
-`waitForSessionResponse()` 只有一个线程会调用（HTTP 请求线程），`publishOutbound()` 只有 AgentLoop 线程会调用，两个线程操作的是不同的 key（`requestId` 唯一），不存在同一元素的并发修改。`it.remove()` 只删除当前元素，不影响其他元素的迭代。
-
-### 面试追问
-
-**Q: 入站队列为什么不用 Disruptor？**
-
-A: Disruptor 适合极低延迟场景（纳秒级，无锁环形缓冲区），但部署复杂（需要预分配、处理序号）。这里的瓶颈是 LLM 调用（秒级），不是消息传递（微秒级）。`ArrayBlockingQueue` 足够且简单。
+**选择理由**：有界优于无界 → 防 OOM。只有 1 个消费者，LinkedBlockingQueue 的双锁优势体现不出来。
 
 **Q: 队列满了怎么办？**
 
-A: `put()` 会阻塞调用线程，形成自然的**背压（backpressure）**。用户会感到 HTTP 请求卡住，这比静默丢消息更安全——至少用户知道系统忙。
+`put()` 阻塞调用线程，形成自然的**背压（backpressure）**。HTTP 请求会卡住，这比静默丢消息更安全——至少用户知道系统忙。
+
+### 2.3 场景B：sync HTTP 请求-响应匹配
+
+```
+ChatController (HTTP 线程):
+  ① messageBus.publishInbound(message)
+  ② OutboundMessage resp = messageBus.waitForSessionResponse(
+         sessionId, requestId, 120, SECONDS)   ← 轮询阻塞等待
+  ③ return ResponseEntity.ok(resp)
+
+AgentLoop (消费线程):
+  ④ messageBus.publishOutbound(response)
+     → sessionResponses.computeIfAbsent(sessionId, k -> new LinkedList<>())
+                         .offer(response)       ← 写入 CHM 中的 Queue
+
+waitForSessionResponse 内部:
+  while (未超时) {
+      Queue<OutboundMessage> queue = sessionResponses.get(sessionId);
+      for (Iterator it = queue.iterator(); it.hasNext(); ) {
+          if (requestId.equals(msg.getRequestId())) {
+              it.remove();   // 取完即删
+              return msg;
+          }
+      }
+      Thread.sleep(50);      // 50ms 轮询间隔
+  }
+```
+
+**为什么不用 `BlockingQueue` 做响应匹配？**
+
+响应需要按 `requestId` 精确匹配，而非 FIFO。同一个 session 可能先后发出多个请求，响应的到达顺序不一定等于发送顺序（虽然 AgentLoop 串行处理，但防御性设计）。
+
+**`computeIfAbsent` 的线程安全性？**
+
+`ConcurrentHashMap.computeIfAbsent` 是原子的：如果 key 不存在，执行 lambda 创建 LinkedList 并放入；如果已存在，返回已有对象。两个线程同时为同一 sessionId 写响应时，不会创建两个 Queue。
+
+**Q: `waitForSessionResponse` 的轮询有什么问题？**
+
+用 `Thread.sleep(50)` 轮询，理论上可以用 `CountDownLatch` 或 `CompletableFuture` 替代以避免忙等。但当前设计简单直观，且 50ms 的等待对用户体验无影响（LLM 响应本身需要秒级）。
 
 ---
 
-## 3. 场景2: SessionManager
+## 3. SessionManager
 
-### 使用的并发原语
+**文件**: `session/SessionManager.java`
 
-| 组件 | 类型 | 作用 |
+### 3.1 使用的并发原语
+
+| 字段 | 类型 | 作用 |
 |------|------|------|
-| `sessionLocks` | `ConcurrentHashMap<String, Object>` | 每个会话独立的一把锁 |
-| `synchronized(lock(sessionKey))` | 内置锁 | 保护同一会话的读写操作 |
+| `sessionLocks` | `ConcurrentHashMap<String, Object>` | 每会话独立的锁对象池 |
+| `saveHistory()` / `loadHistory()` | `synchronized(lock(sessionKey))` | 保护同一会话的文件读写 |
 
-### 源码位置
-
-`session/SessionManager.java`
-
-### 并发场景分析
+### 3.2 为什么需要锁？
 
 ```
-用户A 连续发两条消息:
-  线程1: saveHistory("session-A", msgs1)  ─┐
-  线程2: saveHistory("session-A", msgs2)  ─┤ 同一会话，需要互斥
-                                           ─┘ 否则 JSONL 文件可能交错写入
+场景：用户快速连续发两条消息（或双设备同一 session）:
 
-用户A 和 用户B 同时发消息:
-  线程1: saveHistory("session-A", msgs1)  ─┐ 不同会话，不需要互斥
-  线程2: saveHistory("session-B", msgs2)  ─┘ 两把不同的锁
+时间线:
+  T1: 线程A → saveHistory("s-A", [msg1, msg2, msg3])
+  T2: 线程B → saveHistory("s-A", [msg1, msg2, msg3, msg4])  ← 同一 session!
 
-lock("session-A") → 从 CHM 获取/创建一个锁对象 → synchronized(该对象)
-lock("session-B") → 从 CHM 获取/创建另一个锁对象 → synchronized(该对象)
+无锁情况:
+  线程A 读取 history.jsonl(3条) → 准备写回
+  线程B 读取 history.jsonl(4条) → 准备写回
+  线程A 写入 → 3条 (msg4 丢失!)  ← 线程B 的更新被覆盖
+  线程B 写入 → 4条 (msg3 的更新状态丢失)
+
+有锁情况:
+  线程A 获取锁 → 读(3条) → 写(3条) → 释放锁
+  线程B 获取锁 → 读(3条,含A的更新) → 追加 → 写(4条) → 释放锁
 ```
 
-### 为什么不用全局一把锁？
+### 3.3 为什么每会话独立锁，而不是全局一把锁？
 
 ```java
-// ❌ 全局锁
+// ❌ 全局锁 — 不同会话互相阻塞
 synchronized (this) {
     saveHistory(sessionKey, messages);
 }
-// 问题：session-A 和 session-B 的操作互相阻塞，毫无必要。
+// session-A 和 session-B 的操作毫无关系，却要互相等待
 
-// ✅ 每会话独立锁
+// ✅ 每会话独立锁 — 锁粒度最优
 synchronized (lock(sessionKey)) {
     saveHistory(sessionKey, messages);
 }
-// 好处：不同会话并行，同一会话串行。锁粒度最优。
+// session-A 和 session-B 各自用不同的锁，完全并行
 ```
 
-### `lock()` 方法的双重作用：惰性创建 + 去重
+### 3.4 `lock()` 方法设计
 
 ```java
 private Object lock(String sessionKey) {
@@ -198,346 +199,618 @@ private Object lock(String sessionKey) {
 }
 ```
 
-`computeIfAbsent` 是原子的：如果 key 不存在，执行 lambda 创建新对象并放入 Map；如果已存在，返回已有对象。保证同一个 sessionKey 永远拿到同一个锁对象。
+**为什么返回 `new Object()` 而不是直接锁 `sessionKey` 字符串？**
 
-### 为什么 `new Object()` 而不直接锁 `sessionKey` 字符串？
+String 的 `intern()` 驻留机制意味着不同来源的相同字符串可能指向 JVM 内的同一个 String 对象——如果直接 `synchronized(sessionKey)`，可能和完全不相关的代码共享一把锁。
 
-```java
-// ❌ synchronized (sessionKey) 的问题:
-// sessionKey 是 String，Java 的字符串驻留（intern）会导致不同来源的相同字符串
-// 可能共享同一个锁对象，造成意外的锁竞争。
-
-// ✅ synchronized (new Object()) 的好处:
-// 即使 sessionKey 相同，锁对象也是明确独立的，语义清晰。
-```
-
-### 面试追问
-
-**Q: 用 `ConcurrentHashMap` 的 `computeIfAbsent` 创建锁对象，有并发问题吗？**
-
-A: 没有。`computeIfAbsent` 保证原子性——即使两个线程同时调用 `lock("session-A")`，也只有一个 `new Object()` 会执行并存入 Map，另一个拿到已存在的对象。这就是 CHM 的核心能力。
-
-**Q: 为什么不用 `ReadWriteLock`？**
-
-A: 场景不适合。会话的读写比例接近 1:1（每次对话读一次历史 + 写一次历史），`ReadWriteLock` 的收益来自读多写少。而且 JSONL 写入是**增量追加**——需要先读到内存再写，这个过程本身读写不可分。
+**`computeIfAbsent` 的原子性**：即使两个线程同时调用 `lock("same-key")`，CHM 保证只有一个 `new Object()` 被执行，另一个拿到同一个对象。这是 CHM 的核心能力。
 
 ---
 
-## 4. 场景3: AgentLoop
+## 4. SessionStore
 
-### 使用的并发原语
+**文件**: `session/SessionStore.java`
 
-| 组件 | 类型 | 作用 |
-|------|------|------|
-| `running` | `AtomicBoolean` | 控制主循环启停 |
-| `planMode` | `volatile boolean` | 跨线程的 Plan Mode 状态 |
-| `streamResponseCallbacks` | `CopyOnWriteArrayList` | SSE/WS 流式回调列表 |
-
-### 源码位置
-
-`core/AgentLoop.java`
-
-### 场景A: 为什么 `streamResponseCallbacks` 用 `CopyOnWriteArrayList`？
+### 4.1 一个"故意不用锁"的例子
 
 ```java
-// 注册：HTTP 线程
-agentLoop.addStreamResponseCallback(callback);    // writer
+// SessionStore 中的 dirCache 使用了普通 HashMap，而不是 ConcurrentHashMap
+private final Map<String, Path> dirCache = new HashMap<>();
 
-// 遍历：LLM 流式响应线程
-for (StreamResponseCallback cb : streamResponseCallbacks) {
-    cb.onStreamData(sessionId, requestId, content);  // readers (多个!)
+Path getSessionDir(String sessionKey) {
+    return dirCache.computeIfAbsent(sessionKey, key -> {
+        String safeKey = key.replaceAll("[^a-zA-Z0-9_-]", "_");
+        Path dir = baseDir.resolve(safeKey);
+        Files.createDirectories(dir);
+        return dir;
+    });
 }
-
-// 注销：SSE 超时/完成/错误线程
-agentLoop.removeStreamResponseCallback(callback);  // writer
 ```
 
-**为什么不能是普通 `ArrayList`？**
+**为什么这里敢用 `HashMap` 而不是 `ConcurrentHashMap`？**
+
+SessionStore 的所有 public 方法（`saveHistory`, `loadHistory`, `deleteSession`）都**只在 `SessionManager` 的 `synchronized(lock(sessionKey))` 块内被调用**。
 
 ```
-如果 readers 在遍历时，writer 同时 add/remove → ConcurrentModificationException
-如果用 synchronized (list) { for... }, writer 会被阻塞直到遍历完成
-→ 遍历 LLM 响应可能持续几秒到几十秒，writer 等不起
+SessionManager.saveHistory(sessionKey, msgs)
+  → synchronized (lock(sessionKey)) {     ← 锁在这里！
+        store.saveHistory(sessionKey, msgs);  ← 单线程访问，无需额外同步
+    }
 ```
 
-**`CopyOnWriteArrayList` 的写时复制机制**：
+**设计原则**：锁放在业务层（SessionManager），存储层（SessionStore）只管 I/O。这比在 SessionStore 里到处加锁更清晰——**调用方负责并发控制，被调用方保持简单**。
 
-```
-add("C"):
-  [A, B]  ──复制──→  [A, B, C]  ──原子替换引用──→ 新数组
-                            ↑
-  正在遍历的迭代器仍然指向 [A, B]，不受影响
+### 4.2 面试价值
 
-成本: 写操作 O(n)（复制整个数组）
-适合: 读极多、写极少 → 这里回调注册/注销频率很低，完美匹配
-```
-
-### 场景B: `volatile boolean planMode`
-
-```java
-// 写入线程: CommandState（AgentLoop worker 线程）
-planMode = true;   // 用户输入 /plan
-
-// 读取线程: BuildState（AgentLoop worker 线程）
-if (planModeSupplier.getAsBoolean()) { ... }
-```
-
-为什么用 `volatile`？不同 worker 线程处理不同轮次的请求，`volatile` 保证写入立即可见。如果不用，读取线程可能永远看到旧值（CPU 缓存）。
-
-### 场景C: `AtomicBoolean running`
-
-```java
-// 启动
-running.set(true);
-
-// 主循环
-while (running.get()) { ... }
-
-// 停止（shutdown hook 线程调用）
-running.set(false);
-```
-
-为什么不用 `volatile boolean`？`AtomicBoolean` 提供 `compareAndSet`，可以做 CAS 操作。不过当前代码只用了 `get/set`，用 `volatile` 也一样。选 `AtomicBoolean` 可能是为将来扩展留余地（例如 `running.compareAndSet(false, true)` 防止重复启动）。
+这是一个很好的例子说明：**不是所有共享数据都需要自己加锁。如果调用方已经保证了单线程访问，被调用方不需要重复保护。** 过度同步会降低性能且让代码更难理解。
 
 ---
 
-## 5. 场景4: ChannelServer
+## 5. AgentLoop
 
-### 使用的并发原语
+**文件**: `core/AgentLoop.java`
 
-| 组件 | 类型 | 作用 |
-|------|------|------|
-| `streamResponseHandlers` | `ConcurrentHashMap + synchronized 块` | SSE 响应处理器注册表 |
-| `handler` (StreamResponseHandler) | `synchronized(handler) + wait/notify` | 线程挂起等待 LLM 响应完成 |
-
-### 源码位置
-
-`v1/channel/ChannelServer.java`
-
-### 并发场景：HTTP 线程等待 LLM 响应（wait/notify 模式）
-
-```
-线程A (HTTP 请求线程):
-  ① synchronized (streamResponseHandlers) { handlers.put(key, handler); }
-  ② synchronized (handler) { handler.wait(300000); }  ← 挂起，等待 LLM 响应
-  ③ synchronized (streamResponseHandlers) { handlers.remove(key); }
-
-线程B (AgentLoop 的 stream callback 线程):
-  ④ synchronized (streamResponseHandlers) { handler = handlers.get(key); }
-  ⑤ handler.sendChunk(content);     ← 推送增量数据到 SSE 流
-  ⑥ handler.completed = true;
-  ⑦ synchronized (handler) { handler.notifyAll(); }  ← 唤醒线程A
-```
-
-**为什么需要两层锁？**
-
-```
-streamResponseHandlers 锁 → 保护 handlers Map 的并发读写
-handler 锁             → 实现 wait/notify 线程通信
-
-它们是不同粒度的：
-- handlers Map 的注册/注销必须原子
-- wait/notify 需要 handler 对象作为监视器
-```
-
-**为什么不用 `CountDownLatch`？**
-
-`CountDownLatch` 只能用一次（计数到 0 后不能重置）。而 stream handler 可能需要被多次使用。`wait/notify` 更灵活——handler 可以被多个 callback 反复唤醒。
-
-**`volatile boolean completed` 的作用？**
-
-防止重复通知——`sendChunk()` 在 completed 后不再推送数据。多个 stream callback 线程可能同时调用 `sendChunk()`，`volatile` 保证状态立即可见。
-
----
-
-## 6. 场景5: TurnContext
-
-### 使用的并发原语
+### 5.1 使用的并发原语
 
 | 字段 | 类型 | 作用 |
 |------|------|------|
-| `iteration` | `AtomicInteger` | LLM 调用轮次计数器 |
-| `response` | `volatile LLMResponse` | 当前轮 LLM 响应 |
-| `finalContent` | `volatile String` | 最终回复内容 |
-| `cancelled` | `volatile boolean` | 是否被用户取消 |
-| `toolCalls` | `volatile List<ToolCallRequest>` | 当前轮工具调用列表 |
+| `running` | `AtomicBoolean` | 主循环启停 |
+| `planMode` | `volatile boolean` | Plan Mode 状态，worker 线程写，不同 worker 线程读 |
+| `streamResponseCallbacks` | `CopyOnWriteArrayList<StreamResponseCallback>` | 流式回调列表 |
+| `messageExecutor` | `ExecutorService` (4 fixed threads) | 异步处理每条消息 |
 
-### 源码位置
-
-`core/TurnContext.java`
-
-### 为什么 `iteration` 用 `AtomicInteger` 而不是 `int`？
+### 5.2 CopyOnWriteArrayList 的写时复制
 
 ```java
-// AgentRunner.runInternal() 递归调用:
-runInternal(messages, tools, ctx.getIteration() + 1);  // 读
-ctx.incrementIteration();                                // 写
+// 注册 (HTTP/WS 线程)
+addStreamResponseCallback(callback)  →  list.add(callback)   ← writer
 
-// 如果这些操作跨线程（worker 线程池 + LLM 回调线程），
-// AtomicInteger 保证自增的原子性和可见性。
+// 遍历 (LLM 流式响应线程)
+for (StreamResponseCallback cb : streamResponseCallbacks) {
+    cb.onStreamData(sessionId, requestId, content);          ← readers
+}
+
+// 注销 (SSE 超时/完成/错误线程)
+removeStreamResponseCallback(callback) → list.remove(cb)     ← writer
 ```
 
-虽然当前 AgentLoop 是单线程消费，但 `TurnContext` 作为会话上下文可能在多个 state handler 间传递，`AtomicInteger` 提供了防御性的线程安全保障。
+**为什么 CopyOnWriteArrayList？**
 
-### 为什么多个字段用 `volatile`？
+```
+                   读操作               写操作              适合场景
+ArrayList:         无锁(ConcurrentModification风险) 无锁       × 并发不行
+同步ArrayList:    读阻塞写、写阻塞读                     × 读多时性能差
+COWArrayList:     无锁(快照迭代)       Arrays.copyOf(全量复制) ✅ 读极多+写极少
+```
 
-`TurnContext` 在 State 模式的不同 Handler 间传递：
+LLM 流式响应时，每收到一个 token 就要遍历一次回调列表。一轮对话可能有几百上千个 token → 几百上千次读。而回调的注册/注销只在连接建立/断开时发生 → 极少写。这正是 COW 的最佳场景。
+
+**写时复制的代价**：每次 add/remove 都会复制整个数组（O(n)），所以只适合**写极少**的场景。如果写频繁，应该用 `ReadWriteLock`。
+
+### 5.3 `volatile boolean planMode`
 
 ```java
-SaveState.execute(ctx)  →  ctx.setFinalContent(result)
-RespondState.execute(ctx) →  String content = ctx.getFinalContent()
+// 写入: CommandState (worker 线程池中的线程A)
+planMode = true;   // 用户输入 /plan
+
+// 读取: BuildState (worker 线程池中的线程B)
+if (planModeSupplier.getAsBoolean()) { ... }
 ```
 
-虽然这些通常在同一线程执行，但 `volatile` 确保了如果将来改成异步执行，不会出现可见性问题。这是**防御性设计**。
+不同 worker 线程处理不同轮次的消息。`volatile` 保证线程A 的写入对线程B 立即可见。如果不用 `volatile`，线程B 可能永远看到 CPU 缓存中的旧值 `false`。
+
+### 5.4 `AtomicBoolean running` vs `volatile boolean`
+
+当前代码只用 `get()/set()`，没有用到 CAS。从功能讲，`volatile boolean` 够了。选 `AtomicBoolean` 的原因可能是：
+1. 语义更明确——"这是一个原子操作的状态标志"
+2. 为将来扩展留余地——比如 `running.compareAndSet(false, true)` 防止重复启动
 
 ---
 
-## 7. 场景6: MetricsHook
+## 6. AgentRunner
 
-### 使用的并发原语
+**文件**: `core/AgentRunner.java`
 
-| 组件 | 类型 | 作用 |
-|------|------|------|
-| `sessionMetrics` | `ConcurrentHashMap` | 按 session 隔离指标 |
-| `SessionMetrics` 内所有方法 | `synchronized` | 指标累加的原子性 |
+### 6.1 CompletableFuture 链式异步
 
-### 源码位置
+AgentRunner 的核心并发模式是 `CompletableFuture.thenCompose()`：
 
-`core/hook/impl/MetricsHook.java`
+```java
+public CompletableFuture<String> run(TurnContext context,
+        List<Map<String, Object>> messages, Consumer<String> onDelta) {
+    return runInternal(context, messages, onDelta, 0, 0);
+}
 
-### 并发场景：多 Agent worker 线程同时更新指标
+private CompletableFuture<String> runInternal(...) {
+    // ... 各种终止条件检查 ...
 
-```
-线程1 (处理 session-A):  metrics.addTokens(150, 500);
-线程2 (处理 session-A):  metrics.incrementIterations();  ← 同一 session！
-线程3 (处理 session-B):  metrics.addToolCalls(2);        ← 不同 session
+    CompletableFuture<LLMResponse> llmFuture;
+    if (useStreaming) {
+        llmFuture = provider.chatStream(messages, tools, onDelta);
+    } else {
+        llmFuture = provider.chat(messages, tools);
+    }
 
-synchronized void addTokens(int prompt, int completion) {
-    this.promptTokens += prompt;     ← 如果不是原子操作，
-    this.completionTokens += completion;  ← 多线程累加会丢数据
+    return llmFuture.thenCompose(response -> {
+        if (response.shouldExecuteTools()) {
+            // 并行执行工具 → 结果注入 messages → 递归
+            return executeTools(...).thenCompose(results -> {
+                messages.addAll(results);
+                return runInternal(context, messages, onDelta,
+                    iteration + 1, newConsecutiveFailures);
+            });
+        }
+        // LLM 返回纯文本 → 循环结束
+        return CompletableFuture.completedFuture(response.getContent());
+    });
 }
 ```
 
-**为什么只用 `synchronized` 而不用 `AtomicInteger`？**
+**为什么用 CompletableFuture 而不是同步阻塞？**
 
-两个字段（`promptTokens` 和 `completionTokens`）需要**联合原子更新**。如果用两个 `AtomicInteger`：
+```
+同步方式:
+  LLMResponse resp = provider.chat(messages, tools);  // 阻塞 5-30 秒
+  if (resp.hasToolCalls()) {
+      results = executeTools(toolCalls);               // 阻塞 1-5 秒
+      return runInternal(...);                         // 再阻塞...
+  }
 
-```java
-// ❌ 非原子：两个字段之间可能被其他线程插入
-promptTokens.addAndGet(150);
-// ← 线程2 在这里读了不一致的状态
-completionTokens.addAndGet(500);
+CompletableFuture:
+  provider.chatStream(messages, tools, onDelta)  ← 非阻塞返回 Future
+      .thenCompose(response → ...)               ← 响应到达后自动执行下一阶段
+      .thenCompose(results → runInternal(...))    ← 链式递归
 
-// ✅ synchronized 保证整个方法原子执行
-synchronized void addTokens(int prompt, int completion) {
-    this.promptTokens += prompt;
-    this.completionTokens += completion;
-}
+优势:
+  ① 不阻塞调用线程（AgentLoop worker 可以处理其他消息）
+  ② 流式推送不受影响（onDelta 回调在 HTTP 响应到达时实时触发）
+  ③ thenCompose 天然表达"异步递归"语义
 ```
 
-**`ConcurrentHashMap` 在这里起什么作用？**
+### 6.2 并发面试要点
 
-```java
-sessionMetrics.get(sessionId)  // 获取该 session 的 Metrics 对象（线程安全）
-  → 拿到对象后，对该对象加锁（synchronized）
-  → 不同 session 拿到不同对象 → 不同锁 → 并行无阻塞
-```
+**Q: `onDelta` 回调和 `thenCompose` 回调分别在哪个线程执行？**
 
-两层隔离：CHM 隔离不同 session → `synchronized` 保护同一 session 内的并发更新。
+- `onDelta`：HTTP 响应读取线程（OkHttp/HttpClient 的 IO 线程）
+- `thenCompose`：`CompletableFuture` 的默认线程池（ForkJoinPool.commonPool()）
+
+这意味着 `onDelta` 中的操作要尽量轻量（只是推送 SSE/WS 数据），不要在 IO 线程中做重计算。
 
 ---
 
-## 8. 场景7: MCP 客户端
+## 7. TurnContext
 
-### 使用的并发原语
+**文件**: `core/TurnContext.java`
+
+### 7.1 volatile 字段一览
+
+| 字段 | 访问线程 | 为什么 volatile |
+|------|---------|----------------|
+| `response` | RestoreState 写, RunState 读 | 不同 StateHandler 可能在不同 worker 线程执行 |
+| `finalContent` | SaveState 写, RespondState 读 | 同上 |
+| `cancelled` | Esc 中断线程写, RunState 读 | 跨线程中断信号 |
+| `error` | AgentRunner 写, RespondState 读 | 错误传播 |
+| `iteration` | AtomicInteger | 需要原子自增 |
+
+### 7.2 `AtomicInteger iteration` vs `int`
+
+```java
+// AgentRunner 递归中:
+ctx.incrementIteration();                           // ++ 操作
+runInternal(ctx, ..., ctx.getIteration() + 1);      // 读
+
+// AtomicInteger.incrementAndGet() 保证：
+// 1. 自增原子性（不会被其他线程打断）
+// 2. 可见性（其他线程立即看到新值）
+```
+
+### 7.3 设计洞察
+
+TurnContext 的 volatile 字段本质是**防御性设计**——虽然当前 State 模式各状态通常在同一个 worker 线程中顺序执行，但 volatile 确保如果将来某个 StateHandler 被异步化（如 SaveState 的 Dream 提取是异步的），不会出现可见性问题。
+
+---
+
+## 8. ToolRegistry
+
+**文件**: `tools/ToolRegistry.java`
+
+### 8.1 并发原语
 
 | 组件 | 类型 | 作用 |
 |------|------|------|
-| `pendingRequests` | `ConcurrentHashMap<String, CompletableFuture<MCPResult>>` | JSON-RPC 请求-响应配对 |
-| `closed` | `volatile boolean` | 客户端关闭状态 |
+| `tools` | `ConcurrentHashMap<String, Tool>` | 工具注册表 |
+| `cachedDefinitions` | `volatile List<JsonNode>` | 工具定义缓存 |
+| `executor` | `ExecutorService` | 工具并行执行线程池 |
 
-### 源码位置
+### 8.2 `volatile` 缓存模式
 
-`mcp/StdioMCPClient.java`
+```java
+private volatile List<JsonNode> cachedDefinitions = null;
 
-### 并发场景：异步请求-响应配对
+public List<JsonNode> getDefinitions(boolean readOnly) {
+    if (cachedDefinitions != null) {
+        return filterByReadOnly(cachedDefinitions, readOnly);
+    }
+    // 缓存失效 → 重新序列化所有工具定义
+    List<JsonNode> defs = tools.values().stream()
+        .map(this::toDefinition).toList();
+    cachedDefinitions = defs;          // volatile 写
+    return filterByReadOnly(defs, readOnly);
+}
+```
+
+**为什么用 volatile 而不是锁？**
+
+工具列表变更极少（只在启动时注册），读取极其频繁（每轮 LLM 调用都要获取）。`volatile` 保证：
+- 写操作后，所有读线程立即看到新缓存
+- 读操作不加锁，性能最高
+
+**潜在问题**：如果有两个线程同时发现 `cachedDefinitions == null`，会重复计算缓存。但这只是浪费一点 CPU，不影响正确性（两次计算结果相同）。
+
+### 8.3 工具并行执行器
+
+```java
+private static final int MAX_CONCURRENT_TOOLS = 10;
+private final ExecutorService executor;
+```
+
+LLM 可能一次返回多个 `tool_calls`（如同时调用 `read_file` + `web_search`），这些工具互不依赖，应该并行执行：
+
+```java
+List<CompletableFuture<Object>> futures = toolCalls.stream()
+    .map(tc -> CompletableFuture.supplyAsync(
+        () -> executeTool(tc), executor))
+    .toList();
+CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+```
+
+---
+
+## 9. Dream
+
+**文件**: `memory/Dream.java`
+
+### 9.1 双 CHM 模式
+
+```java
+private final Map<String, MemoryEntry> memories = new ConcurrentHashMap<>();
+private final Map<String, Integer> lastExtractionCharCount = new ConcurrentHashMap<>();
+```
+
+| Map | 写入线程 | 读取线程 | 并发场景 |
+|-----|---------|---------|---------|
+| `memories` | SaveState (worker) + /remember (worker) | BuildState (worker) | 多 session 同时读写 |
+| `lastExtractionCharCount` | SaveState (worker) | SaveState (worker) | 同一 session 的多次 extractAndStore |
+
+### 9.2 为什么需要两个 CHM？
 
 ```
-线程1 (Agent worker):  
-  Future<MCPResult> future = mcpClient.callTool("git_commit", args);
-  → 构建 JSON-RPC 请求 → 写入子进程 stdin
-  → 创建 CompletableFuture → 存入 pendingRequests
-  → 返回 future
+memories:         跨会话共享的长期记忆库
+                  线程A: extractAndStore("session-A", ...)  →  put 新记忆
+                  线程B: retrieve(query, 5)                  →  get 相关记忆
+                  冲突: 同时 put/get 同一 key → CHM 的分段锁解决
 
-线程2 (stdout 读取线程):
-  → 从子进程 stdout 读到 JSON-RPC 响应
-  → 根据 id 从 pendingRequests 找到对应的 CompletableFuture
-  → future.complete(result)  ← 唤醒线程1
+lastExtractionCharCount:  每个 session 的提取进度
+                  线程A: extractAndStore("session-A", msgs1)  →  put("s-A", 5000)
+                  线程A: extractAndStore("session-A", msgs2)  →  get("s-A") + put("s-A", 10000)
+                  冲突: 同一 session 多次对话的字符计数累加 → CHM 原子操作
 ```
+
+### 9.3 增量节流的并发考虑
+
+```java
+int currentChars = countTotalChars(messages);
+int lastChars = lastExtractionCharCount.getOrDefault(sessionId, 0);
+int newChars = currentChars - lastChars;
+
+if (newChars < EXTRACTION_MIN_NEW_CHARS && lastChars > 0) {
+    return CompletableFuture.completedFuture(emptyList);  // 跳过提取
+}
+
+lastExtractionCharCount.put(sessionId, currentChars);  // 更新进度
+```
+
+**问题**：`getOrDefault` + `put` 之间不是原子的。如果两个请求同时到达，可能都算出 `newChars = 100`（都小于阈值 5000），都跳过提取。但这是**可接受的不精确**——多跳过一次提取比重复提取的代价小得多。
+
+---
+
+## 10. PermissionManager
+
+**文件**: `security/PermissionManager.java`
+
+### 10.1 volatile 字段
+
+```java
+private volatile PermissionMode mode;
+private volatile InteractivePermissionHandler interactiveHandler;
+```
+
+| 字段 | 写入场景 | 读取场景 |
+|------|---------|---------|
+| `mode` | CommandState 处理 `/mode plan` 等命令 | 每次工具调用前的 `check()` |
+| `interactiveHandler` | CLI/WS 通道初始化时注册 | 需要用户确认的工具调用 |
+
+### 10.2 为什么 mode 必须是 volatile？
+
+```
+用户: /mode bypass
+  → CommandState 执行: permissionManager.setMode(BYPASS)  // worker 线程A
+
+下一轮 LLM 调工具:
+  → RunState → AgentRunner → PermissionManager.check(tool, params)
+    → 读取 mode  // worker 线程B (可能是同线程，也可能不是)
+
+如果 mode 不是 volatile:
+  线程B 可能看到旧的 DEFAULT 模式 → 不该弹确认的弹了确认
+```
+
+---
+
+## 11. CliChannel
+
+**文件**: `v3/cli/CliChannel.java`
+
+### 11.1 流式中断的并发模型
+
+```
+主线程 (CLI 交互):
+  用户输入 → publishInbound → 等待流式响应
+
+JLine 读取线程:
+  用户按 Esc → Terminal.read() 返回 Esc 字节
+  → cancelled = true
+  → agentLoop.cancel(callback)
+
+AgentLoop worker:
+  流式回调: onStreamData(sessionId, requestId, token)
+  → 检查 if (cancelled) return;  ← volatile 读
+```
+
+```java
+private volatile boolean cancelled;    // Esc 中断标志
+private volatile String currentRequestId; // 当前请求 ID
+```
+
+### 11.2 为什么这两个字段必须是 volatile？
+
+| 字段 | 写线程 | 读线程 | 不用 volatile 的后果 |
+|------|-------|-------|-------------------|
+| `cancelled` | JLine 读取线程 | AgentLoop worker + 流式回调线程 | 用户按了 Esc 但 LLM 继续输出 |
+| `currentRequestId` | 主线程 | 流式回调线程 | 回调匹配到错误的 request |
+
+---
+
+## 12. ChannelServer
+
+**文件**: `v1/channel/ChannelServer.java`
+
+### 12.1 synchronized + wait/notify
+
+```java
+// 线程A (HTTP handler) — 发布 SSE 流式响应
+synchronized (streamResponseHandlers) {
+    streamResponseHandlers.put(key, handler);   // 注册 handler
+}
+synchronized (handler) {
+    handler.wait(300000);                       // 挂起，等待 LLM 响应
+}
+synchronized (streamResponseHandlers) {
+    streamResponseHandlers.remove(key);         // 清理
+}
+
+// 线程B (AgentLoop stream callback) — 推送增量数据
+synchronized (streamResponseHandlers) {
+    handler = streamResponseHandlers.get(key);
+}
+handler.sendChunk(content);                     // 写 SSE data
+handler.completed = true;
+synchronized (handler) {
+    handler.notifyAll();                        // 唤醒线程A
+}
+```
+
+### 12.2 为什么两层锁？
+
+```
+streamResponseHandlers 锁 — 保护 handlers Map 的注册/注销/查找
+handler 锁             — 实现 wait/notify 线程通信
+
+不同粒度、不同目的，不能合并。
+```
+
+### 12.3 为什么不用 CountDownLatch？
+
+`CountDownLatch` 是一次性的（计数到 0 后不能重置）。而这里 handler 需要支持多次推送（每次 callback 都可能唤醒 handler）。`wait/notify` 可以反复使用。
+
+**注意**：这个类是 V1 的遗留代码，V2 已经迁移到 Spring SSE + StreamResponseCallback，不再需要 wait/notify。保留它体现了项目从"手动线程通信"到"框架抽象"的演进。
+
+---
+
+## 13. MCP 客户端
+
+**文件**: `mcp/StdioMCPClient.java`
+
+### 13.1 CHM + CompletableFuture 桥接
+
+```java
+private final Map<String, CompletableFuture<MCPResult>> pendingRequests
+    = new ConcurrentHashMap<>();
+
+// 线程A (Agent worker): 发起 MCP 调用
+public CompletableFuture<MCPResult> callTool(String toolName, Map args) {
+    String requestId = UUID.randomUUID().toString();
+    CompletableFuture<MCPResult> future = new CompletableFuture<>();
+    pendingRequests.put(requestId, future);          // 注册 pending
+    sendJsonRpcRequest(requestId, toolName, args);   // 写入子进程 stdin
+    return future;                                   // 返回 Future
+}
+
+// 线程B (stdout reader): 收到 MCP 响应
+private void handleResponse(String json) {
+    String requestId = parseRequestId(json);
+    CompletableFuture<MCPResult> future = pendingRequests.remove(requestId);
+    if (future != null) {
+        future.complete(parseResult(json));          // 传递结果 → 唤醒线程A
+    }
+}
+```
+
+**为什么这个模式优雅？**
+
+- `ConcurrentHashMap` 做路由表（按 requestId 匹配请求和响应）
+- `CompletableFuture` 做信号量（线程间传递结果）
+- 不需要手动 `wait/notify`
+- 线程A 拿到 `CompletableFuture` 后可以 `thenApply` 继续链式处理
+
+**Q: 如果子进程挂了，pending request 怎么办？**
+
+`closed` (volatile) 标志配合 shutdown 逻辑：关闭时遍历 `pendingRequests`，对每个 Future 调用 `future.completeExceptionally()` 释放等待线程。
+
+---
+
+## 14. MetricsHook
+
+**文件**: `core/hook/impl/MetricsHook.java`
+
+### 14.1 synchronized 多字段联合原子更新
+
+```java
+private final ConcurrentHashMap<String, SessionMetrics> sessionMetrics
+    = new ConcurrentHashMap<>();
+
+private static class SessionMetrics {
+    private int promptTokens;
+    private int completionTokens;
+    private int iterations;
+    private int toolCalls;
+    private int errors;
+    private long totalDurationMs;
+
+    synchronized void addTokens(int prompt, int completion) {
+        this.promptTokens += prompt;       // 这两个字段必须一起更新
+        this.completionTokens += completion; // 不能被其他线程插入
+    }
+
+    synchronized void incrementIterations() { ... }
+    synchronized void incrementErrors()    { ... }
+}
+```
+
+### 14.2 为什么用 synchronized 而不用 AtomicInteger × N？
+
+```java
+// ❌ 用多个 AtomicInteger — 两个字段之间不原子
+AtomicInteger promptTokens = new AtomicInteger();
+AtomicInteger completionTokens = new AtomicInteger();
+
+void addTokens(int p, int c) {
+    promptTokens.addAndGet(p);
+    // ← 线程B 在这读到不一致的状态！promptTokens 已更新但 completionTokens 未更新
+    completionTokens.addAndGet(c);
+}
+
+// ✅ synchronized — 整个方法原子执行
+synchronized void addTokens(int p, int c) {
+    this.promptTokens += p;
+    this.completionTokens += c;  // 两个字段在锁保护下一起更新
+}
+```
+
+**关键认知**：`AtomicInteger` 只保证**单个变量**的原子性。当多个变量需要**联合原子更新**时，必须用锁。
+
+### 14.3 两层隔离
+
+```
+ConcurrentHashMap  →  隔离不同 session（session-A 和 session-B 用不同 SessionMetrics 对象）
+synchronized       →  保护同一 session 内的并发更新
+```
+
+和 SessionManager 的设计思路一致：外层用 CHM 隔离，内层用锁保护。
+
+---
+
+## 15. WebSocket
+
+**文件**: `v2/websocket/NanobotWebSocketEndpoint.java`
+
+### 15.1 static CHM 连接注册表
+
+```java
+private static final Map<String, Session> SESSIONS = new ConcurrentHashMap<>();
+private static final AtomicInteger connectionCount = new AtomicInteger(0);
+```
+
+**为什么必须是 `static`？**
+
+Jakarta WebSocket 容器为每个新连接创建新的 Endpoint 实例。如果 `SESSIONS` 不是 static，每个实例有自己的连接表，无法实现跨连接的查找（例如"给所有连接的客户端广播"）。
 
 **为什么用 `ConcurrentHashMap`？**
 
-两个线程并发访问：Agent worker 线程 `put`，stdout 读取线程 `get + remove`。CHM 的分段锁设计保证高并发下的安全访问。
+三个线程并发操作：
+- Tomcat WS 线程：`@OnOpen` → `SESSIONS.put()`
+- AgentLoop 回调线程：`SESSIONS.get()` → `sendText()`
+- Tomcat WS 线程：`@OnClose` → `SESSIONS.remove()`
 
-**为什么用 `CompletableFuture` 做桥接？**
-
-这是最优雅的异步模式。`CHM` 做路由表，`CompletableFuture` 做信号量。线程1 拿到 future 后可以 `await` 或 `thenApply`，线程2 通过 `future.complete()` 传递结果。不需要手动 `wait/notify`。
-
----
-
-## 9. 场景8: WebSocket
-
-### 使用的并发原语
-
-| 组件 | 类型 | 作用 |
-|------|------|------|
-| `SESSIONS` | `static ConcurrentHashMap<String, Session>` | WebSocket 连接注册表 |
-| `connectionCount` | `static AtomicInteger` | 连接计数器 |
-
-### 源码位置
-
-`v2/websocket/NanobotWebSocketEndpoint.java`
-
-### 为什么是 `static`？
-
-WebSocket 端点由 Jakarta WebSocket 容器管理，每次新连接创建新的 Endpoint 实例。如果 `SESSIONS` 不是 static，每个实例都有自己的连接表，无法实现跨实例的广播/查找。
-
-### 为什么用 `ConcurrentHashMap`？
-
-```
-线程1 (Tomcat ws 线程): @OnOpen  → SESSIONS.put(sessionId, session)
-线程2 (AgentLoop 回调):  callback → SESSIONS.get(sessionId).sendText(data)
-线程3 (Tomcat ws 线程): @OnClose → SESSIONS.remove(sessionId)
-```
-
-三个不同线程并发操作同一 Map，必须用线程安全的数据结构。
-
-### `AtomicInteger` 做连接计数器
-
-`connectionCount.incrementAndGet()` 比 `synchronized` + `int` 轻量得多。这里只需要原子自增，不需要与其他字段联合更新，`AtomicInteger` 正合适。
+**`AtomicInteger` 做连接计数**：`incrementAndGet()` 比 `synchronized + int` 轻量。只做自增，不需要和其他字段联动。
 
 ---
 
-## 10. 面试速查表
+## 16. 全项目并发原语速查表
 
 | 并发原语 | 使用位置 | 场景 | 为什么选它 |
 |---------|---------|------|-----------|
-| `ArrayBlockingQueue(100)` | MessageBus | 生产者-消费者 | 有界防 OOM，背压机制 |
-| `ConcurrentHashMap` | 全局 15+ 处 | 并发读写的 Map | 分段锁，高并发性能 |
-| `CopyOnWriteArrayList` | AgentLoop.streamCallbacks | 读极多写极少 | 写时复制，读不加锁 |
-| `synchronized(perSessionLock)` | SessionManager | 同一会话读写互斥 | 锁粒度最优（不同会话并行） |
-| `synchronized(handler).wait()` | ChannelServer | 线程挂起等待响应 | wait/notify 可复用 |
-| `synchronized(method)` | MetricsHook | 多字段联合原子更新 | 联合操作不可分 |
+| `ArrayBlockingQueue(100)` | MessageBus | 生产者-消费者 | 有界防 OOM + 自然背压 |
+| `ConcurrentHashMap` | 全局 15+ 处 | 并发读写 Map | 分段锁，高并发 |
+| `CopyOnWriteArrayList` | AgentLoop.streamCallbacks | 读极多写极少 | 写时复制，读无锁 |
+| `synchronized(perKeyLock)` | SessionManager | 同一会话互斥 | 锁粒度最优（不同会话并行） |
+| `synchronized(method)` | MetricsHook.SessionMetrics | 多字段联合原子更新 | 联合操作不可拆分 |
+| `synchronized(handler).wait()` | ChannelServer | 线程挂起等响应 | wait/notify 可复用 |
+| `CompletableFuture.thenCompose()` | AgentRunner | 异步递归链 | 不阻塞，流式友好 |
+| `CompletableFuture + CHM` | StdioMCPClient | 异步请求-响应配对 | CHM 路由 + Future 信号量 |
 | `AtomicBoolean` | MessageBus, AgentLoop | 启停状态 | CAS + 可见性 |
 | `AtomicInteger` | TurnContext, WebSocket | 计数器 | 轻量原子自增 |
-| `volatile boolean` | 全局多处 | 状态标志 | 跨线程可见性 |
-| `CompletableFuture` | MCP, Tool 系统 | 异步结果传递 | 非阻塞等待，可组合 |
-| `computeIfAbsent` | SessionManager.lock() | 惰性创建锁对象 | CHM 原子操作，无重复创建 |
+| `volatile boolean` | 多类 (7+ 处) | 状态标志 | 跨线程可见性，零成本 |
+| `volatile 引用` | ToolRegistry, PermissionManager | 缓存/模式切换 | 读多写极少 |
+| `ExecutorService` | AgentLoop(4t), ToolRegistry(10t) | 受限线程池 | 控制并发度 |
+| `HashMap` (非线程安全) | SessionStore.dirCache | 调用方已加锁 | 无需重复保护 |
 
-### 设计原则总结
+---
 
-1. **锁粒度最小化** — SessionManager 每会话一把锁，不同会话零竞争
-2. **数据结构匹配访问模式** — 读多写少用 COW，并发读写用 CHM，生产者消费者用 BlockingQueue
-3. **有界优于无界** — 队列、缓存都要设上限，防止内存泄漏
-4. **简单优于复杂** — 能用一个 `volatile` 解决的，不引入锁；能用一个 `synchronized` 解决的，不引入 `ReentrantLock`
-5. **单线程消费是核心简化策略** — AgentLoop 的单 daemon 线程消费模型，消除了大部分并发问题
+## 17. 防御性设计模式总结
+
+### 17.1 锁粒度最小化
+
+```
+❌ 全局锁: synchronized(this) { 操作所有会话 }
+✅ 每会话锁: synchronized(lock(sessionKey)) { 操作一个会话 }
+✅ 每指标锁: synchronized(metricsInstance) { 操作一个 session 的指标 }
+```
+
+### 17.2 有界优于无界
+
+```
+❌ LinkedBlockingQueue()           → 无界，可 OOM
+✅ ArrayBlockingQueue(100)         → 有界，背压保护
+✅ ExecutorService(固定线程数)      → 有界线程池
+```
+
+### 17.3 简单优于复杂
+
+```
+能用一个 volatile 解决的 → 不加锁
+能用一个 synchronized 解决的 → 不用 ReentrantLock
+能用 CHM 解决的 → 不自建锁方案
+```
+
+### 17.4 调用方负责并发控制
+
+```
+SessionManager (业务层) → synchronized 加锁
+SessionStore   (存储层) → 普通 HashMap，信任调用方
+
+这种分层比"每层都自己加锁"更清晰——锁的职责集中在一处。
+```
+
+### 17.5 单线程消费是最大的简化
+
+AgentLoop 的单 daemon 线程消费入站消息，是整个系统最关键的并发简化策略。它保证**同一会话不会被并发处理**，消除了最复杂的并发场景。在此基础上，其他并发控制只需要处理跨会话的共享状态（如 Memory、Metrics、连接表）。
