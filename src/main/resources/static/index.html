@@ -766,92 +766,86 @@
     }
 
     // ═══ Markdown → HTML ============================================================
-    // 核心策略：先保护代码块 → 处理正文 → 还原代码块
-    // 流式渲染兼容：未闭合的 ``` 内容自动保护
+    // 策略：按 ``` 拆分成段 → 奇偶交替（正文/代码块）→ 各自处理 → 拼接
+    // 流式渲染兼容：最后一段如果未闭合，自动保护
     // ==================================================================================
-    // 占位符使用 PUA 字符（Unicode Private Use Area），不会被 escHtml 破坏
-    const PH = { F: '', I: '' }; // F=Fence, I=Inline code
-
     function md2html(text) {
         if (!text) return '';
 
-        // ── 第0步：处理流式渲染中未闭合的代码块 ──
-        let input = text;
-        const pendingFence = { active: false, lang: '', content: '' };
-        const idx = input.lastIndexOf('```');
-        if (idx >= 0) {
-            const before = input.substring(0, idx);
-            const beforeFences = (before.match(/```/g) || []).length;
-            if (beforeFences % 2 === 0) {
-                // 未闭合的代码块 → 截断，单独保护
-                const afterFence = input.substring(idx + 3);
-                const nl = afterFence.indexOf('\n');
-                pendingFence.lang = nl >= 0 ? afterFence.substring(0, nl).trim() : afterFence.trim();
-                pendingFence.content = nl >= 0 ? afterFence.substring(nl + 1) : '';
-                pendingFence.active = true;
-                input = before;
+        // ── 第1步：按 ``` 拆分为段 ──
+        const parts = text.split('```');
+        // parts[0] 正文, parts[1] 代码块, parts[2] 正文, parts[3] 代码块, ...
+        // 偶数索引 = 正文, 奇数索引 = 代码块
+
+        let result = '';
+
+        for (let i = 0; i < parts.length; i++) {
+            if (i % 2 === 0) {
+                // ── 正文段：完整 markdown 处理 ──
+                result += processText(parts[i]);
+            } else {
+                // ── 代码块段 ──
+                let seg = parts[i];
+                let lang = '';
+                // 提取语言标记（```java 中的 java）
+                const nl = seg.indexOf('\n');
+                if (nl >= 0) {
+                    lang = seg.substring(0, nl).trim();
+                    seg = seg.substring(nl + 1);
+                }
+
+                // 最后一个代码块段且未闭合 → 流式渲染中
+                if (i === parts.length - 1 && parts.length % 2 === 0) {
+                    // 未闭合：直接包裹，保留原样（可能还在流式输出中）
+                    const langTag = lang ? ' class="language-' + lang + '"' : '';
+                    result += '<pre><code' + langTag + '>' + escHtml(seg) + '</code></pre>';
+                } else {
+                    // 已闭合：从内容中分离语言标记（如果有）
+                    const langTag = lang ? ' class="language-' + lang + '"' : '';
+                    result += '<pre><code' + langTag + '>' + escHtml(seg.trimEnd()) + '</code></pre>';
+                }
             }
         }
 
-        // ── 第1步：保护已闭合的代码块 → 占位符 ──
-        const fences = [];
-        let h = input.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-            const i = fences.length;
-            fences.push({ lang, code });
-            return PH.F + i + PH.F;
-        });
+        return result;
+    }
 
-        const inlines = [];
-        h = h.replace(/`([^`]+)`/g, (_, code) => {
-            const i = inlines.length;
-            inlines.push(code);
-            return PH.I + i + PH.I;
-        });
+    /** 处理纯文本段（标题/列表/粗体/链接/换行等） */
+    function processText(text) {
+        if (!text) return '';
 
-        // ── 第2步：转义纯文本（占位符是中文字符，escHtml 不会动它）──
-        h = escHtml(h);
+        // 转义 HTML（反引号不受影响，之后单独处理）
+        let h = escHtml(text);
 
-        // ── 第3步：块级元素 ──
-        const M = '%%MARK%%';
+        // 块级元素
         h = h.replace(/^###\s*(.*)$/gm, (_, t) => t.trim() ? '<h3>' + t.trim() + '</h3>' : '');
         h = h.replace(/^##\s*(.*)$/gm, (_, t) => t.trim() ? '<h2>' + t.trim() + '</h2>' : '');
         h = h.replace(/^#\s*(.*)$/gm, (_, t) => t.trim() ? '<h1>' + t.trim() + '</h1>' : '');
         h = h.replace(/^---+/gm, '<hr>');
         h = h.replace(/^>\s?(.+)$/gm, '<blockquote>$1</blockquote>');
 
-        // ── 第4步：列表 ──
+        // 列表
         h = h.replace(/^[-*]\s+(.+)$/gm, '%%UL%%$1%%/LI%%');
         h = h.replace(/^\d+[.)]\s+(.+)$/gm, '%%OL%%$1%%/LI%%');
         h = h.replace(/((?:%%UL%%.*?%%\/LI%%\n?)+)/g, '<ul>$1</ul>');
         h = h.replace(/((?:%%OL%%.*?%%\/LI%%\n?)+)/g, '<ol>$1</ol>');
         h = h.replace(/%%UL%%/g, '<li>').replace(/%%OL%%/g, '<li>').replace(/%%\/LI%%/g, '</li>');
 
-        // ── 第5步：内联格式 ──
+        // 内联格式（注意：代码内的 ** 已被保护，这里只处理正文中的）
         h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
         h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
         h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
 
-        // ── 第6步：换行转段落 ──
+        // 行内代码：反引号不被 escHtml 影响，放在其他内联格式之后处理
+        h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+        // 换行
         h = h.replace(/\n\n+/g, '</p><p>');
         h = h.replace(/\n/g, '<br>');
 
+        // 包裹段落
         if (h.length && !h.startsWith('<')) h = '<p>' + h;
         if (h.length && !h.endsWith('>')) h = h + '</p>';
-
-        // ── 第7步：还原代码块（escHtml 仅对代码内容）──
-        h = h.replace(new RegExp(PH.F + '(\\d+)' + PH.F, 'g'), (_, i) => {
-            const f = fences[+i];
-            const langTag = f.lang ? ' class="language-' + f.lang + '"' : '';
-            return '<pre><code' + langTag + '>' + escHtml(f.code.trimEnd()) + '</code></pre>';
-        });
-        h = h.replace(new RegExp(PH.I + '(\\d+)' + PH.I, 'g'), (_, i) =>
-            '<code>' + escHtml(inlines[+i]) + '</code>');
-
-        // ── 第8步：追加未闭合的代码块 ──
-        if (pendingFence.active) {
-            const langTag = pendingFence.lang ? ' class="language-' + pendingFence.lang + '"' : '';
-            h += '<pre><code' + langTag + '>' + escHtml(pendingFence.content) + '</code></pre>';
-        }
 
         return h;
     }
