@@ -481,7 +481,7 @@ public class ConfigLoader {
             agents:
               defaults:
                 # 工作空间目录
-                workspace: "~/.nanobot/workspace"
+                workspace: "~/.nanobot"
                 
                 # 默认模型（支持格式：provider/model）
                 model: "anthropic/claude-sonnet-4-20250514"

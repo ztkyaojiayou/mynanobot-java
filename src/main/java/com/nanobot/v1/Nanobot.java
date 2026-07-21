@@ -164,10 +164,9 @@ public class Nanobot {
         
         // 10. 初始化长期记忆系统（Dream）
         int maxMemories = config.getMemory().getDream().getMaxMemories();
-        dream = new com.nanobot.memory.Dream(provider, maxMemories);
-        // 从 MEMORY.md 文件加载长期记忆
-        java.nio.file.Path baseDir = java.nio.file.Paths.get(".nanobot").toAbsolutePath().normalize();
-        dream.loadFromMemoryFile(baseDir);
+        java.nio.file.Path memoryDir = java.nio.file.Paths.get(".nanobot", "memory").toAbsolutePath().normalize();
+        dream = new com.nanobot.memory.Dream(provider, maxMemories, memoryDir);
+        dream.loadFromMemoryFile(memoryDir);
         logger.info("Dream long-term memory initialized");
         
         logger.info("Initialization complete");

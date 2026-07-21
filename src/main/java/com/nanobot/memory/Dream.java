@@ -44,17 +44,20 @@ public class Dream {
     private final LLMProvider llmProvider;
     private final Map<String, MemoryEntry> memories = new ConcurrentHashMap<>();
     private final int maxMemories;
-    
+    private final Path memoryDir;
+
     /**
      * 创建长期记忆系统
-     * 
+     *
      * @param llmProvider LLM 提供商，用于记忆分析和检索
      * @param maxMemories 最大记忆数量限制
+     * @param memoryDir 记忆文件存储目录（如 .nanobot/memory）
      */
-    public Dream(LLMProvider llmProvider, int maxMemories) {
+    public Dream(LLMProvider llmProvider, int maxMemories, Path memoryDir) {
         this.llmProvider = llmProvider;
         this.maxMemories = maxMemories;
-        logger.info("Dream long-term memory system initialized (max: {})", maxMemories);
+        this.memoryDir = memoryDir.toAbsolutePath().normalize();
+        logger.info("Dream long-term memory system initialized (max: {}, dir: {})", maxMemories, this.memoryDir);
     }
     
     /**
@@ -100,8 +103,8 @@ public class Dream {
                     }
                 }
                 if (!stored.isEmpty()) {
-                    // 自动持久化到 MEMORY.md
-                    saveToMemoryFile(Paths.get(".nanobot").toAbsolutePath().normalize());
+                    // 自动持久化到 .nanobot/memory/MEMORY.md
+                    saveToMemoryFile(memoryDir);
                 }
                 logger.info("Extracted {} memories from session {}", stored.size(), sessionId);
                 return stored;

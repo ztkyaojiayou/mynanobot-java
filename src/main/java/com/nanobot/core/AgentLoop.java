@@ -110,7 +110,9 @@ public class AgentLoop {
 
     private static final Logger logger = LoggerFactory.getLogger(AgentLoop.class);
 
-    /** State 模式处理器注册表 */
+    /**
+     * State 模式处理器注册表
+     */
     private final java.util.Map<TurnState, com.nanobot.core.state.AgentState> stateHandlers = new java.util.EnumMap<>(TurnState.class);
 
     // ==================== 组件 ====================
@@ -328,7 +330,9 @@ public class AgentLoop {
 
     // ==================== 主循环 ====================
 
-    /** 消息处理线程池（避免 LLM 调用阻塞主循环） */
+    /**
+     * 消息处理线程池（避免 LLM 调用阻塞主循环）
+     */
     private final java.util.concurrent.ExecutorService messageExecutor =
             java.util.concurrent.Executors.newFixedThreadPool(4, r -> {
                 Thread t = new Thread(r, "AgentLoop-worker");
@@ -338,7 +342,7 @@ public class AgentLoop {
 
     /**
      * 运行主循环
-     *
+     * <p>
      * 关键设计：processMessage() 提交到线程池异步执行，主循环只负责消费消息。
      * 这样即使某条消息的 LLM 调用卡住，也不会阻塞后续消息的处理。
      */
@@ -349,7 +353,7 @@ public class AgentLoop {
         int processedCount = 0;
         while (running.get()) {
             try {
-                // 尝试获取消息（带超时）
+                // 尝试获取消息（带超时）--即消费用户发来的请求/消息
                 InboundMessage message = messageBus.consumeInbound(1, TimeUnit.SECONDS);
 
                 if (message != null) {
@@ -409,7 +413,8 @@ public class AgentLoop {
                     planMode ? registry.getDefinitions(true) : registry.getDefinitions(),
                     defaults.getMaxTurns(), defaults.getMaxCost());
 
-            // 状态机处理
+            // 状态机处理--其实就是和大模型交互的一套标准流程，
+            // 相当于是一套模板代码，一种状态就是一个步骤。
             String result = processStates(context);
 
             // 调用 finalizeContent 钩子
@@ -419,7 +424,7 @@ public class AgentLoop {
                 context.setFinalContent(result);
             }
 
-            // 发送响应
+            // 发送响应到出站队列，同步聊天接口在轮询拉取该消息
             sendResponse(message, result, context);
 
             long duration = System.currentTimeMillis() - startTime;
@@ -484,16 +489,22 @@ public class AgentLoop {
         stateHandlers.put(TurnState.RESPOND, new com.nanobot.core.state.RespondState(messageBus));
     }
 
-    /** 设置记忆压缩器，同时更新 CompactState 处理器 */
+    /**
+     * 设置记忆压缩器，同时更新 CompactState 处理器
+     */
     public void setConsolidator(com.nanobot.memory.Consolidator c) {
         this.consolidator = c;
         stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(c));
     }
 
-    /** 长期记忆引擎 */
+    /**
+     * 长期记忆引擎
+     */
     private com.nanobot.memory.Dream dream;
 
-    /** 设置长期记忆引擎，同时更新 SaveState 处理器 */
+    /**
+     * 设置长期记忆引擎，同时更新 SaveState 处理器
+     */
     public void setDream(com.nanobot.memory.Dream d) {
         this.dream = d;
         stateHandlers.put(TurnState.SAVE, new com.nanobot.core.state.SaveState(sessionManager, d));
@@ -578,11 +589,15 @@ public class AgentLoop {
     // Plan Mode — 规划模式
     // ════════════════════════════════════════════════════════
 
-    /** 进入/退出规划模式 */
+    /**
+     * 进入/退出规划模式
+     */
     public void setPlanMode(boolean planMode) {
         this.planMode = planMode;
         logger.info("Plan mode: {}", planMode ? "ON (只读分析)" : "OFF (正常模式)");
     }
 
-    public boolean isPlanMode() { return planMode; }
+    public boolean isPlanMode() {
+        return planMode;
+    }
 }

@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 任务存储器 — 会话级别任务追踪，持久化到 JSON 文件。
  *
- * 存储位置: .nanobot/workspace/tasks/{sessionKey}.json
+ * 存储位置: .nanobot/tasks/{sessionKey}.json
  */
 public class TaskStore {
 
@@ -24,7 +24,7 @@ public class TaskStore {
     private final ConcurrentHashMap<String, LinkedHashMap<String, Task>> cache = new ConcurrentHashMap<>();
 
     public TaskStore() {
-        this(Path.of(".nanobot", "workspace", "tasks"));
+        this(Path.of(".nanobot", "tasks"));
     }
 
     public TaskStore(Path baseDir) {

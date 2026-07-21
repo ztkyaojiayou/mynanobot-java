@@ -85,7 +85,7 @@ public class StdioMCPClient implements MCPClient {
         pb.command(buildCommand(command, args));
         
         // 设置工作目录（可选）
-        String workspace = System.getProperty("user.home") + "/.nanobot/workspace";
+        String workspace = System.getProperty("user.home") + "/.nanobot";
         pb.directory(new java.io.File(workspace));
         
         // 合并错误输出到标准输出

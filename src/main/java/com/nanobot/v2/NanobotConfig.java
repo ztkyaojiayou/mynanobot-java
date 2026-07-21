@@ -251,9 +251,9 @@ public class NanobotConfig {
     @Bean
     public Dream dream(LLMProvider llmProvider, Config config) {
         int maxMemories = config.getMemory().getDream().getMaxMemories();
-        Dream d = new Dream(llmProvider, maxMemories);
-        java.nio.file.Path baseDir = java.nio.file.Paths.get(".nanobot").toAbsolutePath().normalize();
-        d.loadFromMemoryFile(baseDir);
+        java.nio.file.Path memoryDir = java.nio.file.Paths.get(".nanobot", "memory").toAbsolutePath().normalize();
+        Dream d = new Dream(llmProvider, maxMemories, memoryDir);
+        d.loadFromMemoryFile(memoryDir);
         return d;
     }
 

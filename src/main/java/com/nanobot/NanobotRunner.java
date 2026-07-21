@@ -140,9 +140,9 @@ public class NanobotRunner implements ApplicationRunner {
 
     private Dream initDream() {
         int maxMemories = config.getMemory().getDream().getMaxMemories();
-        Dream d = new Dream(provider, maxMemories);
-        Path baseDir = Paths.get(".nanobot").toAbsolutePath().normalize();
-        d.loadFromMemoryFile(baseDir);
+        Path memoryDir = Paths.get(".nanobot", "memory").toAbsolutePath().normalize();
+        Dream d = new Dream(provider, maxMemories, memoryDir);
+        d.loadFromMemoryFile(memoryDir);
         return d;
     }
 

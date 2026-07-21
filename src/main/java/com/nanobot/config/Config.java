@@ -146,7 +146,7 @@ public class Config {
     public static class AgentDefaults {
 
         /** 工作空间目录（相对于项目根目录） */
-        private String workspace = ".nanobot/workspace";
+        private String workspace = ".nanobot";
 
         /** 默认模型 */
         private String model = "anthropic/claude-sonnet-4-20250514";
