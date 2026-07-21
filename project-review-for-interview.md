@@ -404,7 +404,23 @@ runInternal(ctx, ..., ctx.getIteration() + 1);      // 读
 // 2. 可见性（其他线程立即看到新值）
 ```
 
-### 7.3 设计洞察
+### 7.3 防御性拷贝
+
+```java
+// TurnContext 中的 getter 都返回防御性拷贝
+public List<Map<String, Object>> getMessages() {
+    return new ArrayList<>(messages);     // 外部修改不影响内部状态
+}
+public List<ToolCallRequest> getToolCalls() {
+    return new ArrayList<>(toolCalls);
+}
+```
+
+**为什么getter要拷贝而不是直接返回引用？**
+
+外部代码（Hook、StateHandler）拿到 List 后可能修改它。如果不拷贝，外部代码的 `list.add()` 会直接污染 TurnContext 内部状态，而且这个修改发生在哪、什么时候发生，完全不可追踪。防御性拷贝把 TurnContext 变成一个"值对象"——你只能通过 `setXxx()` 方法修改它，不能通过返回的引用偷偷改。
+
+### 7.4 设计洞察
 
 TurnContext 的 volatile 字段本质是**防御性设计**——虽然当前 State 模式各状态通常在同一个 worker 线程中顺序执行，但 volatile 确保如果将来某个 StateHandler 被异步化（如 SaveState 的 Dream 提取是异步的），不会出现可见性问题。
 
@@ -624,6 +640,24 @@ handler 锁             — 实现 wait/notify 线程通信
 
 **注意**：这个类是 V1 的遗留代码，V2 已经迁移到 Spring SSE + StreamResponseCallback，不再需要 wait/notify。保留它体现了项目从"手动线程通信"到"框架抽象"的演进。
 
+### 12.4 设计批判：CHM + synchronized(CHM) 有意义吗？
+
+```java
+private final Map<String, StreamResponseHandler> streamResponseHandlers
+    = new ConcurrentHashMap<>();
+
+// 所有访问都包裹在 synchronized(streamResponseHandlers) 中
+synchronized (streamResponseHandlers) {
+    streamResponseHandlers.put(key, handler);
+}
+```
+
+**这里 CHM 的多余的**。因为所有对 `streamResponseHandlers` 的访问都已经被 `synchronized` 块串行化了，CHM 的内部分段锁完全没被用到。用普通的 `HashMap` 效果一样。
+
+这是 V1 快速迭代留下的**过度保护**——写的时候顺手用了 CHM"以防万一"，后来又加了 `synchronized` 做复合操作保护，但没意识到两者叠加是冗余的。
+
+面试时如果能指出这类问题，说明你有代码嗅觉，不是只会背书。
+
 ---
 
 ## 13. MCP 客户端
@@ -661,6 +695,21 @@ private void handleResponse(String json) {
 - `CompletableFuture` 做信号量（线程间传递结果）
 - 不需要手动 `wait/notify`
 - 线程A 拿到 `CompletableFuture` 后可以 `thenApply` 继续链式处理
+
+**关键细节：为什么用 `remove()` 而不是 `get() + remove()`？**
+
+```java
+// ✅ 正确 — remove() 是原子的
+CompletableFuture<MCPResult> future = pendingRequests.remove(requestId);
+
+// ❌ 错误 — get() 和 remove() 之间可能被插入
+CompletableFuture<MCPResult> future = pendingRequests.get(requestId);
+// ← 超时线程在这里执行了 remove + complete，future 已被完成
+pendingRequests.remove(requestId);    // ← 这里 remove 返回 null（已被删）
+future.complete(result);              // ← 重复 complete 抛异常！
+```
+
+场景：响应线程收到响应、超时线程同时触发。两个线程都试图完成同一个 Future。`remove()` 的原子性保证只有一个线程能拿到非 null 的 Future 并完成它——另一个线程的 `remove()` 返回 null，直接跳过。
 
 **Q: 如果子进程挂了，pending request 怎么办？**
 
