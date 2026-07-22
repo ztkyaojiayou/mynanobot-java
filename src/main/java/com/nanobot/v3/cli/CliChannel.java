@@ -218,33 +218,33 @@ public class CliChannel {
      */
     private boolean handleCommand(String cmd) {
         String cmdName = cmd.length() > 1 ? cmd.substring(1).trim().split("\\s+")[0].toLowerCase() : "";
+        return switch (cmdName) {
+            case "clear"    -> handleClear();
+            case "exit", "q", "quit" -> handleExit();
+            default         -> { commands.execute(cmdCtx, cmd); yield false; }
+        };
+    }
 
-        // /clear：直接调 SessionManager，不经过 MessageBus。
-        // 因为 sendMessage 会等待 _stream_end（流式完成信号），
-        // 但 /clear 是 AgentLoop 短路命令不产生流式输出，会等到超时。
-        if ("clear".equals(cmdName)) {
-            var sm = NanobotRunner.getSessionManager();
-            if (sm != null) {
-                sm.clearSession(sessionId);
-                System.out.println("会话已清除。");
-            } else {
-                System.out.println("会话管理器未就绪。");
-            }
-            return false;
+    /** /clear — 直接调 SessionManager，不经过 MessageBus（避免等待永不来的 _stream_end） */
+    private boolean handleClear() {
+        var sm = NanobotRunner.getSessionManager();
+        if (sm != null) {
+            sm.clearSession(sessionId);
+            System.out.println("会话已清除。");
+        } else {
+            System.out.println("会话管理器未就绪。");
         }
-        // /exit /q /quit → 退出循环（延迟关闭 Spring 容器，AgentLoop 线程随之终止）
-        if ("exit".equals(cmdName) || "q".equals(cmdName) || "quit".equals(cmdName)) {
-            System.out.println("正在关闭...");
-            new Thread(() -> {
-                try { Thread.sleep(500); } catch (InterruptedException ignored) {}
-                appContext.close();
-            }).start();
-            return true;
-        }
-
-        // 其他命令 → 委派给 CommandRegistry
-        commands.execute(cmdCtx, cmd);
         return false;
+    }
+
+    /** /exit — 延迟关闭 Spring 容器，AgentLoop 线程随之终止 */
+    private boolean handleExit() {
+        System.out.println("正在关闭...");
+        new Thread(() -> {
+            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+            appContext.close();
+        }).start();
+        return true;
     }
 
     /**
