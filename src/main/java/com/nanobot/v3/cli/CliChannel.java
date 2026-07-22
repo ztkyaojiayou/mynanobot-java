@@ -234,8 +234,13 @@ public class CliChannel {
             }
             return false;
         }
-        // /exit /q /quit → 退出循环
+        // /exit /q /quit → 退出循环（延迟关闭 Spring 容器，AgentLoop 线程随之终止）
         if ("exit".equals(cmdName) || "q".equals(cmdName) || "quit".equals(cmdName)) {
+            System.out.println("正在关闭...");
+            new Thread(() -> {
+                try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+                appContext.close();
+            }).start();
             return true;
         }
 
