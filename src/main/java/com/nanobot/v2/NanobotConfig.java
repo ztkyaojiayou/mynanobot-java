@@ -1,9 +1,7 @@
 package com.nanobot.v2;
 
-import com.nanobot.bus.MessageBus;
 import com.nanobot.config.Config;
 import com.nanobot.config.ConfigLoader;
-import com.nanobot.core.AgentLoop;
 import com.nanobot.core.TaskStore;
 import com.nanobot.core.subagent.AgentCoordinator;
 import com.nanobot.identity.IdentityManager;
@@ -11,7 +9,7 @@ import com.nanobot.mcp.MCPManager;
 import com.nanobot.memory.Consolidator;
 import com.nanobot.memory.Dream;
 import com.nanobot.providers.LLMProvider;
-import com.nanobot.providers.impl.DeepSeekProvider;
+import com.nanobot.providers.ProviderFactory;
 import com.nanobot.rules.RuleManager;
 import com.nanobot.security.PermissionManager;
 import com.nanobot.security.PermissionMode;
@@ -69,8 +67,8 @@ import org.springframework.context.annotation.Configuration;
  *     |     +-- Dream -> long-term memory extraction/retrieval
  *     |     +-- SessionManager -> session persistence
  *     |
- *     +-- 核心引擎:
- *           +-- AgentLoop -> 8-state machine (consumes MessageBus messages)
+ *     +-- 核心引擎（独立配置类）:
+ *           +-- AgentLoopConfig -> 8 状态 State 模式引擎 (see {@link com.nanobot.v2.AgentLoopConfig})
  * </pre>
  *
  * <h2>每次对话的运行时流程</h2>
@@ -87,7 +85,8 @@ import org.springframework.context.annotation.Configuration;
  *       -> RESPOND: MessageBus.publishOutbound(response)
  * </pre>
  *
- * @see com.nanobot.core.AgentLoop
+ * @see com.nanobot.v2.AgentLoopConfig
+ * @see com.nanobot.v2.MessageBusConfig
  * @see com.nanobot.NanobotRunner
  */
 @Configuration
@@ -102,12 +101,23 @@ public class NanobotConfig {
     /**
      * 全局配置 — 一切 Bean 的"参数源头".
      *
-     * 加载优先级：{@code ~/.nanobot/config.yaml} → {@code ./config.yaml} → classpath 默认值.
-     * 包含模型名、API Key、workspace 路径、工具开关、记忆参数等所有可配置项.
+     * <h3>加载优先级</h3>
+     * {@code ~/.nanobot/config.yaml} → {@code ./config.yaml} → classpath 默认值.
+     * ConfigLoader 自动合并 config.yaml（默认配置）和 secret.yaml（API Key）.
+     *
+     * <h3>启动即校验</h3>
+     * 配置不合法直接抛异常，阻止系统在错误状态下启动.
      */
     @Bean
     public Config config() {
-        return ConfigLoader.load();
+        Config c = ConfigLoader.load();
+        var errors = c.validate();
+        if (!errors.isEmpty()) {
+            logger.error("Configuration errors:");
+            errors.forEach(e -> logger.error("  - {}", e));
+            throw new IllegalStateException("Invalid configuration");
+        }
+        return c;
     }
 
     /**
@@ -278,21 +288,21 @@ public class NanobotConfig {
     /**
      * LLM 提供者 — Agent 与 AI 模型之间的唯一通信通道.
      *
-     * 目前固定使用 DeepSeek（OpenAI 兼容 API）.
-     * 支持同步调用（chat）和流式调用（chatStream / SSE）.
+     * <h3>策略匹配</h3>
+     * ProviderFactory 根据 model 名前缀自动匹配：
+     * <ul>
+     *   <li>{@code deepseek*} → DeepSeekProvider</li>
+     *   <li>{@code gpt-*} / {@code o1/o3/o4} → OpenAIProvider</li>
+     *   <li>其他 → OpenAIProvider（兜底）</li>
+     * </ul>
+     * 换模型只需改 config.yaml 的 model 字段，不用修改代码.
      *
-     * 如果要换模型（如 GPT-4o），改 config.yaml 的 model 字段即可，
-     * ProviderFactory 会根据模型名前缀自动匹配 Provider.
+     * <h3>API Key 来源</h3>
+     * secret.yaml > 环境变量
      */
     @Bean
     public LLMProvider llmProvider(Config config) {
-        Config.ProviderConfig deepseekConfig = config.getProviders().getDeepseek();
-        String model = config.getAgents().getDefaults().getModel();
-        return new DeepSeekProvider(
-                deepseekConfig.getApiKey(),
-                model,
-                deepseekConfig.getApiBase()
-        );
+        return ProviderFactory.create(config);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -383,22 +393,27 @@ public class NanobotConfig {
     }
 
     /**
-     * 长期记忆引擎 — 跨对话的"海马体".
+     * 长期记忆引擎 — 跨对话的"海马体"，自动从对话中提取关键信息.
      *
-     * <b>完整闭环</b>：提取 → 存储 → 检索 → 注入
-     * <ul>
-     *   <li><b>提取（异步）</b>：SAVE 阶段 fire-and-forget 调 LLM 分析对话，增量节流（5000字/次）</li>
-     *   <li><b>存储</b>：{@code .nanobot/memory/MEMORY.md}</li>
+     * <h3>完整闭环（全自动）</h3>
+     * <ol>
+     *   <li><b>提取（异步 fire-and-forget）</b>：SAVE 状态调 LLM 分析对话，
+     *       增量节流——对话新增不足 5000 字符直接跳过（省 LLM 费用）</li>
+     *   <li><b>存储</b>：Jackson 解析 LLM 返回的 JSON → 写入 {@code .nanobot/memory/MEMORY.md}</li>
      *   <li><b>检索（同步）</b>：BUILD 阶段关键词匹配 + 重要性加权，取 top 5 注入 System Prompt</li>
      *   <li><b>手动触发</b>：{@code /remember} 命令强行提取，无视节流阈值</li>
-     * </ul>
+     * </ol>
+     *
+     * <h3>设计要点</h3>
+     * 所有会话共享同一个 MEMORY.md，Dream 加载时恢复已有记忆，
+     * 新记忆合并去重后全量写回.
      */
     @Bean
     public Dream dream(LLMProvider llmProvider, Config config) {
         int maxMemories = config.getMemory().getDream().getMaxMemories();
         java.nio.file.Path memoryDir = java.nio.file.Paths.get(".nanobot", "memory").toAbsolutePath().normalize();
         Dream d = new Dream(llmProvider, maxMemories, memoryDir);
-        d.loadFromMemoryFile(memoryDir);
+        d.loadFromMemoryFile(memoryDir);  // 恢复之前持久化的记忆
         return d;
     }
 
@@ -442,56 +457,4 @@ public class NanobotConfig {
         return coordinator;
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // 第 7 层：核心引擎 — 一切组件的编排者
-    // ═══════════════════════════════════════════════════════════════════
-
-    /**
-     * Agent Loop — 整个项目的<b>心跳</b>.
-     *
-     * 8 状态 State 模式引擎，从 MessageBus 消费消息，驱动完整处理链：
-     * <pre>
-     *   RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE
-     * </pre>
-     *
-     * 注入依赖（按状态归属）：
-     * <ul>
-     *   <li>RESTORE: SessionManager</li>
-     *   <li>COMPACT: Consolidator</li>
-     *   <li>COMMAND: SkillManager + RuleManager + SessionManager + Consolidator + Dream</li>
-     *   <li>BUILD: IdentityManager + RuleManager + Dream + SkillRegistry</li>
-     *   <li>RUN: AgentRunner(LLMProvider + ToolRegistry)</li>
-     *   <li>SAVE: SessionManager + Dream</li>
-     *   <li>RESPOND: MessageBus</li>
-     * </ul>
-     *
-     * {@code destroyMethod = "stop"} 确保 Spring 关闭时正确释放线程池和 MessageBus.
-     */
-    @Bean(destroyMethod = "stop")
-    public AgentLoop agentLoop(
-            MessageBus messageBus,
-            LLMProvider llmProvider,
-            ToolRegistry toolRegistry,
-            SessionManager sessionManager,
-            SkillManager skillManager,
-            RuleManager ruleManager,
-            IdentityManager identityManager,
-            Consolidator consolidator,
-            Dream dream,
-            Config config) {
-        AgentLoop agentLoop = new AgentLoop(
-                messageBus,
-                llmProvider,
-                toolRegistry,
-                sessionManager,
-                config,
-                ruleManager,
-                skillManager,
-                identityManager
-        );
-        agentLoop.setConsolidator(consolidator);
-        agentLoop.setDream(dream);
-        agentLoop.start();
-        return agentLoop;
-    }
 }
