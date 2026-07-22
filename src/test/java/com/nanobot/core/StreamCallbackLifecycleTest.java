@@ -2,9 +2,9 @@ package com.nanobot.core;
 
 import com.nanobot.bus.InboundMessage;
 import com.nanobot.bus.MessageBus;
+import com.nanobot.bus.OutboundMessage;
 import com.nanobot.config.Config;
 import com.nanobot.config.ConfigLoader;
-import com.nanobot.core.AgentLoop.StreamResponseCallback;
 import com.nanobot.providers.LLMProvider;
 import com.nanobot.session.SessionManager;
 import com.nanobot.tools.ToolRegistry;
@@ -15,15 +15,25 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * 测试 StreamResponseCallback 在多轮流式对话中的生命周期
+ * 测试流式输出的 Pub-Sub 生命周期 —— 适配新 Fan-Out 架构.
  *
- * 复现场景：模拟 SSE 流式对话连续3轮，验证每轮都能正常收到数据
+ * <h2>架构变更</h2>
+ * 旧: Runner → StreamResponseCallback 回调 → 遍历广播
+ * 新: RunState → outboundQueue → Dispatcher 扇出 → subscriberQueue (各通道独立 poll)
+ *
+ * <h2>测试场景</h2>
+ * <ol>
+ *   <li>多 subscription 并发消费 —— 模拟 SSE+WS 同时订阅，各自收到完整数据</li>
+ *   <li>requestId 精确匹配 —— 每轮过滤自己关心的消息</li>
+ *   <li>unsubscribe 后异步清理 —— 不影响下一轮</li>
+ * </ol>
  */
 class StreamCallbackLifecycleTest {
 
@@ -39,7 +49,7 @@ class StreamCallbackLifecycleTest {
         ToolRegistry registry = new ToolRegistry();
         SessionManager sessionManager = new SessionManager(config);
 
-        // 使用一个简单的 mock LLM provider
+        // Mock LLM Provider — 同步调用 onDelta，测试流式 token 发布
         LLMProvider mockProvider = new LLMProvider() {
             @Override public String getName() { return "mock"; }
             @Override public String getDefaultModel() { return "mock-model"; }
@@ -74,53 +84,41 @@ class StreamCallbackLifecycleTest {
         agentLoop.start();
     }
 
+    /**
+     * 轮询 subscriberQueue 直到收到 _stream_end 或超时.
+     *
+     * @return 收集到的所有匹配的 OutboundMessage（含 deltas + stream_end）
+     */
+    private List<OutboundMessage> collectStreamEvents(BlockingQueue<OutboundMessage> subQueue,
+                                                       String sessionId, String requestId,
+                                                       long timeoutMs) throws InterruptedException {
+        List<OutboundMessage> events = new ArrayList<>();
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            OutboundMessage msg = subQueue.poll(200, TimeUnit.MILLISECONDS);
+            if (msg == null) continue;
+            // 过滤：只保留匹配 sessionId+requestId 的消息
+            if (!sessionId.equals(msg.getSessionId())) continue;
+            if (!requestId.equals(msg.getRequestId())) continue;
+            events.add(msg);
+            if (msg.isStreamEnd()) break;
+        }
+        return events;
+    }
+
     @Test
-    @DisplayName("连续3轮SSE流式对话 — 每轮都应收到数据和完成信号")
+    @DisplayName("连续3轮流式对话 — 每轮订阅→发消息→收流→取消订阅")
     void testThreeConsecutiveStreamingRounds() throws Exception {
         String sessionId = "test-chat-" + System.currentTimeMillis();
 
-        // 模拟 WebSocket 回调（始终存在）
-        List<String> wsEvents = new ArrayList<>();
-        StreamResponseCallback wsCallback = new StreamResponseCallback() {
-            @Override
-            public void onStreamData(String sid, String rid, String content) {
-                wsEvents.add("ws:data:" + rid + ":" + (content != null ? content.length() : 0));
-            }
-            @Override
-            public void onStreamComplete(String sid, String rid) {
-                wsEvents.add("ws:complete:" + rid);
-            }
-        };
-        agentLoop.addStreamResponseCallback(wsCallback);
-
-        // 执行3轮
         for (int round = 1; round <= 3; round++) {
             String requestId = "req-" + round;
             System.out.println("\n=== Round " + round + " (requestId=" + requestId + ") ===");
 
-            // 本轮事件收集
-            List<String> sseDataEvents = new ArrayList<>();
-            CountDownLatch completeLatch = new CountDownLatch(1);
+            // ① 订阅 outbound 扇出队列
+            BlockingQueue<OutboundMessage> subQueue = messageBus.subscribeToOutbound();
 
-            StreamResponseCallback sseCallback = new StreamResponseCallback() {
-                @Override
-                public void onStreamData(String sid, String rid, String content) {
-                    sseDataEvents.add("data:" + content);
-                    System.out.println("  SSE data: sid=" + sid + " rid=" + rid + " content=" + content);
-                }
-                @Override
-                public void onStreamComplete(String sid, String rid) {
-                    sseDataEvents.add("complete");
-                    System.out.println("  SSE complete: sid=" + sid + " rid=" + rid);
-                    completeLatch.countDown();
-                }
-            };
-
-            agentLoop.addStreamResponseCallback(sseCallback);
-            assertEquals(2, agentLoop.getStreamCallbackCount(), // wsCallback + sseCallback
-                    "Round " + round + ": should have 2 callbacks");
-
-            // 模拟 ChatController 发布消息
+            // ② 发送消息到 AgentLoop
             Map<String, Object> metadata = new java.util.HashMap<>();
             metadata.put("requestId", requestId);
             metadata.put("streamMode", true);
@@ -132,101 +130,105 @@ class StreamCallbackLifecycleTest {
                     .channel("api")
                     .metadata(metadata)
                     .build();
-
             messageBus.publishInbound(message);
 
-            // 等待本轮完成
-            boolean completed = completeLatch.await(10, TimeUnit.SECONDS);
-            assertTrue(completed, "Round " + round + ": should complete within timeout");
+            // ③ 收集流式事件
+            List<OutboundMessage> events = collectStreamEvents(subQueue, sessionId, requestId, 10_000);
+            System.out.println("  Events received: " + events.size());
+            events.forEach(e -> System.out.println("    delta=" + e.isStreamDelta()
+                    + " end=" + e.isStreamEnd() + " content="
+                    + (e.getContent() != null ? e.getContent() : "null")));
 
-            // 验证收到了数据
-            assertFalse(sseDataEvents.isEmpty(),
-                    "Round " + round + ": should have SSE data events");
-            assertTrue(sseDataEvents.contains("complete"),
-                    "Round " + round + ": should have complete event, got: " + sseDataEvents);
+            // ④ 验证
+            assertFalse(events.isEmpty(),
+                    "Round " + round + ": should have stream events");
+            assertTrue(events.stream().anyMatch(OutboundMessage::isStreamDelta),
+                    "Round " + round + ": should have stream deltas");
+            assertTrue(events.stream().anyMatch(OutboundMessage::isStreamEnd),
+                    "Round " + round + ": should have stream end event");
 
-            // 清理本轮回调
-            agentLoop.removeStreamResponseCallback(sseCallback);
-            assertEquals(1, agentLoop.getStreamCallbackCount(), // only wsCallback left
-                    "Round " + round + ": should have 1 callback after cleanup");
+            // ⑤ 取消订阅
+            messageBus.unsubscribeFromOutbound(subQueue);
         }
-
-        // 验证 WebSocket 回调每轮都被调用
-        System.out.println("\n=== WebSocket callback events: " + wsEvents.size() + " ===");
-        wsEvents.forEach(e -> System.out.println("  " + e));
-        assertTrue(wsEvents.size() >= 6,
-                "WebSocket callback should receive at least 6 events (3 data + 3 complete for 3 rounds), got: " + wsEvents.size());
     }
 
     @Test
-    @DisplayName("callback sessionId/requestId 匹配验证")
-    void testCallbackIdMatching() throws Exception {
-        String sessionId = "match-test";
+    @DisplayName("双订阅者并发 — SSE+WS 同时订阅，各自收到完整流")
+    void testTwoSubscribersReceiveSameStream() throws Exception {
+        String sessionId = "dual-sub-" + System.currentTimeMillis();
+        String requestId = "dual-req-1";
 
+        // 模拟 SSE 和 WS 两个订阅者
+        BlockingQueue<OutboundMessage> sseQueue = messageBus.subscribeToOutbound();
+        BlockingQueue<OutboundMessage> wsQueue = messageBus.subscribeToOutbound();
+
+        // 发送消息
+        Map<String, Object> metadata = new java.util.HashMap<>();
+        metadata.put("requestId", requestId);
+        metadata.put("streamMode", true);
+        messageBus.publishInbound(InboundMessage.builder()
+                .sessionId(sessionId).senderId(sessionId).content("dual test")
+                .channel("api").metadata(metadata).build());
+
+        // 各自收集
+        List<OutboundMessage> sseEvents = collectStreamEvents(sseQueue, sessionId, requestId, 10_000);
+        List<OutboundMessage> wsEvents = collectStreamEvents(wsQueue, sessionId, requestId, 10_000);
+
+        // 验证：两个订阅者都收到了完整的数据
+        assertFalse(sseEvents.isEmpty(), "SSE subscriber should receive events");
+        assertFalse(wsEvents.isEmpty(), "WS subscriber should receive events");
+        assertEquals(sseEvents.size(), wsEvents.size(),
+                "Both subscribers should receive same number of events");
+
+        messageBus.unsubscribeFromOutbound(sseQueue);
+        messageBus.unsubscribeFromOutbound(wsQueue);
+    }
+
+    @Test
+    @DisplayName("requestId 精确匹配 — 验证多轮不会互相干扰")
+    void testRequestIdMatching() throws Exception {
+        String sessionId = "match-test-" + System.currentTimeMillis();
+
+        // 订阅者持续监听
+        BlockingQueue<OutboundMessage> subQueue = messageBus.subscribeToOutbound();
+
+        // 连续发3轮，用不同 requestId
         for (int round = 1; round <= 3; round++) {
             String requestId = "match-req-" + round;
             System.out.println("\n=== Match test Round " + round + " ===");
-
-            CountDownLatch latch = new CountDownLatch(1);
-            boolean[] matched = {false};
-
-            StreamResponseCallback cb = new StreamResponseCallback() {
-                @Override
-                public void onStreamData(String sid, String rid, String content) {
-                    if (sessionId.equals(sid) && requestId.equals(rid)) {
-                        matched[0] = true;
-                    } else {
-                        System.out.println("  MISMATCH: expected(" + sessionId + "," + requestId
-                                + ") got(" + sid + "," + rid + ")");
-                    }
-                }
-                @Override
-                public void onStreamComplete(String sid, String rid) {
-                    System.out.println("  Complete: expected(" + sessionId + "," + requestId
-                            + ") got(" + sid + "," + rid + ") match="
-                            + (sessionId.equals(sid) && requestId.equals(rid)));
-                    latch.countDown();
-                }
-            };
-
-            agentLoop.addStreamResponseCallback(cb);
 
             Map<String, Object> metadata = new java.util.HashMap<>();
             metadata.put("requestId", requestId);
             metadata.put("streamMode", true);
 
             messageBus.publishInbound(InboundMessage.builder()
-                    .sessionId(sessionId).senderId(sessionId).content("test")
+                    .sessionId(sessionId).senderId(sessionId).content("test " + round)
                     .channel("api").metadata(metadata).build());
 
-            latch.await(10, TimeUnit.SECONDS);
-            assertTrue(matched[0], "Round " + round + ": requestId should match");
-            agentLoop.removeStreamResponseCallback(cb);
+            List<OutboundMessage> events = collectStreamEvents(subQueue, sessionId, requestId, 10_000);
+            System.out.println("  Events: " + events.size());
+            events.forEach(e -> System.out.println("    rid=" + e.getRequestId()
+                    + " delta=" + e.isStreamDelta() + " end=" + e.isStreamEnd()));
+
+            // 验证每条消息的 requestId 都匹配
+            assertFalse(events.isEmpty(), "Round " + round + ": should have events");
+            for (OutboundMessage ev : events) {
+                assertEquals(requestId, ev.getRequestId(),
+                        "Round " + round + ": every event should match requestId");
+            }
         }
+
+        messageBus.unsubscribeFromOutbound(subQueue);
     }
 
     @Test
-    @DisplayName("emitter.complete 后异步清理 callback — 不应影响下一轮")
-    void testAsyncCallbackCleanup() throws Exception {
-        String sessionId = "cleanup-test";
+    @DisplayName("unsubscribe 后异步清理 — 下一轮订阅不受影响")
+    void testSubscriptionCleanupBetweenRounds() throws Exception {
+        String sessionId = "cleanup-test-" + System.currentTimeMillis();
 
-        // Round 1: 正常流程
-        CountDownLatch round1Latch = new CountDownLatch(1);
-        StreamResponseCallback cb1 = new StreamResponseCallback() {
-            @Override public void onStreamData(String s, String r, String c) {}
-            @Override
-            public void onStreamComplete(String s, String r) {
-                // 模拟 emitter.complete() 异步触发 cleanup
-                new Thread(() -> {
-                    try { Thread.sleep(50); } catch (InterruptedException ignored) {}
-                    agentLoop.removeStreamResponseCallback(this);
-                }).start();
-                round1Latch.countDown();
-            }
-        };
-
-        agentLoop.addStreamResponseCallback(cb1);
-        assertEquals(1, agentLoop.getStreamCallbackCount()); // cb1 only, no pre-registered callback
+        // Round 1: 订阅 → 发消息 → 收流 → 取消订阅
+        BlockingQueue<OutboundMessage> subQueue1 = messageBus.subscribeToOutbound();
+        assertEquals(1, messageBus.getSubscriberCount());
 
         Map<String, Object> meta1 = new java.util.HashMap<>();
         meta1.put("requestId", "clean-1");
@@ -235,23 +237,15 @@ class StreamCallbackLifecycleTest {
                 .sessionId(sessionId).senderId(sessionId).content("r1")
                 .channel("api").metadata(meta1).build());
 
-        round1Latch.await(10, TimeUnit.SECONDS);
-        Thread.sleep(100); // 等待异步清理完成
-        assertEquals(0, agentLoop.getStreamCallbackCount(), "cb1 should be cleaned up");
+        List<OutboundMessage> events1 = collectStreamEvents(subQueue1, sessionId, "clean-1", 10_000);
+        assertFalse(events1.isEmpty(), "Round 1 should receive events");
 
-        // Round 2: 验证不受影响
-        CountDownLatch round2Latch = new CountDownLatch(1);
-        List<String> r2Events = new ArrayList<>();
-        StreamResponseCallback cb2 = new StreamResponseCallback() {
-            @Override public void onStreamData(String s, String r, String c) { r2Events.add(c); }
-            @Override public void onStreamComplete(String s, String r) {
-                r2Events.add("complete");
-                round2Latch.countDown();
-            }
-        };
+        messageBus.unsubscribeFromOutbound(subQueue1);
+        assertEquals(0, messageBus.getSubscriberCount(), "No subscribers after unsub");
 
-        agentLoop.addStreamResponseCallback(cb2);
-        assertEquals(1, agentLoop.getStreamCallbackCount());
+        // Round 2: 重新订阅 → 发消息 → 应正常工作
+        BlockingQueue<OutboundMessage> subQueue2 = messageBus.subscribeToOutbound();
+        assertEquals(1, messageBus.getSubscriberCount());
 
         Map<String, Object> meta2 = new java.util.HashMap<>();
         meta2.put("requestId", "clean-2");
@@ -260,10 +254,11 @@ class StreamCallbackLifecycleTest {
                 .sessionId(sessionId).senderId(sessionId).content("r2")
                 .channel("api").metadata(meta2).build());
 
-        round2Latch.await(10, TimeUnit.SECONDS);
-        assertFalse(r2Events.isEmpty(), "Round 2 should receive data after async cleanup");
-        assertTrue(r2Events.contains("complete"), "Round 2 should complete");
+        List<OutboundMessage> events2 = collectStreamEvents(subQueue2, sessionId, "clean-2", 10_000);
+        assertFalse(events2.isEmpty(), "Round 2 should receive events after cleanup");
+        assertTrue(events2.stream().anyMatch(OutboundMessage::isStreamEnd),
+                "Round 2 should complete normally");
 
-        agentLoop.removeStreamResponseCallback(cb2);
+        messageBus.unsubscribeFromOutbound(subQueue2);
     }
 }
