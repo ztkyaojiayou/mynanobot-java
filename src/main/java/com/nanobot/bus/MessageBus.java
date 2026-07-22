@@ -32,6 +32,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * BlockingQueue.take() 是破坏性消费——消息只能被一个消费者取走。
  * 三个通道 (SSE/CLI/WS) 都需要接收流式数据，必须各自有独立的队列。
  * Dispatcher 线程从 outboundQueue 取一条消息 → 逐个 offer 到各 subscriberQueue。
+ *
+ * <h2>消息清理链路</h2>
+ * <table>
+ *   <tr><th>层级</th><th>清理机制</th><th>时效</th></tr>
+ *   <tr><td>outboundQueue</td><td>dispatcher poll() 取走即删</td><td>≤1s</td></tr>
+ *   <tr><td>subscriberQueue</td><td>consumer poll() 取走即删</td><td>≤500ms</td></tr>
+ *   <tr><td>零订阅者</td><td>publishToOutboundQueue 直接 return</td><td>即时</td></tr>
+ *   <tr><td>unsubscribe</td><td>Queue 引用移除，GC 回收残留</td><td>即时</td></tr>
+ *   <tr><td>sessionResponses 正常</td><td>waitForSessionResponse 匹配后 it.remove()</td><td>即时</td></tr>
+ *   <tr><td>sessionResponses 残留</td><td>cleanup daemon 每2分钟清理 &gt;5min 的条目</td><td>≤7min</td></tr>
+ * </table>
  */
 public class MessageBus {
 

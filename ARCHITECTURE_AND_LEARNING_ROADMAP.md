@@ -1626,6 +1626,18 @@ CLI/HTTP/WS ──put──→ inboundQueue(100) ──take──→ AgentLoop  
 - 有界队列防 OOM：inbound 100、outbound 1000、subscriber 500
 - Dispatcher 用 `offer(msg, 100ms)` 扇出——某 subscriber 慢不会阻塞其他
 - AgentLoop 不持有任何消费者引用——完全通过 Queue 解耦
+- sessionResponses 过期清理：cleanup daemon 每 2 分钟删除超过 5 分钟未被 `waitForSessionResponse` 取走的残留条目
+
+**消息清理链路**：
+
+| 层级 | 清理机制 | 时效 |
+|------|---------|------|
+| outboundQueue | dispatcher `poll()` 取走即删 | ≤1s |
+| subscriberQueue | consumer `poll()` 取走即删 | ≤500ms |
+| 零订阅者 | `publishToOutboundQueue` 直接 return | 即时 |
+| unsubscribe | Queue 引用移除，GC 回收残留消息 | 即时 |
+| sessionResponses 正常 | `waitForSessionResponse` 匹配后 `it.remove()` | 即时 |
+| sessionResponses 残留 | cleanup daemon 每 2 分钟清理 >5min 条目 | ≤7min |
 
 #### 5.3.4 阶段三：AgentLoop —— 七状态状态机引擎
 
