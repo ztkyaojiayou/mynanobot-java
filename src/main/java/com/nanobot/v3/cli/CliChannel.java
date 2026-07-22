@@ -203,9 +203,10 @@ public class CliChannel {
     private boolean handleCommand(String cmd) {
         String cmdName = cmd.length() > 1 ? cmd.substring(1).trim().split("\\s+")[0].toLowerCase() : "";
 
-        // /clear 需要访问 CliChannel 的 chatId，不便抽成独立 Command，保留 inline
+        // /clear 由 AgentLoop CommandState 处理（sessionManager.clearSession），
+        // 这里不拦截，让它走正常的 sendMessage → MessageBus → AgentLoop 路径
         if ("clear".equals(cmdName)) {
-            System.out.println("上下文已清空");
+            sendMessage(cmd);
             return false;
         }
 
