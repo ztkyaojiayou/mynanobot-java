@@ -1574,30 +1574,58 @@ RestoreState CompactSt CommandSt BuildSt  RunSt   SaveSt  RespondSt
 | `metadata` | 元数据 Map，包含 `requestId`, `streamMode`, `useSearch`, `connectionId` 等 |
 | `sessionKey` | 会话键，格式 `"{channel}:{chatId}"`，支持 `sessionKeyOverride` 覆盖 |
 
-#### 5.3.3 阶段二：MessageBus —— 异步消息总线
+#### 5.3.3 阶段二：MessageBus —— 异步消息总线（含 Outbound 发布-订阅）
 
 文件：`bus/MessageBus.java`
 
-MessageBus 是系统的**中枢神经**，采用双队列 + 生产者-消费者模式实现模块解耦：
+MessageBus 是系统的**中枢神经**，三队列架构实现完全的生产者-消费者解耦：
 
 ```
-Channel Adapters ──(publishInbound)──→ inboundQueue ──(consumeInbound)──→ AgentLoop
-AgentLoop ────────(publishOutbound)──→ sessionResponses (ConcurrentHashMap, requestId 匹配)
-                                       ↑ 已移除 outboundQueue，响应通过 Map 匹配或回调直推
+                   ┌─────────────── MessageBus ───────────────┐
+                   │                                          │
+CLI/HTTP/WS ──put──→ inboundQueue(100) ──take──→ AgentLoop   │
+                   │                               │          │
+                   │                          RunState        │
+                   │                            │ put         │
+                   │                            ▼             │
+                   │                   outboundQueue(1000)    │
+                   │                      │ dispatcher线程    │
+                   │                   ╱   │     ╲           │
+                   │                  ▼    ▼      ▼          │
+                   │              SSE Q  CLI Q   WS Q        │
+                   │              (各500)                     │
+                   │                │    │      │            │
+                   │                ▼    ▼      ▼            │
+                   │            SSE消费 CLI消费 WS消费        │
+                   │            (per-req)(perm) (perm)       │
+                   │                                          │
+                   │  sessionResponses (Map) ← sync /api/chat │
+                   └──────────────────────────────────────────┘
 ```
+
+| 队列 | 容量 | 生产者 | 消费者 | 用途 |
+|------|------|--------|--------|------|
+| **inboundQueue** | 100 | CLI/HTTP/WS 入口 | AgentLoop 单线程 | 所有用户消息异步入队 |
+| **outboundQueue** | 1000 | RunState (每个流式token) | Dispatcher daemon 线程 | 流式 token 扇出到各订阅者 |
+| **subscriberQueues** | 500/个 | Dispatcher | 各通道独立 consumer 线程 | SSE/CLI/WS 各自独立消费 |
+| **sessionResponses** | Map | RespondState | ChatController 轮询 | sync /api/chat 请求-响应匹配 |
+
+**核心API**：
 
 | 方法 | 说明 |
 |------|------|
-| `publishInbound(msg)` | 阻塞写入入站队列（`put`），队列满时阻塞等待 |
-| `consumeInbound(timeout)` | 带超时的阻塞消费，AgentLoop 主循环使用 |
-| `publishOutbound(msg)` | 阻塞写入出站队列 + 同步存入 `sessionResponses` Map |
-| `offerOutbound(msg)` | 非阻塞写入出站队列（`offer`），用于流式进度消息，队列满时静默丢弃 |
-| `waitForSessionResponse(sessionId, requestId, timeout)` | HTTP 同步模式专用：轮询 `sessionResponses` Map，按 `requestId` 精确匹配 |
+| `publishInbound(msg)` | 阻塞写入入站队列（`put`），队列满时背压阻塞 |
+| `consumeInbound(timeout)` | 带超时阻塞消费，AgentLoop 主循环使用 |
+| `publishToOutboundQueue(msg)` | RunState 发布流式 token，阻塞 `put` |
+| `subscribeToOutbound()` | 获取独立 subscriberQueue，返回 `BlockingQueue<OutboundMessage>` |
+| `unsubscribeFromOutbound(q)` | 移除订阅者（SSE 连接关闭/CLI 退出时调用） |
+| `publishOutbound(msg)` | sync /api/chat 专用：写入 sessionResponses Map |
+| `waitForSessionResponse(sid, rid, timeout)` | sync /api/chat 专用：轮询 sessionResponses 按 requestId 匹配 |
 
 **设计要点**：
-- 使用 `ArrayBlockingQueue`（有界队列），默认容量 100，防止内存溢出
-- 入站单线程消费（AgentLoop 的 daemon 线程），保证消息串行处理
-- `sessionResponses` 用 `ConcurrentHashMap<String, Queue<OutboundMessage>>` 存储，支持按 sessionId + requestId 精确匹配响应
+- 有界队列防 OOM：inbound 100、outbound 1000、subscriber 500
+- Dispatcher 用 `offer(msg, 100ms)` 扇出——某 subscriber 慢不会阻塞其他
+- AgentLoop 不持有任何消费者引用——完全通过 Queue 解耦
 
 #### 5.3.4 阶段三：AgentLoop —— 七状态状态机引擎
 
@@ -1648,12 +1676,14 @@ Provider 层封装了 LLM API 的调用细节：
 
 **DeepSeek 的 ToolCallAccumulator**：流式返回的 tool_calls 参数是碎片化的字符片段，需要累积拼接成完整 JSON 后解析。
 
-#### 5.3.7 阶段六：响应返回
+#### 5.3.7 阶段六：响应返回 —— Outbound 发布-订阅
 
-- **同步模式**：`MessageBus.publishOutbound()` → `sessionResponses` Map → `waitForSessionResponse()` 匹配
-- **流式 SSE**：`StreamResponseCallback.onStreamData()` → `SseEmitter.send()` 直推
-- **WebSocket**：`StreamResponseCallback.onStreamData()` → `Session.getBasicRemote().sendText()`
-- **CLI 终端**：`StreamResponseCallback.onStreamData()` → 经 MarkdownRenderer 后打印到终端
+流式和同步走不同路径：
+
+- **流式（SSE/CLI/WS）**：`RunState → publishToOutboundQueue → Dispatcher 扇出 → 各通道 subscriberQueue → 独立 consumer 线程 poll + 过滤 → 推送给用户`
+- **同步（/api/chat）**：`RespondState → publishOutbound → sessionResponses Map → waitForSessionResponse()` 轮询匹配
+
+详见 5.4 流式输出机制。
 
 #### 5.3.8 完整数据流示例
 
@@ -1705,7 +1735,7 @@ Provider 层封装了 LLM API 的调用细节：
 | **异步解耦** | 消息入口与 AgentLoop 通过 MessageBus 解耦，入口只负责发消息，不关心处理逻辑 |
 | **统一消息模型** | 所有渠道（CLI/HTTP/WS）转换为统一的 InboundMessage，核心引擎不感知渠道差异 |
 | **按 requestId 精确匹配** | HTTP 同步模式下，`sessionResponses` 按 sessionId → requestId 两级匹配 |
-| **流式双路径** | SSE 流走 `StreamResponseCallback` 直接推送；同步响应走 `sessionResponses` Map |
+| **流式发布-订阅** | RunState → Outbound Queue → Dispatcher 扇出 → 各通道 subscriberQueue 独立消费 |
 | **递归执行循环** | AgentRunner 用递归而非 while 循环，更自然地表达"每轮处理新消息"的语义 |
 | **单线程消费** | AgentLoop 单 daemon 线程消费入站消息，避免并发修改同一会话的 messages 列表 |
 
@@ -1720,12 +1750,28 @@ Provider 层封装了 LLM API 的调用细节：
 | **非流式** | 等 5-30 秒后一次性显示 | 低（一次 HTTP 请求） | 后台任务、API 调用 |
 | **流式** | 逐字实时显示 | 中（SSE 解析 + 回调） | 聊天、CLI、Web UI |
 
-#### 5.4.2 数据流
+#### 5.4.2 数据流（发布-订阅架构）
 
 ```
 DeepSeek API ──SSE──→ DeepSeekProvider.chatStream()
-  ├── delta.content → onDelta callback → StreamResponseCallback → 前端
-  └── delta.tool_calls → ToolCallAccumulator 累积 → 完整 JSON
+  │
+  └── delta.content → onDelta callback
+        │
+        └── RunState: OutboundMessage 包装
+              │
+              └── MessageBus.publishToOutboundQueue()
+                    │
+                    └── Dispatcher 扇出到各 subscriberQueue
+                          │
+                    ┌─────┼─────┐
+                    ▼     ▼     ▼
+                 SSE Q  CLI Q  WS Q
+                  │      │      │
+               consumer consumer consumer
+               (独立线程)(独立线程)(独立线程)
+                  │      │      │
+               emitter  stdout  WebSocket
+               .send()  .print  .sendText()
 ```
 
 #### 5.4.3 关键组件
@@ -1734,8 +1780,9 @@ DeepSeek API ──SSE──→ DeepSeekProvider.chatStream()
 |------|------|
 | `DeepSeekProvider.chatStream()` | 发送流式请求，逐行读 SSE |
 | `ToolCallAccumulator` | 按 index 累积碎片化 tool_calls 参数 → 构建完整 JSON |
-| `RunState.buildOnDelta()` | 创建 delta 回调：SSE 直推 + MessageBus.offerOutbound() |
-| `StreamResponseCallback` | 接口：`onStreamData(sessionId, requestId, content)` |
+| `RunState.buildOnDelta()` | 每个 token 包装为 OutboundMessage → `publishToOutboundQueue()` |
+| `MessageBus.dispatcher` | daemon 线程：从 outboundQueue poll → 逐个 offer 到各 subscriberQueue |
+| `subscriberQueue` | 每个通道独立持有，消费者线程 poll 消费 |
 
 #### 5.4.4 DeepSeek 流式参数特殊性
 
@@ -1749,6 +1796,71 @@ DeepSeek 的流式 tool_calls 参数是**逐个字符返回**的：
 ```
 
 `ToolCallAccumulator` 按 index 将参数片段追加到 `StringBuilder`，流结束后解析完整 JSON 构建 `ToolCall` 对象。
+
+#### 5.4.5 架构演进：回调模式 → 发布-订阅 ★
+
+> 本节记录了一次重要的架构升级——从"AgentLoop 持有回调列表遍历广播"到"MessageBus Outbound Queue 扇出 Pub-Sub"。
+
+**旧架构（回调模式，v1）**：
+
+```
+AgentLoop.streamResponseCallbacks (CopyOnWriteArrayList)
+  │
+  │  RunState.buildOnDelta():
+  │    for (callback : callbacks) {
+  │      callback.onStreamData(sessionId, requestId, delta);  // 同步遍历
+  │    }
+  │
+  ├── SSE callback (每请求注册/注销)
+  ├── CLI callback (常驻)
+  └── WS callback (常驻)
+```
+
+**新架构（发布-订阅，v2，当前）**：
+
+```
+RunState → publishToOutboundQueue(delta)
+  │
+  ▼
+outboundQueue(1000) → dispatcher daemon → 扇出到各 subscriberQueue
+  │
+  ├── SSE subscriber queue → consumer thread → emitter.send()
+  ├── CLI subscriber queue → consumer thread → System.out.print()
+  └── WS subscriber queue  → consumer thread → session.sendText()
+```
+
+**对比**：
+
+| 维度 | 回调模式（旧） | 发布-订阅（新） |
+|------|--------------|---------------|
+| **AgentLoop 感知消费者** | 是——持有 callback 列表 | 否——只 put Queue |
+| **新增通道成本** | 改 AgentLoop 代码 + 注册回调 | 订阅 subscriberQueue 即可 |
+| **消费者错误隔离** | 一个回调抛异常影响后续遍历 | 完全隔离，dispatcher 内部 try/catch |
+| **背压** | 无——慢回调拖慢所有消费者 | 有——subscriberQueue 满时丢弃该订阅者消息 |
+| **内存管理** | SSE 需手动 removeCallback | unsubscribe + 终止线程即可 |
+| **耦合度** | 高——AgentLoop ↔ 具体消费者 | 低——AgentLoop ↔ Queue ↔ 消费者 |
+| **可测试性** | 需 mock AgentLoop | 独立测试 subscriberQueue 消费逻辑 |
+| **延迟** | 约 0μs（直接内存调用） | 约 2-20μs（两次 put + 唤醒） |
+| **LLM token 间隔** | 20-100ms | 20-100ms（Queue 开销可忽略） |
+
+**为什么升级？**
+
+1. **设计一致性**：MessageBus 的 Inbound 已经是 Queue 模式（生产者-消费者），Outbound 却用回调——不伦不类。统一为 Queue 模式让架构更清晰。
+
+2. **AgentLoop 职责单一化**：AgentLoop 的核心是"处理消息的状态机"，不是"管理流式订阅者"。删除 50+ 行回调管理代码后，AgentLoop 更聚焦。
+
+3. **与 Python 原版对齐**：港大 nanobot-python 的 MessageBus 本就是 Inbound+Outbound 完整总线设计。Java 版最初移除 Outbound 是因为只有同进程消费者，但由此引入了回调耦合。恢复 Outbound 的同时用 Fan-Out 解决了"多消费者不能共享 BlockingQueue"的问题。
+
+4. **为未来通道做铺垫**：如果将来要接 Telegram/Discord Adapter，新架构下只需 `subscribeToOutbound()` + 启动 consumer 线程，完全不用动 AgentLoop。
+
+**适用场景判断**：
+
+| 场景 | 推荐模式 | 原因 |
+|------|---------|------|
+| 同进程、消费者稳定（1-3个） | 发布-订阅 | 解耦清晰，开销可忽略 |
+| 同进程、消费者频繁变化（每次请求新建） | 发布-订阅 | unsubscribe 自动清理，无泄漏 |
+| 极高吞吐（10万+ token/s） | 回调 | 避免 Queue 开销（但 Agent 场景不存在） |
+| 分布式（消费者在独立进程） | 发布-订阅 + 外部 MQ | Queue 可替换为 Redis/Kafka |
 
 ---
 
