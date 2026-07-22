@@ -22,12 +22,50 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Chat REST API Controller
- * <p>
- * 提供 REST API 接口：
- * - POST /api/chat - 同步聊天（简化为仅返回确认）
- * - POST /api/chat/stream - 流式聊天（SSE）
- * - GET /api/health - 健康检查
+ * Chat REST API Controller — 用户与 Agent 之间的 HTTP 桥梁.
+ *
+ * <h2>两种通信模式</h2>
+ * <b>同步模式 (POST /api/chat)</b>：
+ * 发消息到 MessageBus → 阻塞等待 Outbound Queue 中的完整响应 → 返回 JSON.
+ * WebSocket 预检等场景使用.
+ *
+ * <b>流式模式 (POST /api/chat/stream) — SSE</b>：
+ * 发消息到 MessageBus → 注册 StreamResponseCallback 到 AgentLoop →
+ * LLM 每吐一个 token，AgentLoop 广播给所有回调 → 回调自行过滤匹配后
+ * 通过 SSE emitter 推送给前端. 关键：流式数据<b>不走 Outbound Queue</b>，
+ * 而是 AgentLoop 直接遍历回调列表内存调用.
+ *
+ * <h2>流式广播架构（"广播电台"模式）</h2>
+ * <pre>
+ *   AgentLoop (广播电台)
+ *     │
+ *     │  遍历所有 StreamResponseCallback
+ *     │  逐个调用 onStreamData(sessionId, requestId, delta)
+ *     │
+ *     ├── callback-1: "我的 sid=abc, rid=123" → sId匹配? → 是 → emitter.send()
+ *     ├── callback-2: "我的 sid=xyz, rid=456" → sId匹配? → 否 → 忽略
+ *     └── callback-3: "..."                       → no match  → 忽略
+ * </pre>
+ *
+ * AgentLoop 不做过滤，全部广播。每个回调自行比对 sessionId + requestId，
+ * 只把自己请求的 token 推给对应的 SSE 连接。代价是 O(n) 遍历，
+ * 但实际场景中同时活跃的 SSE 连接一般不超过两位数，完全够用.
+ *
+ * <h2>回调生命周期</h2>
+ * <pre>
+ *   streamChat() 被调用
+ *     → new SseEmitter(5min timeout)
+ *     → new StreamResponseCallback(sessionId, requestId)
+ *     → agentLoop.addStreamResponseCallback(callback)  // 注册
+ *     → messageBus.publishInbound(message)              // 发消息
+ *     → return emitter                                  // Spring 持有 SSE 连接
+ *
+ *   LLM 开始流式输出
+ *     → onStreamData() 被反复调用（每个 token 一次）
+ *
+ *   流结束 / 超时 / 报错
+ *     → agentLoop.removeStreamResponseCallback(callback)  // 清理，防止僵尸回调堆积
+ * </pre>
  */
 @RestController
 @RequestMapping("/api")
@@ -112,9 +150,16 @@ public class ChatController {
     }
 
     /**
-     * 流式聊天接口（SSE）
-     * <p>
-     * 通过 Server-Sent Events 实时推送 LLM 响应
+     * 流式聊天接口 (SSE).
+     *
+     * 三步走：
+     * <ol>
+     *   <li>创建 SSE emitter + StreamResponseCallback（带 sessionId/requestId 匹配逻辑）</li>
+     *   <li>注册回调到 AgentLoop（LLM 输出时广播触发）</li>
+     *   <li>发送 InboundMessage 到 MessageBus（AgentLoop 异步消费）</li>
+     * </ol>
+     *
+     * 连接结束（超时/完成/报错）时自动从 AgentLoop 移除回调，防止僵尸回调堆积.
      */
     @RequestMapping(value = "/chat/stream",
             produces = MediaType.TEXT_EVENT_STREAM_VALUE)
