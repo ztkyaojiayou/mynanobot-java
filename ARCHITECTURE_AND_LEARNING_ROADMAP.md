@@ -1632,12 +1632,15 @@ CLI/HTTP/WS ──put──→ inboundQueue(100) ──take──→ AgentLoop  
 
 | 层级 | 清理机制 | 时效 |
 |------|---------|------|
-| outboundQueue | dispatcher `poll()` 取走即删 | ≤1s |
-| subscriberQueue | consumer `poll()` 取走即删 | ≤500ms |
+| outboundQueue | dispatcher `poll()` 移除引用 | ≤1s |
+| subscriberQueue | consumer `poll()` 移除引用 | ≤500ms |
 | 零订阅者 | `publishToOutboundQueue` 直接 return | 即时 |
-| unsubscribe | Queue 引用移除，GC 回收残留消息 | 即时 |
+| unsubscribe | Queue 引用移除，GC 回收残留 | 即时 |
+| msg 对象本身 | 所有 Queue 释放引用后 GC 回收 | 取决于 GC |
 | sessionResponses 正常 | `waitForSessionResponse` 匹配后 `it.remove()` | 即时 |
 | sessionResponses 残留 | cleanup daemon 每 2 分钟清理 >5min 条目 | ≤7min |
+
+> 注：Queue 之间传递的是对象引用，不是拷贝。outboundQueue.poll() 只是将引用从队列数组中移除——msg 对象本身仍在堆上，被 dispatcher 局部变量、各 subscriberQueue 依次持有。整个过程只有一份数据。
 
 #### 5.3.4 阶段三：AgentLoop —— 七状态状态机引擎
 
