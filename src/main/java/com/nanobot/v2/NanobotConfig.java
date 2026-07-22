@@ -6,7 +6,6 @@ import com.nanobot.config.ConfigLoader;
 import com.nanobot.core.AgentLoop;
 import com.nanobot.core.TaskStore;
 import com.nanobot.core.subagent.AgentCoordinator;
-import com.nanobot.cron.CronScheduler;
 import com.nanobot.identity.IdentityManager;
 import com.nanobot.mcp.MCPManager;
 import com.nanobot.memory.Consolidator;
@@ -216,10 +215,6 @@ public class NanobotConfig {
      * 记忆压缩器 — 对话 token 数超过 contextWindowTokens 的 90% 时触发压缩。
      * 使用 LLM 将旧消息总结为 system 消息，防止上下文窗口溢出。
      */
-    /**
-     * 定时任务调度器 — 基于 cron 表达式的任务调度。
-     * 可在任何地方注入后调用 scheduler.schedule("0 * * * *", task) 注册任务。
-     */
     /** 子 Agent 协调器 — 管理子 Agent 的注册、分配、执行 */
     @Bean
     public AgentCoordinator agentCoordinator(LLMProvider llmProvider,
@@ -236,11 +231,6 @@ public class NanobotConfig {
                 java.util.Map.of("calculation", true));
         coordinator.startAll();
         return coordinator;
-    }
-
-    @Bean
-    public CronScheduler cronScheduler(MessageBus messageBus) {
-        return new CronScheduler(messageBus);
     }
 
     @Bean
