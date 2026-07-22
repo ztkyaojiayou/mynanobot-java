@@ -30,9 +30,13 @@ public class ResumeCommand implements Command {
         //提取命令中的参数，对于命令的处理其实就当做是一个接口请求即可！
         String arg = input.length() > 7 ? input.substring(8).trim() : "";
         if (!arg.isEmpty()) {
-            // 恢复到指定会话
+            // 校验会话是否存在
+            if (sm.loadHistory(arg).isEmpty()) {
+                System.out.println("会话不存在: " + arg + "（输入 /resume 查看可用会话）");
+                return false;
+            }
             System.out.println("已切换到会话: " + arg + "（发送新消息将恢复上下文）");
-            onResume.accept(arg); // 通知 CliChannel 更新 sessionId
+            onResume.accept(arg);
             return false;
         }
 
