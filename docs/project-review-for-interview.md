@@ -1,7 +1,7 @@
 # Nanobot-Java —— 手搓AI Agent项目总结文档
 
 > **项目定位*：从零自研的 Java版AI Agent 运行时基础设施（非 LangChain 套壳，无SpringAI框架），参考港大 Nanobot 架构
-> 并融合 Claude Code 设计理念。130 源文件，~27,000 行 Java 代码，通过claudecode+deepseek+vibe-coding 1人独立完成。
+> 并融合 Claude Code 设计理念。129 源文件，~27,000 行 Java 代码，通过claudecode+deepseek+vibe-coding 1人独立完成。
 
 ---
 
@@ -14,7 +14,7 @@
 - **消息总线**：异步生产者-消费者模式，解耦 LLM 调用与通道接入
 - **工具注册中心**：27 个工具的注册、发现、执行、权限校验统一入口
 - **四步安全管道**：Hook → Guards × 3 → RuleEngine → PermissionMode，纵深防御
-- **流式引擎**：一份 onDelta 数据流，SSE/WebSocket/CLI 多渠道并发订阅
+- **流式引擎**：Fan-Out Pub-Sub，RunState → outboundQueue → Dispatcher 扇出，SSE/WebSocket/CLI 三通道独立消费
 
 ### 1.2 异步消息总线 —— 架构级亮点
 
@@ -37,11 +37,11 @@ HTTP 请求 → 阻塞等 LLM → 返回结果
                     └──────┬───────┘
                            │
                  ┌─────────┴─────────┐
-                 │  StreamResponse   │
-                 │    Callbacks      │
+                 │  Fan-Out Pub-Sub  │
+                 │  (Dispatcher扇出)  │
                  ├───────────────────┤
                  │ SSE  → emitter    │
-                 │ WS   → session    │
+                 │ WS   → sendText   │
                  │ CLI  → stdout     │
                  │ sync → sessionRes │
                  └───────────────────┘
@@ -51,7 +51,7 @@ HTTP 请求 → 阻塞等 LLM → 返回结果
 - **天然多通道**：核心代码写一次，四通道复用。加 Telegram/Discord 只需 ~60 行适配器
 - **生产者-消费者解耦**：HTTP 线程发完消息即刻返回，不阻塞 Tomcat 线程池
 - **sessionResponses 精确匹配**：异步模式下多请求并发不乱序，requestId 精确路由响应
-- **streamResponseCallbacks 观察者列表**：一份流式数据推给所有订阅者，CopyOnWriteArrayList 保证并发安全
+- **Fan-Out Pub-Sub**：RunState 只 put 到 outboundQueue，Dispatcher daemon 扇出到各通道独立 subscriberQueue，零数据复制，背压自然限速
 
 这和 Claude Code 的架构理念一致——消息总线是 Agent 框架从"单体"走向"分布式"的关键基础设施。
 
@@ -85,7 +85,7 @@ RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE
 |------|------|------|
 | **状态机模式** | 对话生命周期管理 | `AgentLoop` 8 状态枚举 |
 | **生产者-消费者** | 消息入队/出队解耦 | `MessageBus` + `AgentLoop` |
-| **观察者模式** | 流式输出多渠道订阅 | `StreamResponseCallback` 列表 |
+| **发布-订阅模式** | 流式输出多渠道分发 | `MessageBus` Fan-Out Dispatcher |
 | **管道/责任链** | 四步权限检查 | `PermissionManager.check()` |
 | **策略模式** | 子Agent分配策略 | `AgentCoordinator` DIRECT/CAPABILITY/ROUND_ROBIN/PARALLEL |
 | **工厂模式** | ToolResult 创建 | `ToolResult.ok()` / `ToolResult.err()` / `ToolResult.wrap()` |
@@ -98,7 +98,7 @@ RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE
 
 **可扩展性设计**：
 - **加新工具**：实现 Tool 接口 or 方法级 @ToolDef 注解 → 自动注册
-- **加新通道**：实现 ~60 行适配器 + `addStreamResponseCallback()` → 零改动核心
+- **加新通道**：实现 ~60 行适配器 + `messageBus.subscribeToOutbound()` → 零改动核心
 - **加新安全策略**：实现 Guard 接口 or 注册 Rule → 管道自动编排
 - **加新 LLM Provider**：实现 LLMProvider 接口 → AgentRunner 透明切换
 - **加新记忆类型**：扩展 Dream/MemoryLoader → 系统提示词自动注入
@@ -134,12 +134,12 @@ RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE
 
 **修复过程**（5 项改动，逐层解决）：
 - `spring.mvc.async.request-timeout=300000` → 解决 30s 截断
-- `onTimeout` 中也调用 `removeStreamResponseCallback` → 解决僵尸 callback
+- `onTimeout`/`onCompletion` 中 `unsubscribeFromOutbound()` → 解决僵尸 subscriberQueue
 - `messageExecutor` 线程池异步处理 → 解决主循环阻塞
 - 消除双 AgentLoop，`@Autowired` 统一注入 → 解决竞争消费
-- `CopyOnWriteArrayList` 多回调列表 + 快照迭代 → 解决 SSE/WS 互相覆盖
+- Fan-Out Pub-Sub（Dispatcher + CopyOnWriteArrayList subscriberQueues）→ 解决 SSE/WS 互相覆盖
 
-**工程亮点**：写了 `StreamCallbackLifecycleTest` 自动化测试，模拟连续 3 轮 SSE 流式对话验证修复。
+**工程亮点**：`StreamCallbackLifecycleTest` 全面改写为 Pub-Sub 模式，模拟双订阅者并发 + unsubscribe 清理验证修复。
 
 ### 难点 2：四步权限管道设计 —— 可扩展的安全模型
 
@@ -168,7 +168,7 @@ PreToolUse Hook → Guards(PathGuard/CommandGuard/NetworkGuard) → RuleEngine(d
 - ❌ 把流式数据写入 MessageBus 出站队列 → 早高峰消息堆积
 - ✅ 回调列表模式 → 通道注册回调，核心只遍历通知
 
-**最终方案**：`StreamResponseCallback` 接口 + `CopyOnWriteArrayList` 列表。doRun() 中一份 onDelta 数据遍历回调列表逐个通知，sessionId+requestId 双重匹配防串话。加新通道只需 3 行 addCallback。
+**最终方案**：Fan-Out Pub-Sub 架构。RunState 通过 `publishToOutboundQueue()` 发布每个流式 token 到 `outboundQueue(1000)`，Dispatcher daemon 线程扇出到 `CopyOnWriteArrayList` 管理的各 subscriberQueue。SSE/CLI/WS 各通道独立 poll 自己的队列，按 sessionId+requestId 过滤。零数据复制（同一份 msg 引用），背压逐层传递（subscriberQueue → outboundQueue → TCP）。加新通道只需 3 行 subscribe。
 
 ### 难点 4：工具失败降级 —— 防止 LLM 无限重试
 
@@ -334,7 +334,7 @@ Agent 的核心循环是 `LLM → tool_calls → 执行 → 结果回注 → LLM
 
 **潜在问题**：如果在 `onDelta` 中做重操作（如写文件、调外部 API），会阻塞流式接收，用户看到卡顿。
 
-**方案**：`onDelta` 只做轻量操作——追加到 StringBuilder 或调用 `StreamResponseCallback.onStreamData()`（各通道的输出端）。所有重操作（权限检查、文件写入）在 `runner.run()` 返回后统一处理。
+**方案**：`onDelta` 只做轻量操作——调用 `messageBus.publishToOutboundQueue()` 发到队列（publish端只管 put，剩下的 Dispatcher 异步扇出）。所有重操作（权限检查、文件写入）在 `runner.run()` 返回后统一处理。
 
 ### 难点 12：Skills 渐进式加载 —— 对标 Claude Code 的 use_skill 元工具
 
@@ -382,7 +382,7 @@ Agent 的核心循环是 `LLM → tool_calls → 执行 → 结果回注 → LLM
 | 异步消息总线   | MessageBus（ArrayBlockingQueue + ConcurrentHashMap），生产者/消费者解耦 |
 | 8 状态状态机  | RESTORE→COMPACT→COMMAND→BUILD→RUN→SAVE→RESPOND→DONE          |
 | LLM 调用循环 | AgentRunner.runInternal() 递归，支持 tool_calls 自动迭代              |
-| 流式输出     | DeepSeek SSE → onDelta → StreamResponseCallback 列表广播         |
+| 流式输出     | DeepSeek SSE → onDelta → outboundQueue → Dispatcher 扇出 → SSE/CLI/WS 三通道 |
 | 并行工具执行   | 只读工具线程池并发，写工具保持顺序，结果数组保证有序                                   |
 
 ### 3.2 工具系统（27 个）
@@ -416,7 +416,7 @@ Agent 的核心循环是 `LLM → tool_calls → 执行 → 结果回注 → LLM
 | 通道        | 技术                                                         |
 | --------- | ---------------------------------------------------------- |
 | HTTP REST | POST /api/chat, sessionResponses + requestId 精确匹配          |
-| SSE 流式    | POST /api/chat/stream, SseEmitter + StreamResponseCallback |
+| SSE 流式    | POST /api/chat/stream, SseEmitter + subscriberQueue poll |
 | WebSocket | @ServerEndpoint /ws, onMessage → publishInbound → callback |
 | CLI       | 类 Claude Code，Markdown 彩色渲染，当前目录即工作区                       |
 
@@ -465,7 +465,7 @@ Agent 的核心循环是 `LLM → tool_calls → 执行 → 结果回注 → LLM
 **核心实现阶段**：
 
 - 实现 AgentRunner LLM 递归调用循环（工具调用 → 执行 → 结果回注 → 递归直到纯文本）
-- 实现 StreamResponseCallback 回调列表机制，一份流式数据 SSE/WS/CLI 三通道并发消费
+- 实现 Fan-Out Pub-Sub 流式分发，RunState → outboundQueue → Dispatcher 扇出，SSE/WS/CLI 三通道独立消费
 - 实现 Consolidator 上下文压缩器（token 超 90% 预算 → LLM 自动总结旧消息）
 - 实现 27 个工具，包括 EditFile 唯一性校验（对齐 Claude Code）、Exec stderr 分离、ReadFile 分页
 
@@ -492,9 +492,9 @@ Agent 的核心循环是 `LLM → tool_calls → 执行 → 结果回注 → LLM
 
 **工程指标**：
 
-- 117 个源文件，~26,000 行 Java 代码
-- 27 个工具，4 种权限模式，4 种交互通道
-- 异步消息总线支持 HTTP/SSE/WebSocket/CLI 四种通道，核心代码零重复
+- 129 个源文件，~27,000 行 Java 代码
+- 18+ 内置工具 + @ToolDef 注解扫描 + MCP 动态工具，4 种权限模式，4 种交互通道
+- 异步消息总线 Fan-Out Pub-Sub 支持 HTTP/SSE/WebSocket/CLI 四种通道，核心代码零重复
 
 **技术成果**：
 
@@ -749,14 +749,16 @@ ToolRegistry.execute()  ← 唯一切入点，所有工具必经
 DeepSeek SSE → provider.chatStream(messages, tools, onDelta)
      │
      ▼
-  onDelta.accept(delta)
-     │
+  onDelta.accept(delta) → RunState.publishToOutboundQueue(msg)
+     │                       → outboundQueue.put(msg)  [背压: 队列满阻塞]
      ▼
-  AgentLoop 遍历 activeCallbacks（CopyOnWriteArrayList）
+  MessageBus-dispatcher daemon 线程
+     │  poll outboundQueue(1s) → 遍历 subscriberQueues (CopyOnWriteArrayList)
+     │  offer(msg, 100ms) → 队列满时丢弃该订阅者，不影响其他通道
      │
-     ├── CLI:  System.out.print(MarkdownRenderer.renderStreaming(delta))
-     ├── SSE:  emitter.send(SseEmitter.event().data(delta))
-     └── WS:   session.getBasicRemote().sendText(json)
+     ├── SSE-consumer:  poll subscriberQueue → emitter.send(delta)
+     ├── CLI-consumer:  poll subscriberQueue → System.out.print(delta)
+     └── WS-consumer:   poll subscriberQueue → session.sendText(json)
 ```
 
 #### 核心扩展点
@@ -770,7 +772,7 @@ DeepSeek SSE → provider.chatStream(messages, tools, onDelta)
 | 定时任务        | CronScheduler                             | cron 表达式解析 + 调度              |
 | @ToolDef 注解 | ToolScanner 类路径扫描                         | 方法级注解自动注册                    |
 | LLM 双后端     | LLMProvider 接口                            | DeepSeek + OpenAI 统一适配       |
-| Channel 适配  | MessageBus + StreamResponseCallback       | HTTP/SSE/WS/CLI 零重复代码        |
+| Channel 适配  | MessageBus Fan-Out Pub-Sub                | HTTP/SSE/WS/CLI 零重复代码        |
 
 
 ## 七、三维度总览图
@@ -823,9 +825,9 @@ LLM调用不是简单的 input→output，一次对话需7+步骤。揉在一个
 
 PreToolUse Hook→Guards→RuleEngine→PermissionMode，每层独立编址，PermissionManager 串联。不同环节有不同短路语义（Hook deny 短路、Guard 抛异常、Rule 优先级匹配），不是简单 if-else 链。
 
-### 8.3 观察者模式 —— 流式多渠道订阅
+### 8.3 发布-订阅模式 —— 流式多渠道分发
 
-StreamResponseCallback 接口 + CopyOnWriteArrayList 回调列表。doRun() 中一份 onDelta 遍历回调列表逐个通知。加通道只需 3 行 addCallback，核心零改动。CopyOnWriteArrayList 解决迭代期间 SSE 断连删除回调的并发问题。
+MessageBus Fan-Out Pub-Sub：RunState 发布到 outboundQueue，Dispatcher daemon 扇出到各 subscriberQueue（CopyOnWriteArrayList 管理）。SSE/CLI/WS 各自独立 poll，互不干扰。同一份 msg 引用零数据复制。COW 让 dispatcher 遍历时无锁，offer() 而非 put() 确保慢消费者只丢自己的消息。
 
 ### 8.4 策略模式 —— 子Agent分配
 
@@ -850,3 +852,306 @@ ToolResult.ok()/err()/wrap() 工厂方法根据结果自动标记 [TOOL_OK]/[TOO
 ### 8.9 注册表模式 —— @ToolDef 注解扫描
 
 ToolScanner 类路径扫描 + ToolRegistry.register()，对标 Spring 的 @ComponentScan 理念。支持 implements Tool（复杂工具）和 @ToolDef 方法注解（简单工具）两种注册方式共存。
+
+---
+
+## 九、并发控制深度解析（核心问题篇）
+
+> 面试官常追问："你们项目中有哪些并发场景？怎么处理的？为什么这样选？"
+> 本章逐场景分析所有并发控制，每个场景回答三个问题：**为什么需要、不用会怎样、为什么选这个方案**。
+
+### 9.1 并发架构全景
+
+```
+                          ┌─────────────────────────────┐
+                          │    HTTP 线程池 (~200)        │
+                          │    WebSocket / CLI 线程      │
+                          └─────────────┬───────────────┘
+                                        │ publishInbound()
+                                        ▼
+                          ┌─────────────────────────────┐
+                          │   ArrayBlockingQueue(100)   │  有界阻塞 (防 OOM)
+                          │         inboundQueue        │  生产者阻塞 = 背压
+                          └─────────────┬───────────────┘
+                                        │ consumeInbound(1s)
+                                        ▼
+                          ┌─────────────────────────────┐
+                          │  AgentLoop daemon 线程       │  单线程消费
+                          │  → submit 到 worker 池       │
+                          └─────────────┬───────────────┘
+                                        │
+                          ┌─────────────▼───────────────┐
+                          │  AgentLoop-worker ×4 线程池  │  异步 8 状态机
+                          └──┬──────────────────────┬───┘
+                             │                      │
+              流式 token 发布│                      │最终响应
+                             ▼                      ▼
+                ┌────────────────────┐   ┌─────────────────────┐
+                │  outboundQueue     │   │  sessionResponses   │
+                │  ABQ(1000)         │   │  ConcurrentHashMap  │
+                └────────┬───────────┘   └─────────────────────┘
+                         │
+                ┌────────▼───────────┐
+                │ Dispatcher daemon  │  Fan-Out：同一份引用扇出
+                │ CopyOnWriteArray   │  零数据复制
+                │ List subscriberQs  │
+                └──┬───────┬──────┬──┘
+                   │       │      │
+          ┌────────▼─┐ ┌──▼───┐ ┌▼──────────┐
+          │SSE-consumer│ │CLI-  │ │WS-consumer│  各通道独立 poll
+          └────────────┘ └──────┘ └───────────┘
+```
+
+**核心简化策略**：单线程消费入站队列 → 同一会话不会并发处理 → 消除了最复杂的并发场景。
+
+### 9.2 线程清单
+
+| 线程名 | 数量 | 类型 | 职责 |
+|--------|------|------|------|
+| `AgentLoop` | 1 | 长驻 daemon | poll inboundQueue(1s) → submit worker |
+| `AgentLoop-worker` | 4 | 线程池 | 异步处理 8 状态机 |
+| `MessageBus-dispatcher` | 1 | 长驻 daemon | poll outboundQueue → 扇出 |
+| `MessageBus-cleanup` | 1 | 长驻 daemon | 每 2min 清理过期 sessionResponses |
+| `SSE-consumer-{uuid}` | 每连接 | 短命 | poll subscriberQueue → emitter.send() |
+| `CLI-consumer` | 1 | 长驻 daemon | poll subscriberQueue(500ms) → stdout |
+| `WS-consumer` | 1 | 长驻 daemon | poll subscriberQueue(1s) → sendText() |
+| `ToolExecutor` | cpu×2 + 4 | 线程池 | 并行执行工具调用 |
+| `Subagent-{id}` | 每 Agent 1 | 长驻 daemon | 子 Agent 独立运行 |
+
+一条用户消息从到达到响应，经过 **4-5 个线程边界**。每个边界都有明确目的（解耦、隔离、缓冲），不是随意跨线程。
+
+### 9.3 MessageBus — 三队列 + Fan-Out Pub-Sub
+
+**并发原语**：`ArrayBlockingQueue(100)` + `ArrayBlockingQueue(1000)` + `ConcurrentHashMap` + `CopyOnWriteArrayList` + `AtomicBoolean`
+
+**为什么用 ArrayBlockingQueue 而不是 LinkedBlockingQueue？**
+
+| | ArrayBlockingQueue | LinkedBlockingQueue |
+|------|------|------|
+| 容量 | 必须指定（100/1000） | 可无界 → OOM 风险 |
+| 内存 | 预分配数组，无 GC 压力 | 节点动态分配 |
+| 锁 | 一把锁 | 两把锁（多余，只有 1 消费者） |
+
+选择理由：**有界防 OOM**。队列满时 `put()` 阻塞生产者，形成自然背压。
+
+**Fan-Out Pub-Sub（流式分发核心）**：
+
+```
+RunState → publishToOutboundQueue(msg) → outboundQueue.put(msg)
+  → Dispatcher daemon poll(1s) → 遍历 subscriberQueues (COW)
+    → offer(msg, 100ms)  // 非阻塞，队列满丢弃该订阅者
+      → SSE-consumer / CLI-consumer / WS-consumer 各自 poll
+```
+
+**为什么 Fan-Out？** `BlockingQueue.take()` 是破坏性消费——一条消息只能一个消费者取走。三通道都需要同一条流式数据，必须各有独立队列。Dispatcher 同一份引用扇出，零数据复制。
+
+**零订阅者守护**：`subscriberQueues.isEmpty()` 时直接 return，防止 outboundQueue 积压后 `put()` 阻塞 RunState → 整个 AgentLoop 卡死。
+
+**`waitForSessionResponse` 的精确匹配**：sync HTTP 模式下，`sessionResponses` (CHM) 中按 `requestId` 轮询匹配。用 `Iterator.remove()` 原子取走，防止并发重复消费。Cleanup daemon 每 2 分钟清理超 5min TTL 的残留条目。
+
+### 9.4 SessionManager — 每会话独立锁
+
+**并发原语**：`ConcurrentHashMap<String, Object>` + `synchronized(lock(sessionKey))`
+
+```java
+// 每会话独立锁 — 粒度最优
+private Object lock(String sessionKey) {
+    return sessionLocks.computeIfAbsent(sessionKey, k -> new Object());
+}
+
+public void saveHistory(String sessionKey, List<Map<String, Object>> messages) {
+    synchronized (lock(sessionKey)) {
+        store.saveHistory(sessionKey, messages);
+    }
+}
+```
+
+**为什么每会话独立锁？** 不同会话的读写完全无关，全局锁会让它们互相阻塞。`synchronized(lock(sessionKey))` 让 session-A 和 session-B 完全并行。
+
+**为什么锁的是 `new Object()` 而不是 sessionKey 字符串？** String 的 `intern()` 机制可能导致不同来源的相同字符串指向同一 JVM 对象——可能和无关代码共享锁。
+
+**`computeIfAbsent` 的原子性**：两线程同时调 `lock("same-key")`，CHM 保证只有一个 `new Object()` 被执行。
+
+### 9.5 SessionStore — 故意不用 ConcurrentHashMap
+
+```java
+// SessionStore 用普通 HashMap，不加锁
+private final Map<String, Path> dirCache = new HashMap<>();
+```
+
+**为什么敢用 HashMap？** SessionStore 所有 public 方法都**只在 SessionManager 的 `synchronized` 块内被调用**。锁在业务层，存储层保持简单。
+
+**设计原则**：不是所有共享数据都需要自己加锁。调用方已保证单线程访问时，被调用方不需要重复保护。过度同步降低性能且让代码更难理解。
+
+### 9.6 AgentLoop — final 不可变 = 天然线程安全
+
+**并发原语**：`AtomicBoolean running` + `volatile boolean planMode`
+
+**为什么 State Handler 用 `final` 字段 + 重建，而不是 setter？**
+
+```java
+// setDream/setConsolidator 不直接 set 字段，而是重建整个 State Handler：
+public void setDream(Dream d) {
+    this.dream = d;
+    stateHandlers.put(TurnState.SAVE, new SaveState(sessionManager, d));
+    stateHandlers.put(TurnState.BUILD, new BuildState(..., d, ...));
+    stateHandlers.put(TurnState.COMMAND, new CommandState(..., d, ...));
+}
+```
+
+`final` + 不可变 = 天然线程安全。重建的开销极小（只在启动时执行一次），换来了每个 State 内部完全不需要考虑并发。`stateHandlers` (EnumMap) 运行时只读，无并发写。
+
+**`volatile boolean planMode`**：BuildState 通过 `() -> planMode` 闭包访问，不同 worker 线程间切换模式时保证立即可见。
+
+### 9.7 AgentRunner — CompletableFuture 链式异步
+
+```java
+provider.chatStream(messages, tools, onDelta)  // 非阻塞返回 Future
+    .thenCompose(response -> {
+        if (response.hasToolCalls())
+            return executeTools(...).thenCompose(results -> runInternal(...));
+        return CompletableFuture.completedFuture(response.getContent());
+    });
+```
+
+**为什么异步？** LLM 调用 5-30 秒。同步阻塞会占满 worker 池（只有 4 线程）。异步让 worker 提交请求后立即释放。
+
+**并行工具执行**：`CompletableFuture.allOf(futures)` 等待多个工具并行执行完成。AgentRunner 和 ToolRegistry 双层线程池隔离，防止工具调用爆炸。
+
+**onDelta 线程安全**：HTTP IO 线程中只做 `publishToOutboundQueue()` (put 到队列)，真正的扇出由 Dispatcher 异步完成。IO 线程不阻塞。
+
+### 9.8 TurnContext — volatile + 防御性拷贝
+
+| 字段 | 类型 | 为什么 |
+|------|------|--------|
+| `finalContent` | volatile | SaveState 写，RespondState 读（可能不同 worker 线程） |
+| `cancelled` | volatile | Esc 中断线程写，RunState 读 |
+| `error` | volatile | AgentRunner 写，RespondState 读 |
+| `iteration` | AtomicInteger | 需要原子自增（`incrementAndGet()`） |
+
+**防御性拷贝**：`getMessages()` 返回 `new ArrayList<>(messages)`，外部修改不影响内部状态。TurnContext 是"值对象"——只能通过 setter 修改，不能通过返回的引用偷改。
+
+### 9.9 Dream — 双 CHM + 增量节流
+
+```java
+private final Map<String, MemoryEntry> memories = new ConcurrentHashMap<>();
+private final Map<String, Integer> lastExtractionCharCount = new ConcurrentHashMap<>();
+```
+
+- `memories`：跨会话共享的长期记忆库，SaveState 写 + BuildState 读，CHM 分段锁解决并发
+- `lastExtractionCharCount`：每 session 的提取进度，`getOrDefault + put` 之间不原子，但**可接受的不精确**——跳过一次提取比重复提取的代价小得多
+
+### 9.10 ToolRegistry — volatile 缓存 + 并行执行器
+
+**volatile 缓存模式**：
+
+```java
+private volatile List<JsonNode> cachedDefinitions = null;
+
+public List<JsonNode> getDefinitions(boolean readOnly) {
+    if (cachedDefinitions != null) return filterByReadOnly(cachedDefinitions, readOnly);
+    List<JsonNode> defs = tools.values().stream().map(this::toDefinition).toList();
+    cachedDefinitions = defs;  // volatile 写，所有读线程立即可见
+    return filterByReadOnly(defs, readOnly);
+}
+```
+
+工具列表只在启动时注册（极少写），每次 LLM 调用都要获取（极频繁读）。`volatile` 保证写后立即可见，读不加锁——这是读多写极少的最优解。两个线程同时发现 `== null` 会重复计算，但不影响正确性。
+
+**工具并行执行器**：LLM 可能一次返回 5 个 tool_calls（如同时读 5 个文件），`CompletableFuture.allOf(futures)` 并行执行，`ToolExecutor(cpu*2)` 线程池限流。
+
+### 9.11 PermissionManager — volatile 模式切换
+
+```java
+private volatile PermissionMode mode;  // PLAN / DEFAULT / ACCEPT_EDITS / BYPASS
+```
+
+用户 `/mode bypass` → CommandState 写入 → 下一轮工具调用时 RunState 读取。如果 mode 不是 volatile，切了 bypass 后 LLM 调用工具仍可能看到旧的 DEFAULT 模式，不该弹确认的弹了确认。
+
+### 9.12 CliChannel — volatile 中断标志 + Esc 检测
+
+```java
+private volatile boolean cancelled;        // JLine 线程写，AgentLoop worker 读
+private volatile String currentRequestId;  // 主线程写，流式回调线程读
+```
+
+用户按 Esc → JLine 线程 `cancelled = true` → AgentLoop worker 检测到后停止流式输出。两个字段都是跨线程读写，不用 volatile 的话用户按了 Esc 但 LLM 继续输出。
+
+### 9.13 ChannelServer — synchronized + wait/notify (V1 演进)
+
+**V1 遗留**：HTTP handler 线程 `synchronized(handler) { handler.wait(300000); }` 挂起等待 LLM 响应，流式回调线程 `synchronized(handler) { handler.notifyAll(); }` 唤醒。双层锁（handlers Map 锁 + handler 对象锁）不同粒度、不同目的。
+
+**设计批判**：`streamResponseHandlers` 用 CHM 但又所有访问包裹 `synchronized(handlersMap)`——CHM 的分段锁完全冗余，普通 HashMap 效果一样。这是 V1 快速迭代留下的**过度保护**，面试指出这类问题说明有代码嗅觉。
+
+**V2 演进**：已迁移到 Spring SSE + Fan-Out Pub-Sub，不再需要 wait/notify。保留它体现了从"手动线程通信"到"框架抽象"的工程成长。
+
+### 9.14 MetricsHook — synchronized 多字段联合原子更新
+
+```java
+synchronized void addTokens(int prompt, int completion) {
+    this.promptTokens += prompt;
+    this.completionTokens += completion;  // 两个字段必须一起更新
+}
+```
+
+**为什么不用 AtomicInteger × 2？** `AtomicInteger` 只保证**单个变量**原子。两线程同时调 `addTokens(10,20)` 和 `addTokens(30,40)`，中间可能读到 promptTokens 已 +10 但 completionTokens 未 +20 的不一致状态。**多个字段需要联合原子更新时必须用锁**。
+
+两层隔离：外层 CHM 隔离不同 session 的 Metrics 对象，内层 synchronized 保护同一 session 内的并发更新。和 SessionManager 思路一致。
+
+### 9.15 WebSocket — static CHM + Pub-Sub 消费者
+
+```java
+private static final Map<String, Session> SESSIONS = new ConcurrentHashMap<>();
+private static final AtomicBoolean wsConsumerRunning = new AtomicBoolean(false);
+```
+
+**为什么 static？** WS 容器为每个连接创建新 Endpoint 实例，非 static 则每个实例有独立连接表，无法跨连接查找。
+
+**Pub-Sub 消费**：应用启动时一次性 `subscribeToOutbound()`，全局 WS-consumer daemon 线程 poll subscriberQueue，按 `msg.sessionId` 查 `SESSIONS` 表找到对应连接 `sendText()`。`AtomicBoolean wsConsumerRunning` + `static synchronized initStreamConsumer()` 保证只启动一次。
+
+### 9.16 同步 vs 异步决策速查
+
+```java
+// ✅ remove() 是原子的
+CompletableFuture<MCPResult> future = pendingRequests.remove(requestId);
+
+// ❌ get() + remove() — 之间有竞态窗口
+CompletableFuture<MCPResult> future = pendingRequests.get(requestId);
+// ← 超时线程在这里 remove + complete
+pendingRequests.remove(requestId);  // 返回 null
+future.complete(result);            // 重复 complete → 异常！
+```
+
+响应线程和超时线程同时竞争同一个 Future。`remove()` 保证只有一个胜出——拿到非 null Future 并完成它，另一个 `remove()` 返回 null 直接跳过。
+
+---
+
+### 9.17 全项目并发原语速查表
+
+| 并发原语 | 使用位置 | 为什么选它 |
+|---------|---------|-----------|
+| `ArrayBlockingQueue` | MessageBus inbound/outbound | 有界防 OOM + 背压 |
+| `ConcurrentHashMap` | 15+ 处 | 分段锁，高并发读写 |
+| `CopyOnWriteArrayList` | MessageBus subscriberQueues | 读多写极少，无锁遍历 |
+| `synchronized(perKeyLock)` | SessionManager | 锁粒度最优 |
+| `synchronized(method)` | MetricsHook.SessionMetrics | 多字段联合原子更新 |
+| `CompletableFuture.thenCompose` | AgentRunner | 异步递归，不阻塞 worker |
+| `CompletableFuture + CHM` | StdioMCPClient | CHM 路由 + Future 信号量 |
+| `AtomicBoolean` | MessageBus, AgentLoop | 启停状态，CAS + 可见性 |
+| `AtomicInteger` | TurnContext, WebSocket | 轻量原子自增 |
+| `volatile boolean` | 7+ 处 | 跨线程状态标志，零成本 |
+| `volatile 引用` | ToolRegistry, PermissionManager | 读多写极少的缓存 |
+| `final + 不可变` | AgentLoop stateHandlers | 无需同步的终极方案 |
+| `HashMap` (无锁) | SessionStore.dirCache | 调用方已保证单线程 |
+
+### 9.18 防御性设计模式
+
+**锁粒度最小化**：`synchronized(this)` 全局锁 → `synchronized(lock(sessionKey))` 每会话锁
+
+**有界优于无界**：`ArrayBlockingQueue(100)` 而非 `LinkedBlockingQueue()`（无界可 OOM）
+
+**简单优于复杂**：能 volatile 解决的不加锁，能 synchronized 解决的不上 ReentrantLock，能 CHM 解决的不自建锁
+
+**调用方负责并发控制**：SessionManager 加锁 → SessionStore 用普通 HashMap，锁的职责集中一处
+
+**单线程消费是最大简化**：AgentLoop 单 daemon 线程消费入站消息，保证同一会话不并发处理
