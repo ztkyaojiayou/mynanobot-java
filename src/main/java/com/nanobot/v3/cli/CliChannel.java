@@ -234,9 +234,14 @@ public class CliChannel {
             }
             return false;
         }
-        //其他命令
+        // /exit /q /quit → 退出循环
+        if ("exit".equals(cmdName) || "q".equals(cmdName) || "quit".equals(cmdName)) {
+            return true;
+        }
+
+        // 其他命令 → 委派给 CommandRegistry
         commands.execute(cmdCtx, cmd);
-        return "exit".equals(cmdName) || "q".equals(cmdName) || "quit".equals(cmdName);
+        return false;
     }
 
     /**
