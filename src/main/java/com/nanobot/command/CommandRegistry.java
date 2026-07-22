@@ -4,7 +4,7 @@ import java.util.*;
 
 /**
  * 命令注册中心 — 统一管理所有 CLI/WS/HTTP 命令。
- *
+ * <p>
  * 使用:
  * <pre>
  *   CommandRegistry registry = new CommandRegistry();
@@ -17,9 +17,12 @@ public class CommandRegistry {
 
     private final Map<String, Command> commands = new LinkedHashMap<>();
 
-    /** 注册命令 */
+    /**
+     * 注册命令
+     */
     public void register(Command cmd) {
         commands.put(cmd.name().toLowerCase(), cmd);
+        //别名也按正常的命令名注册进去
         for (String alias : cmd.aliases()) {
             commands.put(alias.toLowerCase(), cmd);
         }
@@ -27,6 +30,7 @@ public class CommandRegistry {
 
     /**
      * 执行命令。
+     *
      * @param ctx   命令上下文
      * @param input 用户输入行（以 / 开头）
      * @return true 表示需要终止当前进程
@@ -40,18 +44,20 @@ public class CommandRegistry {
         // 提取命令名（空格前）
         int space = trimmed.indexOf(' ');
         String cmdName = (space > 0 ? trimmed.substring(0, space) : trimmed).toLowerCase();
-
+        //获取对应的命令对象
         Command cmd = commands.get(cmdName);
         if (cmd == null) {
             System.out.println("未知命令: " + input + " (输入 /help 查看可用命令)");
             return Optional.empty();
         }
-
+        //执行命令
         cmd.execute(ctx, input);
         return Optional.empty();
     }
 
-    /** 列出所有命令的帮助信息 */
+    /**
+     * 列出所有命令的帮助信息
+     */
     public String helpText() {
         var sb = new StringBuilder("可用命令:\n");
         Set<Command> seen = new HashSet<>();

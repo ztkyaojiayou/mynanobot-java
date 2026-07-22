@@ -30,7 +30,7 @@ public class CliChannel {
 
     private final MessageBus messageBus;
     private final AgentLoop agentLoop;
-    private final String sessionId;
+    private String sessionId;
     private final CommandRegistry commands;
     private final CommandContext cmdCtx;
 
@@ -80,8 +80,9 @@ public class CliChannel {
         this.commands.register(new ModeCommand());
         this.commands.register(new HelpCommand(commands));
         this.commands.register(new InitCommand());
-        this.commands.register(new ResumeCommand(() -> {
-            System.out.println("提示: 使用 --resume <key> 启动参数恢复指定会话");
+        this.commands.register(new ResumeCommand(sessionKey -> {
+            this.sessionId = sessionKey;
+            System.out.println("会话已切换至: " + sessionKey + "，历史上下文将在下一条消息中恢复");
         }));
     }
 
