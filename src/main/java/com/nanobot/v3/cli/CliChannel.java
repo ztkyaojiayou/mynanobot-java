@@ -3,6 +3,7 @@ package com.nanobot.v3.cli;
 import com.nanobot.NanobotRunner;
 import com.nanobot.bus.InboundMessage;
 import com.nanobot.bus.MessageBus;
+import com.nanobot.bus.OutboundMessage;
 import com.nanobot.command.CommandContext;
 import com.nanobot.command.CommandRegistry;
 import com.nanobot.command.impl.ExitCommand;
@@ -20,6 +21,9 @@ import org.springframework.context.ConfigurableApplicationContext;
 
 import java.io.IOException;
 import java.util.Scanner;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * CLI 交互通道 — 命令行终端直接对话。
@@ -94,22 +98,36 @@ public class CliChannel {
 
         setupInteractivePermission();
         setupAskUserHandler();
-        //监听响应并流式输出到控制台！
-        agentLoop.addStreamResponseCallback(new AgentLoop.StreamResponseCallback() {
-            @Override
-            public void onStreamData(String sid, String reqId, String content) {
-                if (sessionId.equals(sid) && currentRequestId != null && currentRequestId.equals(reqId))
-                    System.out.print(MarkdownRenderer.renderStreaming(content));
-            }
 
-            @Override
-            public void onStreamComplete(String sid, String reqId) {
-                if (sessionId.equals(sid) && currentRequestId != null && currentRequestId.equals(reqId)) {
-                    System.out.println();
-                    currentRequestId = null;
+        // ── 订阅 outbound 扇出队列，流式输出到控制台 ──
+        BlockingQueue<OutboundMessage> subscriberQueue = messageBus.subscribeToOutbound();
+        AtomicBoolean consumerRunning = new AtomicBoolean(true);
+        Thread consumerThread = new Thread(() -> {
+            while (consumerRunning.get()) {
+                try {
+                    OutboundMessage msg = subscriberQueue.poll(500, TimeUnit.MILLISECONDS);
+                    if (msg == null) continue;
+                    if (!sessionId.equals(msg.getSessionId())) continue;
+
+                    if (msg.isStreamDelta()) {
+                        if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
+                            System.out.print(MarkdownRenderer.renderStreaming(msg.getContent()));
+                        }
+                    } else if (msg.isStreamEnd()) {
+                        if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
+                            System.out.println();
+                            currentRequestId = null;
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (Exception ignored) {
                 }
             }
-        });
+        }, "CLI-consumer");
+        consumerThread.setDaemon(true);
+        consumerThread.start();
 
         printBanner();
         System.out.println("输入消息开始对话，/exit 退出系统，/clear 清上下文，Esc 中断当前回复");
@@ -122,14 +140,17 @@ public class CliChannel {
             if (!scanner.hasNextLine()) break;
             String line = scanner.nextLine().trim();
             if (line.isEmpty()) continue;
-            //若是命令，直接处理
             if (line.startsWith("/")) {
                 if (handleCommand(line)) break;
                 continue;
             }
-            //若是常规对话，发送到消息总线
             sendMessage(line);
         }
+
+        // ── 退出时清理 ──
+        consumerRunning.set(false);
+        consumerThread.interrupt();
+        messageBus.unsubscribeFromOutbound(subscriberQueue);
     }
 
     /** 注册 CLI 交互式权限确认 */

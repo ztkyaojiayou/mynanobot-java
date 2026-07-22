@@ -1,42 +1,41 @@
 package com.nanobot.core.state;
 
+import com.nanobot.bus.MessageBus;
+import com.nanobot.bus.OutboundMessage;
 import com.nanobot.config.Config;
-import com.nanobot.core.AgentLoop.StreamResponseCallback;
 import com.nanobot.core.AgentRunner;
 import com.nanobot.core.TurnContext;
 import com.nanobot.core.TurnState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 
 /**
- * RUN — 调用 LLM 并管理流式输出回调.
+ * RUN — 调用 LLM 并发布流式输出到 MessageBus Outbound Queue.
  *
- * <h2>流式分发原理（观察者/广播模式）</h2>
- * 每个流式请求注册一个 {@link StreamResponseCallback} 到 AgentLoop.
- * LLM 每输出一个 token，AgentLoop 遍历所有回调广播.
- * 各回调自行过滤 sessionId(+requestId)，只消费自己的消息.
+ * <h2>发布-订阅解耦</h2>
+ * RunState 不持有、不管理任何消费者。LLM 每输出一个 token，
+ * 包装为 OutboundMessage 发布到 MessageBus 的扇出队列。
+ * Dispatcher 线程自动扇出到各通道的 subscriberQueue。
+ * 各通道（SSE/CLI/WS）独立 poll 自己的队列，自行过滤 sessionId+requestId。
  *
- * <h2>三种通道统一</h2>
- * SSE (ChatController) / CLI (CliChannel) / WebSocket (NanobotWebSocketEndpoint)
- * 全部通过同一套回调机制接收流式数据，不走任何 Queue.
+ * <h2>和旧回调模式的区别</h2>
+ * 旧: RunState 持有 callbacksSupplier → 遍历广播 → 慢回调拖慢整体
+ * 新: RunState 只 put 到 Queue → dispatcher 异步扇出 → 消费者独立处理
  */
 public class RunState implements AgentState {
 
     private static final Logger logger = LoggerFactory.getLogger(RunState.class);
     private final AgentRunner runner;
     private final Config config;
-    private final Supplier<List<StreamResponseCallback>> callbacksSupplier;
+    private final MessageBus messageBus;
 
-    public RunState(AgentRunner runner, Config config,
-                    Supplier<List<StreamResponseCallback>> callbacksSupplier) {
+    public RunState(AgentRunner runner, Config config, MessageBus messageBus) {
         this.runner = runner;
         this.config = config;
-        this.callbacksSupplier = callbacksSupplier;
+        this.messageBus = messageBus;
     }
 
     @Override
@@ -46,16 +45,18 @@ public class RunState implements AgentState {
         boolean streamMode = extractStreamMode(ctx);
         String sessionId = ctx.getMessage().getSessionId();
 
-        logger.info("🚀 [DO-RUN] streamMode={}, requestId={}, callbacks={}, msgContent='{}'",
-                streamMode, requestId, callbacksSupplier.get().size(),
+        logger.info("🚀 [DO-RUN] streamMode={}, requestId={}, msgContent='{}'",
+                streamMode, requestId,
                 ctx.getMessage().getContent() != null
                     ? ctx.getMessage().getContent().substring(0, Math.min(60, ctx.getMessage().getContent().length()))
                     : "null");
 
-        Consumer<String> onDelta = buildOnDelta(ctx, connectionId, requestId, streamMode, sessionId);
+        Consumer<String> onDelta = streamMode
+                ? buildOnDelta(ctx, connectionId, requestId, sessionId)
+                : null;
 
         try {
-            logger.info("🤖 [LLM-CALL] Starting LLM for session={}, requestId={}, msgs={}",
+            logger.info("🤖 [LLM-CALL] session={}, requestId={}, msgs={}",
                     sessionId, requestId, ctx.getMessages().size());
             long start = System.currentTimeMillis();
             String result = runner.run(ctx, ctx.getMessages(), onDelta).join();
@@ -64,7 +65,7 @@ public class RunState implements AgentState {
                     sessionId, requestId, duration, result != null ? result.length() : 0);
             ctx.setFinalContent(result);
 
-            if (streamMode && onDelta != null) {
+            if (streamMode) {
                 sendStreamEnd(ctx, connectionId, sessionId, requestId);
             }
         } catch (Exception e) {
@@ -77,31 +78,47 @@ public class RunState implements AgentState {
     }
 
     /**
-     * 构建流式回调 — LLM 每输出一个 token 触发一次.
-     *
-     * 直接遍历所有注册的 StreamResponseCallback 广播 onStreamData().
-     * AgentLoop 不做任何过滤——所有回调都会收到每个 token.
-     * 过滤逻辑在回调自身（比对 sessionId + requestId）.
+     * 构建流式回调 — LLM 每输出一个 token，包装为 OutboundMessage 发布到扇出队列。
+     * 不直接和任何消费者交互。
      */
     private Consumer<String> buildOnDelta(TurnContext ctx, String connectionId,
-                                           String requestId, boolean streamMode, String sessionId) {
-        if (!streamMode || (!config.getChannels().isSendProgress() && requestId == null)) return null;
-
-        List<StreamResponseCallback> activeCallbacks = new ArrayList<>(callbacksSupplier.get());
+                                           String requestId, String sessionId) {
+        String channel = ctx.getMessage().getChannel();
 
         return delta -> {
-            for (StreamResponseCallback cb : activeCallbacks) {
-                try { cb.onStreamData(sessionId, requestId, delta); }
-                catch (Exception e) { logger.warn("Stream callback failed: {}", e.getMessage()); }
+            try {
+                OutboundMessage msg = OutboundMessage.builder()
+                        .channel(channel)
+                        .sessionId(sessionId)
+                        .content(delta)
+                        .requestId(requestId)
+                        .connectionId(connectionId)
+                        .metadata(Map.of("_stream_delta", true))
+                        .build();
+                messageBus.publishToOutboundQueue(msg);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (Exception e) {
+                logger.warn("Failed to publish stream delta: {}", e.getMessage());
             }
         };
     }
 
-    /** 流结束 — 广播 onStreamComplete 给所有注册的回调 */
+    /** 发布流结束标记到扇出队列 */
     private void sendStreamEnd(TurnContext ctx, String connectionId, String sessionId, String requestId) {
-        for (StreamResponseCallback cb : callbacksSupplier.get()) {
-            try { cb.onStreamComplete(sessionId, requestId); }
-            catch (Exception e) { logger.warn("Stream complete callback failed: {}", e.getMessage()); }
+        try {
+            OutboundMessage endMsg = OutboundMessage.builder()
+                    .channel(ctx.getMessage().getChannel())
+                    .sessionId(sessionId)
+                    .requestId(requestId)
+                    .connectionId(connectionId)
+                    .metadata(Map.of("_stream_end", true))
+                    .build();
+            messageBus.publishToOutboundQueue(endMsg);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            logger.warn("Failed to publish stream end: {}", e.getMessage());
         }
     }
 

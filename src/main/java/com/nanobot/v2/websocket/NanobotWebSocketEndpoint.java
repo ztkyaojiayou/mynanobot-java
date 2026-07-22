@@ -5,9 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nanobot.NanobotRunner;
 import com.nanobot.bus.MessageBus;
 import com.nanobot.bus.InboundMessage;
+import com.nanobot.bus.OutboundMessage;
 import com.nanobot.config.Config.ChannelAclConfig;
-import com.nanobot.v2.controller.ChatController;
-import com.nanobot.core.AgentLoop;
 import jakarta.annotation.PostConstruct;
 import jakarta.websocket.*;
 import jakarta.websocket.server.ServerEndpoint;
@@ -18,6 +17,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -53,8 +53,12 @@ public class NanobotWebSocketEndpoint {
 
     // Spring Bean将通过setter注入（因为@ServerEndpoint不由Spring管理）
     private static MessageBus messageBus;
-    private static AgentLoop agentLoop;
     private static ObjectMapper objectMapper = new ObjectMapper();
+
+    // ── Outbound 扇出消费者（应用生命周期内常驻）──
+    private static BlockingQueue<OutboundMessage> wsSubscriberQueue;
+    private static final java.util.concurrent.atomic.AtomicBoolean wsConsumerRunning =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
 
     @Autowired(required = false)
     public void setChannelAcl(ChannelAclConfig channelAcl) {
@@ -70,56 +74,55 @@ public class NanobotWebSocketEndpoint {
     }
     
     @Autowired
-    public void setAgentLoop(AgentLoop agentLoop) {
-        NanobotWebSocketEndpoint.agentLoop = agentLoop;
-        // 设置流式回调
-        initStreamCallback();
+    public void setAgentLoop(com.nanobot.core.AgentLoop agentLoop) {
+        // 启动 outbound 扇出消费者（仅首次）
+        initStreamConsumer();
     }
-    
+
     @PostConstruct
     public void init() {
         logger.info("NanobotWebSocketEndpoint initialized");
     }
-    
-    /**
-     * 初始化流式响应回调
-     */
-    private static void initStreamCallback() {
-        if (agentLoop != null) {
-            agentLoop.addStreamResponseCallback(new AgentLoop.StreamResponseCallback() {
-                @Override
-                public void onStreamData(String sessionId, String requestId, String content) {
-                    Session session = SESSIONS.get(sessionId);
-                    if (session != null && session.isOpen()) {
-                        try {
-                            // 发送 JSON 格式的消息
-                            Map<String, Object> msg = new ConcurrentHashMap<>();
-                            msg.put("type", "stream");
-                            msg.put("requestId", requestId);
-                            msg.put("content", content);
-                            session.getBasicRemote().sendText(objectMapper.writeValueAsString(msg));
-                        } catch (IOException e) {
-                            logger.warn("Failed to send WebSocket message to session: {}", sessionId);
-                        }
+
+    /** 启动 outbound 扇出消费者线程（static，应用生命周期内常驻） */
+    private static synchronized void initStreamConsumer() {
+        if (wsConsumerRunning.get()) return;
+        if (messageBus == null) return;
+
+        wsSubscriberQueue = messageBus.subscribeToOutbound();
+        wsConsumerRunning.set(true);
+
+        Thread consumerThread = new Thread(() -> {
+            while (wsConsumerRunning.get()) {
+                try {
+                    OutboundMessage msg = wsSubscriberQueue.poll(1, java.util.concurrent.TimeUnit.SECONDS);
+                    if (msg == null) continue;
+                    Session session = SESSIONS.get(msg.getSessionId());
+                    if (session == null || !session.isOpen()) continue;
+
+                    if (msg.isStreamDelta()) {
+                        Map<String, Object> payload = new java.util.concurrent.ConcurrentHashMap<>();
+                        payload.put("type", "stream");
+                        payload.put("requestId", msg.getRequestId() != null ? msg.getRequestId() : "");
+                        payload.put("content", msg.getContent() != null ? msg.getContent() : "");
+                        session.getBasicRemote().sendText(objectMapper.writeValueAsString(payload));
+                    } else if (msg.isStreamEnd()) {
+                        Map<String, Object> payload = new java.util.concurrent.ConcurrentHashMap<>();
+                        payload.put("type", "done");
+                        payload.put("requestId", msg.getRequestId() != null ? msg.getRequestId() : "");
+                        session.getBasicRemote().sendText(objectMapper.writeValueAsString(payload));
                     }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (Exception e) {
+                    logger.warn("WS consumer error: {}", e.getMessage());
                 }
-                
-                @Override
-                public void onStreamComplete(String sessionId, String requestId) {
-                    Session session = SESSIONS.get(sessionId);
-                    if (session != null && session.isOpen()) {
-                        try {
-                            Map<String, Object> msg = new ConcurrentHashMap<>();
-                            msg.put("type", "done");
-                            msg.put("requestId", requestId);
-                            session.getBasicRemote().sendText(objectMapper.writeValueAsString(msg));
-                        } catch (IOException e) {
-                            logger.warn("Failed to send WebSocket completion to session: {}", sessionId);
-                        }
-                    }
-                }
-            });
-        }
+            }
+        }, "WS-consumer");
+        consumerThread.setDaemon(true);
+        consumerThread.start();
+        logger.info("WebSocket outbound consumer started");
     }
     
     // ==================== WebSocket 生命周期方法 ====================

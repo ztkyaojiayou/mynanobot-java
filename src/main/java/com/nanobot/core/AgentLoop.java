@@ -190,27 +190,9 @@ public class AgentLoop {
     private volatile boolean planMode = false;
 
     /**
-     * 流式响应回调列表（支持 SSE + WebSocket 同时工作）
-     * 使用 CopyOnWriteArrayList 保证线程安全和迭代稳定性
-     */
-    private final java.util.List<StreamResponseCallback> streamResponseCallbacks =
-            new java.util.concurrent.CopyOnWriteArrayList<>();
-
-    /**
      * 钩子管理器
      */
     private CompositeHook hooks;
-
-    /**
-     * 流式响应回调接口
-     */
-    @FunctionalInterface
-    public interface StreamResponseCallback {
-        void onStreamData(String sessionId, String requestId, String content);
-
-        default void onStreamComplete(String sessionId, String requestId) {
-        }
-    }
 
     // ==================== 构造函数 ====================
 
@@ -482,8 +464,7 @@ public class AgentLoop {
         stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(consolidator));
         stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, consolidator, dream));
         stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, dream, skillManager != null ? skillManager.getRegistry() : null));
-        stateHandlers.put(TurnState.RUN, new com.nanobot.core.state.RunState(runner, config,
-                () -> java.util.List.copyOf(streamResponseCallbacks)));
+        stateHandlers.put(TurnState.RUN, new com.nanobot.core.state.RunState(runner, config, messageBus));
         stateHandlers.put(TurnState.SAVE, new com.nanobot.core.state.SaveState(sessionManager));
         stateHandlers.put(TurnState.RESPOND, new com.nanobot.core.state.RespondState(messageBus));
     }
@@ -535,45 +516,6 @@ public class AgentLoop {
 
     public boolean isRunning() {
         return running.get();
-    }
-
-    /**
-     * 设置流式响应回调
-     */
-    /**
-     * 添加流式响应回调（支持多个订阅者：SSE + WebSocket）
-     */
-    public void addStreamResponseCallback(StreamResponseCallback callback) {
-        if (callback != null && !streamResponseCallbacks.contains(callback)) {
-            streamResponseCallbacks.add(callback);
-            logger.debug("Added stream callback, total: {}", streamResponseCallbacks.size());
-        }
-    }
-
-    /**
-     * 移除流式响应回调
-     */
-    public void removeStreamResponseCallback(StreamResponseCallback callback) {
-        streamResponseCallbacks.remove(callback);
-        logger.debug("Removed stream callback, remaining: {}", streamResponseCallbacks.size());
-    }
-
-    /**
-     * 获取当前回调数量（诊断用）
-     */
-    public int getStreamCallbackCount() {
-        return streamResponseCallbacks.size();
-    }
-
-    /**
-     * @deprecated 使用 addStreamResponseCallback 替代
-     */
-    @Deprecated
-    public void setStreamResponseCallback(StreamResponseCallback callback) {
-        streamResponseCallbacks.clear();
-        if (callback != null) {
-            streamResponseCallbacks.add(callback);
-        }
     }
 
     // ════════════════════════════════════════════════════════

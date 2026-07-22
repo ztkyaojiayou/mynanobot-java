@@ -4,7 +4,6 @@ import com.nanobot.NanobotRunner;
 import com.nanobot.bus.MessageBus;
 import com.nanobot.bus.InboundMessage;
 import com.nanobot.bus.OutboundMessage;
-import com.nanobot.core.AgentLoop;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -20,53 +19,33 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Chat REST API Controller — 用户与 Agent 之间的 HTTP 桥梁.
  *
  * <h2>两种通信模式</h2>
  * <b>同步模式 (POST /api/chat)</b>：
- * 发消息到 MessageBus → 阻塞等待 Outbound Queue 中的完整响应 → 返回 JSON.
- * WebSocket 预检等场景使用.
+ * 发消息到 MessageBus → 阻塞等待 sessionResponses Map → 返回 JSON.
  *
  * <b>流式模式 (POST /api/chat/stream) — SSE</b>：
- * 发消息到 MessageBus → 注册 StreamResponseCallback 到 AgentLoop →
- * LLM 每吐一个 token，AgentLoop 遍历所有回调直接调 onStreamData() →
- * 回调自行过滤 sessionId+requestId 匹配后通过 SSE emitter 推送给前端.
- * 流式数据<b>不走任何 Queue</b>，纯内存回调，零延迟.
- * （注：MessageBus 的全局 outboundQueue 已移除——SSE/WS/CLI 全部通过回调直推）
+ * 订阅 MessageBus Outbound Queue → 启动 daemon 消费线程 poll subscriberQueue →
+ * 按 sessionId+requestId 过滤 → SSE emitter 推送给前端.
  *
- * <h2>流式广播架构（"广播电台"模式）</h2>
+ * <h2>发布-订阅架构</h2>
  * <pre>
- *   AgentLoop (广播电台)
- *     │
- *     │  遍历所有 StreamResponseCallback
- *     │  逐个调用 onStreamData(sessionId, requestId, delta)
- *     │
- *     ├── callback-1: "我的 sid=abc, rid=123" → sId匹配? → 是 → emitter.send()
- *     ├── callback-2: "我的 sid=xyz, rid=456" → sId匹配? → 否 → 忽略
- *     └── callback-3: "..."                       → no match  → 忽略
+ *   RunState → outboundQueue → Dispatcher 扇出 → subscriberQueue (本SSE请求专属)
+ *                                                        │
+ *                                                        ▼
+ *                                              consumer thread poll + filter
+ *                                                        │
+ *                                                        ▼
+ *                                                  emitter.send(token)
  * </pre>
- *
- * AgentLoop 不做过滤，全部广播。每个回调自行比对 sessionId + requestId，
- * 只把自己请求的 token 推给对应的 SSE 连接。代价是 O(n) 遍历，
- * 但实际场景中同时活跃的 SSE 连接一般不超过两位数，完全够用.
- *
- * <h2>回调生命周期</h2>
- * <pre>
- *   streamChat() 被调用
- *     → new SseEmitter(5min timeout)
- *     → new StreamResponseCallback(sessionId, requestId)
- *     → agentLoop.addStreamResponseCallback(callback)  // 注册
- *     → messageBus.publishInbound(message)              // 发消息
- *     → return emitter                                  // Spring 持有 SSE 连接
- *
- *   LLM 开始流式输出
- *     → onStreamData() 被反复调用（每个 token 一次）
- *
- *   流结束 / 超时 / 报错
- *     → agentLoop.removeStreamResponseCallback(callback)  // 清理，防止僵尸回调堆积
- * </pre>
+ * 每个 SSE 连接有独立的 subscriberQueue + consumerThread，
+ * 连接结束时 unsubscribe + 终止线程.
  */
 @RestController
 @RequestMapping("/api")
@@ -155,17 +134,16 @@ public class ChatController {
      *
      * 三步走：
      * <ol>
-     *   <li>创建 SSE emitter + StreamResponseCallback（带 sessionId/requestId 匹配逻辑）</li>
-     *   <li>注册回调到 AgentLoop（LLM 输出时广播触发）</li>
+     *   <li>订阅 MessageBus 的 outbound 扇出队列 → 启动 daemon 消费者线程 poll 自己的 subscriberQueue</li>
      *   <li>发送 InboundMessage 到 MessageBus（AgentLoop 异步消费）</li>
+     *   <li>消费者线程按 sessionId+requestId 过滤，匹配的通过 SseEmitter 推送给前端</li>
      * </ol>
      *
-     * 连接结束（超时/完成/报错）时自动从 AgentLoop 移除回调，防止僵尸回调堆积.
+     * 连接结束（超时/完成/报错）时 unsubscribe + 终止消费者线程，防止泄漏.
      */
     @RequestMapping(value = "/chat/stream",
             produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamChat(@RequestBody ChatRequest request) {
-        // ═══════ 诊断日志：打印每次请求的消息内容（不含历史）═══════
         logger.info("═══════ SSE REQUEST ═══════");
         logger.info("  sessionId     : {}", request.getSessionId());
         logger.info("  content    : '{}'", request.getContent() != null ? request.getContent() : "null");
@@ -174,77 +152,63 @@ public class ChatController {
         logger.info("  useSearch  : {}", request.isUseSearch());
         logger.info("══════════════════════════════");
 
-        // 创建 SSE emitter
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT);
-
-        // 生成 requestId 和 sessionId（使用 chatId）
         String requestId = UUID.randomUUID().toString();
         String sessionId = request.getSessionId() != null ? request.getSessionId() : UUID.randomUUID().toString();
 
-        logger.info("Stream chat requestId={}, sessionId={}", requestId, sessionId);
-
-        // 设置流式回调
-        AgentLoop agentLoop = NanobotRunner.getAgentLoop();
-        if (agentLoop == null) {
-            logger.error("AgentLoop is NULL - cannot stream!");
-            emitter.completeWithError(new IllegalStateException("AgentLoop not available"));
+        MessageBus messageBus = NanobotRunner.getMessageBus();
+        if (messageBus == null) {
+            emitter.completeWithError(new IllegalStateException("MessageBus not available"));
             return emitter;
         }
-        final String cbSessionId = sessionId;
-        final String cbRequestId = requestId;
-        logger.info("Creating stream callback: sessionId={}, requestId={}", cbSessionId, cbRequestId);
 
-        AgentLoop.StreamResponseCallback callback = new AgentLoop.StreamResponseCallback() {
-            private volatile boolean completed = false;
-            private int dataCount = 0;
+        // ── 订阅 outbound 扇出队列，启动独立消费者线程 ──
+        BlockingQueue<OutboundMessage> subscriberQueue = messageBus.subscribeToOutbound();
+        AtomicBoolean consumerRunning = new AtomicBoolean(true);
+        final int[] dataCount = {0};
 
-            @Override
-            public void onStreamData(String sId, String reqId, String content) {
-                dataCount++;
-                boolean match = cbSessionId.equals(sId) && cbRequestId.equals(reqId);
-                logger.info("SSE onStreamData[#{}]: cbSid={}, cbRid={}, gotSid={}, gotRid={}, match={}, len={}",
-                        dataCount, cbSessionId, cbRequestId, sId, reqId, match,
-                        content != null ? content.length() : 0);
-                if (match && !completed) {
+        Thread consumerThread = new Thread(() -> {
+            try {
+                while (consumerRunning.get()) {
+                    OutboundMessage msg = subscriberQueue.poll(1, TimeUnit.SECONDS);
+                    if (msg == null) continue;
+                    // 过滤：只处理匹配 sessionId+requestId 的消息
+                    if (!sessionId.equals(msg.getSessionId())) continue;
+                    if (!requestId.equals(msg.getRequestId())) continue;
+
                     try {
-                        emitter.send(SseEmitter.event().data(content != null ? content : ""));
-                    } catch (Exception e) {
-                        // IOException + IllegalStateException(emitter已关闭/超时)
-                        logger.warn("Failed to send SSE data: {} ({})", e.getMessage(), e.getClass().getSimpleName());
-                        completed = true;
-                        try {
-                            emitter.completeWithError(e);
-                        } catch (Exception ignored) {
+                        if (msg.isStreamDelta()) {
+                            dataCount[0]++;
+                            emitter.send(SseEmitter.event().data(msg.getContent() != null ? msg.getContent() : ""));
+                        } else if (msg.isStreamEnd()) {
+                            emitter.send(SseEmitter.event().data("[DONE]"));
+                            emitter.complete();
+                            logger.info("SSE stream completed ({} data events)", dataCount[0]);
+                            break;
                         }
+                    } catch (java.io.IOException e) {
+                        logger.warn("SSE send failed: {}", e.getMessage());
+                        break;
                     }
                 }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (Exception e) {
+                logger.error("SSE consumer error: {}", e.getMessage(), e);
             }
+        }, "SSE-consumer-" + requestId);
+        consumerThread.setDaemon(true);
+        consumerThread.start();
 
-            @Override
-            public void onStreamComplete(String sId, String reqId) {
-                boolean match = cbSessionId.equals(sId) && cbRequestId.equals(reqId);
-                logger.info("SSE onStreamComplete: cbSid={}, cbRid={}, gotSid={}, gotRid={}, match={}, dataCount={}",
-                        cbSessionId, cbRequestId, sId, reqId, match, dataCount);
-                if (match && !completed) {
-                    completed = true;
-                    try {
-                        emitter.send(SseEmitter.event().data("[DONE]"));
-                        emitter.complete();
-                        logger.info("SSE stream completed ({} data events)", dataCount);
-                    } catch (Exception e) {
-                        logger.warn("SSE complete failed: {}", e.getMessage());
-                        try {
-                            emitter.completeWithError(e);
-                        } catch (Exception ignored) {
-                        }
-                    }
-                }
-            }
+        // ── 清理：连接结束时 unsubscribe + 终止消费者线程 ──
+        Runnable cleanup = () -> {
+            consumerRunning.set(false);
+            consumerThread.interrupt();
+            messageBus.unsubscribeFromOutbound(subscriberQueue);
         };
-
-        agentLoop.addStreamResponseCallback(callback);
-        logger.info("Stream callback added for sessionId={}, requestId={}, totalCallbacks={}",
-                cbSessionId, cbRequestId, agentLoop.getStreamCallbackCount());
+        emitter.onTimeout(cleanup);
+        emitter.onCompletion(cleanup);
+        emitter.onError(e -> cleanup.run());
 
         // 构建元数据（/chat/stream 端点始终启用流式模式）
         Map<String, Object> metadata = new HashMap<>();
@@ -262,31 +226,15 @@ public class ChatController {
                 .metadata(metadata)
                 .build();
 
-        // 发送消息到 MessageBus
-        MessageBus messageBus = NanobotRunner.getMessageBus();
+        // ── 发送消息到 MessageBus ──
         try {
             messageBus.publishInbound(message);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            cleanup.run();
             emitter.completeWithError(e);
             return emitter;
         }
-
-        // 超时/完成/错误时清理回调（防止僵尸callback堆积）
-        emitter.onTimeout(() -> {
-            logger.warn("SSE timeout for request: {} (dataCount={})", requestId, 0);
-            agentLoop.removeStreamResponseCallback(callback);
-        });
-
-        emitter.onCompletion(() -> {
-            logger.info("SSE completed for request: {}", requestId);
-            agentLoop.removeStreamResponseCallback(callback);
-        });
-
-        emitter.onError(e -> {
-            logger.warn("SSE error for request: {} - {}", requestId, e.getMessage());
-            agentLoop.removeStreamResponseCallback(callback);
-        });
 
         return emitter;
     }
