@@ -100,7 +100,15 @@ public class NanobotWebSocketEndpoint {
                     Session session = SESSIONS.get(msg.getSessionId());
                     if (session == null || !session.isOpen()) continue;
 
-                    if (msg.isStreamDelta()) {
+                    if (msg.isSessionCleared()) {
+                        Map<String, Object> payload = new java.util.concurrent.ConcurrentHashMap<>();
+                        payload.put("type", "clear");
+                        session.getBasicRemote().sendText(objectMapper.writeValueAsString(payload));
+                        payload = new java.util.concurrent.ConcurrentHashMap<>();
+                        payload.put("type", "done");
+                        payload.put("requestId", msg.getRequestId() != null ? msg.getRequestId() : "");
+                        session.getBasicRemote().sendText(objectMapper.writeValueAsString(payload));
+                    } else if (msg.isStreamDelta()) {
                         Map<String, Object> payload = new java.util.concurrent.ConcurrentHashMap<>();
                         payload.put("type", "stream");
                         payload.put("requestId", msg.getRequestId() != null ? msg.getRequestId() : "");

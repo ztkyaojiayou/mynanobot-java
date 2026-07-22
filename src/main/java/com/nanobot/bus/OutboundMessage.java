@@ -216,6 +216,11 @@ public class OutboundMessage {
         return getMetadataBoolean("_stream_end", false);
     }
 
+    /** 检查是否为会话清除事件（通知前端清空消息列表） */
+    public boolean isSessionCleared() {
+        return getMetadataBoolean("_session_cleared", false);
+    }
+
     /**
      * 检查是否已流式发送完成
      */

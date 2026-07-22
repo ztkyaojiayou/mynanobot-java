@@ -1,5 +1,7 @@
 package com.nanobot.core.state;
 
+import com.nanobot.bus.MessageBus;
+import com.nanobot.bus.OutboundMessage;
 import com.nanobot.core.TurnContext;
 import com.nanobot.core.TurnState;
 import com.nanobot.memory.Consolidator;
@@ -31,14 +33,17 @@ public class CommandState implements AgentState {
     private final SessionManager sessionManager;
     private final Consolidator consolidator;
     private final Dream dream;
+    private final MessageBus messageBus;
 
     public CommandState(SkillManager skillManager, RuleManager ruleManager,
-                        SessionManager sessionManager, Consolidator consolidator, Dream dream) {
+                        SessionManager sessionManager, Consolidator consolidator,
+                        Dream dream, MessageBus messageBus) {
         this.skillManager = skillManager;
         this.ruleManager = ruleManager;
         this.sessionManager = sessionManager;
         this.consolidator = consolidator;
         this.dream = dream;
+        this.messageBus = messageBus;
     }
 
     @Override
@@ -82,6 +87,8 @@ public class CommandState implements AgentState {
             case "/clear" -> {
                 sessionManager.clearSession(ctx.getSessionKey());
                 ctx.setFinalContent("会话已清除。");
+                // 发布 _session_cleared 事件到 outboundQueue，通知各通道清空展示
+                publishSessionCleared(ctx);
                 yield TurnState.DONE;
             }
             case "/compact" -> handleCompact(ctx);
@@ -158,5 +165,27 @@ public class CommandState implements AgentState {
             ctx.setFinalContent("❌ 记忆提取失败：" + e.getMessage());
         }
         return TurnState.DONE;
+    }
+
+    /** 发布 _session_cleared 事件到 outboundQueue，通知各通道清空展示 */
+    private void publishSessionCleared(TurnContext ctx) {
+        try {
+            String requestId = extractRequestId(ctx);
+            OutboundMessage msg = OutboundMessage.builder()
+                    .sessionId(ctx.getSessionKey())
+                    .requestId(requestId)
+                    .channel(ctx.getMessage().getChannel())
+                    .metadata(Map.of("_session_cleared", true))
+                    .build();
+            messageBus.publishToOutboundQueue(msg);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static String extractRequestId(TurnContext ctx) {
+        if (ctx.getMessage().getMetadata() == null) return null;
+        Object o = ctx.getMessage().getMetadata().get("requestId");
+        return o instanceof String s ? s : null;
     }
 }

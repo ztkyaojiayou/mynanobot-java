@@ -177,7 +177,16 @@ public class ChatController {
                     if (!requestId.equals(msg.getRequestId())) continue;
 
                     try {
-                        if (msg.isStreamDelta()) {
+                        if (msg.isSessionCleared()) {
+                            // 通知前端清空消息列表 + 显示提示
+                            emitter.send(SseEmitter.event().name("clear").data("会话已清除。"));
+                            if (msg.getContent() != null) {
+                                emitter.send(SseEmitter.event().data(msg.getContent()));
+                            }
+                            emitter.send(SseEmitter.event().data("[DONE]"));
+                            emitter.complete();
+                            break;
+                        } else if (msg.isStreamDelta()) {
                             dataCount[0]++;
                             emitter.send(SseEmitter.event().data(msg.getContent() != null ? msg.getContent() : ""));
                         } else if (msg.isStreamEnd()) {

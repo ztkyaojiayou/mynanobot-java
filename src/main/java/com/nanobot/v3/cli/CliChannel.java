@@ -116,12 +116,16 @@ public class CliChannel {
                     if (!sessionId.equals(msg.getSessionId())) continue;
 
                     //流式数据处理：根据 requestId 匹配当前流式输出，渲染到控制台
-                    if (msg.isStreamDelta()) {
+                    if (msg.isSessionCleared()) {
+                        if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
+                            System.out.println();
+                            currentRequestId = null;
+                        }
+                    } else if (msg.isStreamDelta()) {
                         if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
                             System.out.print(MarkdownRenderer.renderStreaming(msg.getContent()));
                         }
                     } else if (msg.isStreamEnd()) {
-                        // 流式输出结束，重置 requestId
                         if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
                             System.out.println();
                             currentRequestId = null;
