@@ -6,7 +6,6 @@ import com.nanobot.bus.MessageBus;
 import com.nanobot.bus.OutboundMessage;
 import com.nanobot.command.CommandContext;
 import com.nanobot.command.CommandRegistry;
-import com.nanobot.command.impl.ExitCommand;
 import com.nanobot.command.impl.HelpCommand;
 import com.nanobot.command.impl.InitCommand;
 import com.nanobot.command.impl.ModeCommand;
@@ -86,7 +85,6 @@ public class CliChannel {
         var registry = NanobotRunner.getToolRegistry();
         this.cmdCtx = new CommandContext(registry, registry != null ? registry.getPermissionManager() : null, agentLoop, sessionId, appContext::close);
         this.commands = new CommandRegistry();
-        this.commands.register(new ExitCommand());
         this.commands.register(new ModeCommand());
         this.commands.register(new HelpCommand(commands));
         this.commands.register(new InitCommand());
