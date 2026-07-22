@@ -93,15 +93,57 @@ public class MessageBus {
     public boolean isRunning() { return running.get(); }
 
     /** 启动扇出 dispatcher — 从 outboundQueue 读，逐个 offer 到各 subscriberQueue */
+    /**
+     * 启动扇出 Dispatcher —— Outbound Pub-Sub 的核心。
+     *
+     * <h2>职责</h2>
+     * 这是整个发布-订阅架构的"心脏"：从 outboundQueue 取一条消息，
+     * <b>投递到每个 subscriberQueue</b>，实现一份数据、多路消费。
+     *
+     * <h2>为什么用 Fan-Out 而不是单队列多消费者？</h2>
+     * BlockingQueue.take() 是破坏性消费——一条消息只能被一个消费者取走。
+     * SSE/CLI/WS 三个通道<b>都需要</b>接收同一条流式消息，
+     * 所以必须各自拥有独立的 subscriberQueue。Dispatcher 的作用
+     * 就是把一份消息复制到所有 subscriberQueue 中。
+     *
+     * <h2>数据流</h2>
+     * <pre>
+     *   outboundQueue: [msg1, msg2, msg3, ...]    ← RunState 生产
+     *         │
+     *         ▼ poll(1s)
+     *   ┌─ dispatcher ─┐
+     *   │ 取到一条 msg   │
+     *   │              │
+     *   │ offer(msg) ──├──→ subscriberQueue[SSE]  → consumer thread → emitter
+     *   │ offer(msg) ──├──→ subscriberQueue[CLI]  → consumer thread → stdout
+     *   │ offer(msg) ──└──→ subscriberQueue[WS]   → consumer thread → sendText
+     *   └──────────────┘
+     *        ↑ 同一份 msg 对象引用，不是深拷贝
+     * </pre>
+     *
+     * <h2>背压策略</h2>
+     * 每个 subscriber 用 {@code offer(msg, 100ms)} 而非 {@code put()}——
+     * 如果某个消费者处理太慢、队列满了，只丢弃<b>该订阅者</b>的消息，
+     * 不影响其他订阅者，也不阻塞 producer（RunState）。
+     *
+     * <h2>线程模型</h2>
+     * 单 daemon 线程，随 MessageBus 生命周期。
+     * {@code poll(1s)} 阻塞等待，消息到达立即唤醒（微秒级延迟）。
+     * 订阅者列表（CopyOnWriteArrayList）支持运行时增删 subscriber。
+     */
     private void startDispatcher() {
         dispatcherThread = new Thread(() -> {
             logger.info("Outbound dispatcher started, {} subscribers", subscriberQueues.size());
             while (running.get()) {
                 try {
+                    // ── 从出站队列取一条消息（阻塞1s，消息到达立即唤醒）──
                     OutboundMessage msg = outboundQueue.poll(1, TimeUnit.SECONDS);
                     if (msg == null) continue;
+
+                    // ── 扇出：同一份 msg 引用投递到所有 subscriberQueue ──
                     for (BlockingQueue<OutboundMessage> sq : subscriberQueues) {
                         try {
+                            // offer 而非 put：队列满时丢弃该订阅者，不阻塞
                             if (!sq.offer(msg, 100, TimeUnit.MILLISECONDS)) {
                                 logger.warn("Subscriber queue full, dropping: sid={}, rid={}",
                                         msg.getSessionId(), msg.getRequestId());
