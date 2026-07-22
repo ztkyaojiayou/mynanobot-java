@@ -31,9 +31,10 @@ import java.util.UUID;
  *
  * <b>流式模式 (POST /api/chat/stream) — SSE</b>：
  * 发消息到 MessageBus → 注册 StreamResponseCallback 到 AgentLoop →
- * LLM 每吐一个 token，AgentLoop 广播给所有回调 → 回调自行过滤匹配后
- * 通过 SSE emitter 推送给前端. 关键：流式数据<b>不走 Outbound Queue</b>，
- * 而是 AgentLoop 直接遍历回调列表内存调用.
+ * LLM 每吐一个 token，AgentLoop 遍历所有回调直接调 onStreamData() →
+ * 回调自行过滤 sessionId+requestId 匹配后通过 SSE emitter 推送给前端.
+ * 流式数据<b>不走任何 Queue</b>，纯内存回调，零延迟.
+ * （注：MessageBus 的全局 outboundQueue 已移除——SSE/WS/CLI 全部通过回调直推）
  *
  * <h2>流式广播架构（"广播电台"模式）</h2>
  * <pre>

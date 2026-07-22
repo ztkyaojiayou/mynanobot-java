@@ -82,18 +82,21 @@ public class RunState implements AgentState {
     /**
      * 构建流式回调 — LLM 每输出一个 token 触发一次.
      *
-     * <h2>双路径分发</h2>
-     * 每个 token 同时走两条路径：
-     * <ol>
-     *   <li><b>Outbound Queue（路径A）</b>：包装为 OutboundMessage → publish → CLI/WebSocket 消费.
-     *       走 MessageBus 异步队列，有背压保护.</li>
-     *   <li><b>直接回调（路径B）</b>：遍历所有注册的 StreamResponseCallback → 直接调 onStreamData().
-     *       不走 Queue，纯内存调用，零延迟. 每个回调自行过滤 sessionId+requestId.</li>
-     * </ol>
+     * <h2>流式分发：唯一路径 = 直接回调</h2>
+     * 每个 token 直接遍历所有注册的 StreamResponseCallback → onStreamData().
+     * 不走 Queue，纯内存调用，零延迟.
+     *
+     * 三种通道（SSE / CLI / WebSocket）都通过此路径接收流式数据，
+     * 各自注册回调，各自过滤 sessionId(+requestId)，各自输出.
+     *
+     * <h2>顺便写 sessionResponses Map（仅同步 /api/chat 使用）</h2>
+     * 每个 token 也会包装为 OutboundMessage offer 到 sessionResponses Map 中.
+     * 这是为同步 /api/chat 端点服务的（waitForSessionResponse 按 requestId 取）.
+     * 流式场景下无人读取，但因为写入量小（只写 Map 不写 Queue），开销可忽略.
      *
      * <h2>"广播电台"模式</h2>
      * AgentLoop 不对回调做任何过滤——所有回调都会收到每个 token.
-     * 过滤逻辑在回调自身（如 ChatController 中比对 sessionId + requestId）.
+     * 过滤逻辑在回调自身（比对 sessionId + requestId）.
      * 代价 O(n) 遍历，但实际活跃 SSE 连接极少，完全够用.
      */
     private Consumer<String> buildOnDelta(TurnContext ctx, String connectionId,
