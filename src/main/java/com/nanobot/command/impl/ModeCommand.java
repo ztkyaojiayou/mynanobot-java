@@ -8,23 +8,34 @@ import java.util.List;
 
 /**
  * /mode — 查看或切换权限模式。
- *
+ * <p>
  * 支持：
  * - /mode                   查看当前模式
  * - /mode plan              进入规划模式（只读分析 + 出计划）
  * - /mode default           默认模式（读放行，写需确认）
  * - /mode accept_edits      接受编辑模式（读+编辑放行）
  * - /mode bypass            绕过模式（全部放行）
- *
+ * <p>
  * Plan Mode 工作流：
  * - /mode plan  或  /plan       → 进入规划模式
  * - /plan approve               → 审批通过，切到执行模式并开始实现
  */
 public class ModeCommand implements Command {
 
-    @Override public String name() { return "mode"; }
-    @Override public List<String> aliases() { return List.of("plan"); }
-    @Override public String description() { return "切换模式 (plan | default | accept_edits | bypass)"; }
+    @Override
+    public String name() {
+        return "mode";
+    }
+
+    @Override
+    public List<String> aliases() {
+        return List.of("plan");
+    }
+
+    @Override
+    public String description() {
+        return "切换模式 (plan | default | accept_edits | bypass)";
+    }
 
     @Override
     public boolean execute(CommandContext ctx, String input) {
@@ -43,7 +54,9 @@ public class ModeCommand implements Command {
         return handleMode(ctx, arg);
     }
 
-    /** /mode [mode] — 切换权限模式 */
+    /**
+     * /mode [mode] — 切换权限模式
+     */
     private boolean handleMode(CommandContext ctx, String arg) {
         var pm = ctx.permissionManager();
         if (pm == null) {
@@ -89,7 +102,9 @@ public class ModeCommand implements Command {
         return false;
     }
 
-    /** /plan approve — 审批通过，开始执行 */
+    /**
+     * /plan approve — 审批通过，开始执行
+     */
     private boolean approvePlan(CommandContext ctx) {
         var loop = ctx.agentLoop();
         var pm = ctx.permissionManager();
@@ -114,13 +129,16 @@ public class ModeCommand implements Command {
 
         System.out.println("✅ 计划已审批，进入执行模式...");
 
-        // 3. 发送执行指令到 AgentLoop
+        // 3. 发送执行指令到 AgentLoop，即有agent发送一次请求到入站队列，
+        // 相当于由agent主动发起一次指定提示词的对话！而此时上下文的相关状态已经修改啦！
         var bus = com.nanobot.NanobotRunner.getMessageBus();
         if (bus != null) {
             try {
                 bus.publishInbound(com.nanobot.bus.InboundMessage.builder()
+                        //当前会话
                         .sessionId(ctx.sessionId())
                         .senderId("system")
+                        //指定提示词，必须严格强硬！！！
                         .content("请按照刚才讨论的计划开始实现。直接写代码，不要再次询问或重新规划。")
                         .channel("cli")
                         .metadata(java.util.Map.of("requestId",
