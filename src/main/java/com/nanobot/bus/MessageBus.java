@@ -50,6 +50,10 @@ public class MessageBus {
 
     // ── Sync /api/chat 响应匹配 ──
     private final ConcurrentHashMap<String, java.util.Queue<OutboundMessage>> sessionResponses;
+    /** 记录每个 session 最后一次 publishOutbound 的时间，用于过期清理 */
+    private final ConcurrentHashMap<String, Long> sessionLastAccess = new ConcurrentHashMap<>();
+    private Thread cleanupThread;
+    private static final long SESSION_RESPONSE_TTL_MS = 300_000; // 5分钟
 
     private static final int DEFAULT_QUEUE_CAPACITY = 100;
     private static final int OUTBOUND_QUEUE_CAPACITY = 1000;
@@ -74,14 +78,14 @@ public class MessageBus {
     public void start() {
         running.set(true);
         startDispatcher();
-        logger.info("MessageBus started (dispatcher + inbound consumer ready)");
+        startCleanup();
+        logger.info("MessageBus started (dispatcher + cleanup ready)");
     }
 
     public void stop() {
         running.set(false);
-        if (dispatcherThread != null) {
-            dispatcherThread.interrupt();
-        }
+        if (dispatcherThread != null) dispatcherThread.interrupt();
+        if (cleanupThread != null) cleanupThread.interrupt();
         logger.info("MessageBus stopped");
     }
 
@@ -262,6 +266,7 @@ public class MessageBus {
         }
         if (message.getSessionId() != null) {
             sessionResponses.computeIfAbsent(message.getSessionId(), k -> new java.util.LinkedList<>()).offer(message);
+            sessionLastAccess.put(message.getSessionId(), System.currentTimeMillis());
         }
         logger.debug("Published outbound: sessionId={}", message.getSessionId());
     }
@@ -302,5 +307,36 @@ public class MessageBus {
     /** 清理指定会话的待取响应 */
     public void clearSessionResponse(String sessionId) {
         sessionResponses.remove(sessionId);
+        sessionLastAccess.remove(sessionId);
+    }
+
+    /** 启动过期清理线程——每 2 分钟扫描 sessionLastAccess，移除超过 TTL 的残留响应 */
+    private void startCleanup() {
+        cleanupThread = new Thread(() -> {
+            logger.info("Cleanup thread started (TTL={}s)", SESSION_RESPONSE_TTL_MS / 1000);
+            while (running.get()) {
+                try {
+                    Thread.sleep(120_000); // 每2分钟清理一次
+                    long now = System.currentTimeMillis();
+                    int cleaned = 0;
+                    for (var entry : sessionLastAccess.entrySet()) {
+                        if (now - entry.getValue() > SESSION_RESPONSE_TTL_MS) {
+                            sessionResponses.remove(entry.getKey());
+                            sessionLastAccess.remove(entry.getKey());
+                            cleaned++;
+                        }
+                    }
+                    if (cleaned > 0) {
+                        logger.info("Cleanup: removed {} stale session responses", cleaned);
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            logger.info("Cleanup thread stopped");
+        }, "MessageBus-cleanup");
+        cleanupThread.setDaemon(true);
+        cleanupThread.start();
     }
 }

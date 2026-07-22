@@ -105,6 +105,7 @@ public class CliChannel {
         Thread consumerThread = new Thread(() -> {
             while (consumerRunning.get()) {
                 try {
+                    //取走即删，避免阻塞其他线程
                     OutboundMessage msg = subscriberQueue.poll(500, TimeUnit.MILLISECONDS);
                     if (msg == null) continue;
                     if (!sessionId.equals(msg.getSessionId())) continue;
