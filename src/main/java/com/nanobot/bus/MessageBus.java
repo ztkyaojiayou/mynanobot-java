@@ -118,7 +118,7 @@ public class MessageBus {
      *   │ offer(msg) ──├──→ subscriberQueue[CLI]  → consumer thread → stdout
      *   │ offer(msg) ──└──→ subscriberQueue[WS]   → consumer thread → sendText
      *   └──────────────┘
-     *        ↑ 同一份 msg 对象引用，不是深拷贝
+     *        ↑ 同一份 msg 对象引用，不是深拷贝（即就一份数据，没有数据重复和内存浪费）
      * </pre>
      *
      * <h2>背压策略</h2>
@@ -134,13 +134,14 @@ public class MessageBus {
     private void startDispatcher() {
         dispatcherThread = new Thread(() -> {
             logger.info("Outbound dispatcher started, {} subscribers", subscriberQueues.size());
+            //非常重要的一点：这是一个死循环，持续从出站队列搬消息~
             while (running.get()) {
                 try {
                     // ── 从出站队列取一条消息（阻塞1s，消息到达立即唤醒）──
                     OutboundMessage msg = outboundQueue.poll(1, TimeUnit.SECONDS);
                     if (msg == null) continue;
 
-                    // ── 扇出：同一份 msg 引用投递到所有 subscriberQueue ──
+                    // ── 扇出：同一份 msg 引用投递到所有 subscriberQueue 而不是复制多份，因此没有数据重复和内存浪费！──
                     for (BlockingQueue<OutboundMessage> sq : subscriberQueues) {
                         try {
                             // offer 而非 put：队列满时丢弃该订阅者，不阻塞
@@ -207,10 +208,18 @@ public class MessageBus {
      * 发布流式 token/事件到扇出队列（RunState 调用）。
      * 使用 put() 阻塞——队列满时产生背压，自然限速 LLM token 产出。
      */
+    /**
+     * 发布流式 token/事件到扇出队列（RunState 调用）。
+     * 使用 put() 阻塞——队列满时产生背压，自然限速 LLM token 产出。
+     * 零订阅者时直接丢弃，防止无人消费时消息在队列中堆积.
+     */
     public void publishToOutboundQueue(OutboundMessage message) throws InterruptedException {
         if (!running.get()) {
             logger.debug("MessageBus not running, dropping outbound message");
             return;
+        }
+        if (subscriberQueues.isEmpty()) {
+            return;  // 无订阅者，丢弃——防止 outboundQueue 积压后阻塞 RunState
         }
         outboundQueue.put(message);
     }
