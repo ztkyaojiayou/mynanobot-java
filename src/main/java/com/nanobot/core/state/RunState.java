@@ -1,6 +1,5 @@
 package com.nanobot.core.state;
 
-import com.nanobot.bus.OutboundMessage;
 import com.nanobot.config.Config;
 import com.nanobot.core.AgentLoop.StreamResponseCallback;
 import com.nanobot.core.AgentRunner;
@@ -15,30 +14,29 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
- * RUN — 调用 LLM 并管理流式输出回调。
+ * RUN — 调用 LLM 并管理流式输出回调.
+ *
+ * <h2>流式分发原理（观察者/广播模式）</h2>
+ * 每个流式请求注册一个 {@link StreamResponseCallback} 到 AgentLoop.
+ * LLM 每输出一个 token，AgentLoop 遍历所有回调广播.
+ * 各回调自行过滤 sessionId(+requestId)，只消费自己的消息.
+ *
+ * <h2>三种通道统一</h2>
+ * SSE (ChatController) / CLI (CliChannel) / WebSocket (NanobotWebSocketEndpoint)
+ * 全部通过同一套回调机制接收流式数据，不走任何 Queue.
  */
 public class RunState implements AgentState {
 
     private static final Logger logger = LoggerFactory.getLogger(RunState.class);
     private final AgentRunner runner;
     private final Config config;
-    /**
-     * 这是注册的所有回调接口，等大模型返回流式消息时agentloop就会逐一回调这些接口，将消息广播给各个回调接口
-     * 其实就是观察者/订阅监听/生产者消费者模式，每一份消息都会广播给每个回调接口，各个接口按需消费，
-     * 如只过滤出当前请求的消息发送到前端！！！
-     * 每个流式请求都会注册一个回调接口到这里
-     * 而这恰恰就是流式返回接口的核心原理！！！
-     */
     private final Supplier<List<StreamResponseCallback>> callbacksSupplier;
-    private final Consumer<OutboundMessage> progressPublisher;
 
     public RunState(AgentRunner runner, Config config,
-                    Supplier<List<StreamResponseCallback>> callbacksSupplier,
-                    Consumer<OutboundMessage> progressPublisher) {
+                    Supplier<List<StreamResponseCallback>> callbacksSupplier) {
         this.runner = runner;
         this.config = config;
         this.callbacksSupplier = callbacksSupplier;
-        this.progressPublisher = progressPublisher;
     }
 
     @Override
@@ -66,7 +64,6 @@ public class RunState implements AgentState {
                     sessionId, requestId, duration, result != null ? result.length() : 0);
             ctx.setFinalContent(result);
 
-            // 流式结束标记
             if (streamMode && onDelta != null) {
                 sendStreamEnd(ctx, connectionId, sessionId, requestId);
             }
@@ -82,43 +79,17 @@ public class RunState implements AgentState {
     /**
      * 构建流式回调 — LLM 每输出一个 token 触发一次.
      *
-     * <h2>流式分发：唯一路径 = 直接回调</h2>
-     * 每个 token 直接遍历所有注册的 StreamResponseCallback → onStreamData().
-     * 不走 Queue，纯内存调用，零延迟.
-     *
-     * 三种通道（SSE / CLI / WebSocket）都通过此路径接收流式数据，
-     * 各自注册回调，各自过滤 sessionId(+requestId)，各自输出.
-     *
-     * <h2>顺便写 sessionResponses Map（仅同步 /api/chat 使用）</h2>
-     * 每个 token 也会包装为 OutboundMessage offer 到 sessionResponses Map 中.
-     * 这是为同步 /api/chat 端点服务的（waitForSessionResponse 按 requestId 取）.
-     * 流式场景下无人读取，但因为写入量小（只写 Map 不写 Queue），开销可忽略.
-     *
-     * <h2>"广播电台"模式</h2>
-     * AgentLoop 不对回调做任何过滤——所有回调都会收到每个 token.
+     * 直接遍历所有注册的 StreamResponseCallback 广播 onStreamData().
+     * AgentLoop 不做任何过滤——所有回调都会收到每个 token.
      * 过滤逻辑在回调自身（比对 sessionId + requestId）.
-     * 代价 O(n) 遍历，但实际活跃 SSE 连接极少，完全够用.
      */
     private Consumer<String> buildOnDelta(TurnContext ctx, String connectionId,
                                            String requestId, boolean streamMode, String sessionId) {
         if (!streamMode || (!config.getChannels().isSendProgress() && requestId == null)) return null;
 
-        // 快照当前回调列表，避免迭代过程中 ConcurrentModification
         List<StreamResponseCallback> activeCallbacks = new ArrayList<>(callbacksSupplier.get());
 
         return delta -> {
-            // ── 路径A：Outbound Queue → CLI / WebSocket ──
-            OutboundMessage msg = OutboundMessage.builder()
-                    .channel(ctx.getMessage().getChannel())
-                    .sessionId(sessionId)
-                    .content(delta)
-                    .addMetadata("_stream_delta", true)
-                    .addMetadata("_progress", true)
-                    .connectionId(connectionId)
-                    .build();
-            progressPublisher.accept(msg);
-
-            // ── 路径B：直接回调 → SSE emitter ──
             for (StreamResponseCallback cb : activeCallbacks) {
                 try { cb.onStreamData(sessionId, requestId, delta); }
                 catch (Exception e) { logger.warn("Stream callback failed: {}", e.getMessage()); }
@@ -126,14 +97,8 @@ public class RunState implements AgentState {
         };
     }
 
-    /** 流结束通知 — 告知所有回调流已完成，回调内部自行过滤 sessionId+requestId */
+    /** 流结束 — 广播 onStreamComplete 给所有注册的回调 */
     private void sendStreamEnd(TurnContext ctx, String connectionId, String sessionId, String requestId) {
-        if (connectionId != null) {
-            progressPublisher.accept(OutboundMessage.builder()
-                    .channel(ctx.getMessage().getChannel()).sessionId(sessionId)
-                    .content("").connectionId(connectionId)
-                    .addMetadata("_stream_end", true).build());
-        }
         for (StreamResponseCallback cb : callbacksSupplier.get()) {
             try { cb.onStreamComplete(sessionId, requestId); }
             catch (Exception e) { logger.warn("Stream complete callback failed: {}", e.getMessage()); }

@@ -118,16 +118,6 @@ public class MessageBus {
         logger.debug("Published outbound: sessionId={}", message.getSessionId());
     }
 
-    /**
-     * 非阻塞发布进度/流式增量消息（队列满时静默丢弃）。
-     */
-    public void offerOutbound(OutboundMessage message) {
-        if (!running.get()) return;
-        if (message.getSessionId() != null) {
-            sessionResponses.computeIfAbsent(message.getSessionId(), k -> new java.util.LinkedList<>()).offer(message);
-        }
-    }
-
     // ═══════════ 响应匹配 ═══════════
 
     /**

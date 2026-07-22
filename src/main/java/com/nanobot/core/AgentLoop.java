@@ -183,8 +183,6 @@ public class AgentLoop {
     /**
      * 进度回调
      */
-    private Consumer<OutboundMessage> progressCallback;
-
     /**
      * 规划模式 — 只读分析 + 出计划 + 等审批。
      * true 时 LLM 只能读文件/搜索，不能修改或执行命令。
@@ -485,8 +483,7 @@ public class AgentLoop {
         stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, consolidator, dream));
         stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, dream, skillManager != null ? skillManager.getRegistry() : null));
         stateHandlers.put(TurnState.RUN, new com.nanobot.core.state.RunState(runner, config,
-                () -> java.util.List.copyOf(streamResponseCallbacks),
-                msg -> publishProgress(msg)));
+                () -> java.util.List.copyOf(streamResponseCallbacks)));
         stateHandlers.put(TurnState.SAVE, new com.nanobot.core.state.SaveState(sessionManager));
         stateHandlers.put(TurnState.RESPOND, new com.nanobot.core.state.RespondState(messageBus));
     }
@@ -534,21 +531,10 @@ public class AgentLoop {
         }
     }
 
-    /**
-     * 发布进度
-     */
-    private void publishProgress(OutboundMessage progress) {
-        messageBus.offerOutbound(progress);
-    }
-
     // ==================== 状态查询 ====================
 
     public boolean isRunning() {
         return running.get();
-    }
-
-    public void setProgressCallback(Consumer<OutboundMessage> callback) {
-        this.progressCallback = callback;
     }
 
     /**
