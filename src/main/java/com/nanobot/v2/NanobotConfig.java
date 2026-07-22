@@ -263,7 +263,7 @@ public class NanobotConfig {
         // ── @ToolDef 注解扫描（项目自定义工具零代码注册）──
         String scanPkgs = config.getTools().getToolScanPackages();
         if (scanPkgs != null && !scanPkgs.isBlank()) {
-            new ToolScanner().scanAndRegister(toolRegistry, scanPkgs.split("\\s*,\\s*"));
+            ToolScanner.scanAndRegister(toolRegistry, scanPkgs.split("\\s*,\\s*"));
         }
 
         logger.info("Registered {} tools: {}",

@@ -10,14 +10,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * LLM Provider 策略工厂。
+ * LLM Provider 策略工厂 — 纯静态工具。
  *
  * 根据配置文件中的 model 字段匹配对应的 Provider 实现。
  * 新 Provider 只需注册一个 {@link ProviderStrategy} 即可，无需改其他代码。
  *
  * <pre>
- * ProviderFactory factory = new ProviderFactory();
- * factory.create(config);  // 自动匹配 model → 创建对应的 Provider
+ * LLMProvider provider = ProviderFactory.create(config);
  * </pre>
  */
 public class ProviderFactory {
@@ -25,22 +24,22 @@ public class ProviderFactory {
     private static final Logger logger = LoggerFactory.getLogger(ProviderFactory.class);
 
     /** 策略列表，按注册顺序匹配（先注册的优先） */
-    private final List<ProviderStrategy> strategies = new ArrayList<>();
+    private static final List<ProviderStrategy> strategies = new ArrayList<>();
 
-    public ProviderFactory() {
+    static {
         registerDefaults();
     }
 
     // ═══════════ 公开 API ═══════════
 
-    /** 注册一个 Provider 策略 */
-    public void register(ProviderStrategy strategy) {
+    /** 注册一个 Provider 策略（如需扩展，在应用启动早期调用） */
+    public static void register(ProviderStrategy strategy) {
         strategies.add(strategy);
         logger.debug("Registered provider strategy: {}", strategy.getClass().getSimpleName());
     }
 
     /** 根据配置创建对应的 LLM Provider */
-    public LLMProvider create(Config config) {
+    public static LLMProvider create(Config config) {
         String model = config.getAgents().getDefaults().getModel();
 
         for (ProviderStrategy strategy : strategies) {
@@ -57,7 +56,7 @@ public class ProviderFactory {
 
     // ═══════════ 默认策略注册 ═══════════
 
-    private void registerDefaults() {
+    private static void registerDefaults() {
         // OpenAI 系（gpt-*, o1, o3, o4）
         register(new ProviderStrategy() {
             @Override public boolean supports(String model) {

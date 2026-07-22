@@ -32,8 +32,10 @@ public class ToolScanner {
     private static final Logger logger = LoggerFactory.getLogger(ToolScanner.class);
     private static final ObjectMapper mapper = new ObjectMapper();
 
+    private ToolScanner() { /* 纯静态工具，禁止实例化 */ }
+
     /** 扫描并注册 */
-    public int scanAndRegister(ToolRegistry registry, String... basePackages) {
+    public static int scanAndRegister(ToolRegistry registry, String... basePackages) {
         int count = 0;
         for (String pkg : basePackages) {
             count += scanMethodLevel(registry, pkg);
@@ -44,7 +46,7 @@ public class ToolScanner {
 
     /** 扫描方法级别的 @ToolDef 注解 */
     @SuppressWarnings("unchecked")
-    private int scanMethodLevel(ToolRegistry registry, String basePackage) {
+    private static int scanMethodLevel(ToolRegistry registry, String basePackage) {
         int count = 0;
 
         // 扫描实现了 Tool 接口的类（类级别 @ToolDef）
@@ -119,7 +121,7 @@ public class ToolScanner {
     }
 
     /** 将 @ToolDef 方法包装为 Tool 接口 */
-    private Tool createMethodTool(Object instance, Method method, ToolDef def) {
+    private static Tool createMethodTool(Object instance, Method method, ToolDef def) {
         String name = !def.name().isBlank() ? def.name() : camelToSnake(method.getName());
         String desc = !def.description().isBlank() ? def.description() : name;
 
@@ -150,7 +152,7 @@ public class ToolScanner {
     }
 
     /** 根据方法参数构建 JSON Schema */
-    private JsonNode buildParamsSchema(Method method) {
+    private static JsonNode buildParamsSchema(Method method) {
         ObjectNode root = mapper.createObjectNode();
         root.put("type", "object");
         ObjectNode props = mapper.createObjectNode();
@@ -175,7 +177,7 @@ public class ToolScanner {
     }
 
     /** 将 Map 参数解析为方法实参 */
-    private Object[] resolveArgs(Method method, Map<String, Object> params) {
+    private static Object[] resolveArgs(Method method, Map<String, Object> params) {
         Parameter[] parameters = method.getParameters();
         Object[] args = new Object[parameters.length];
         for (int i = 0; i < parameters.length; i++) {
@@ -198,14 +200,14 @@ public class ToolScanner {
         return args;
     }
 
-    private String javaTypeToJsonType(Class<?> type) {
+    private static String javaTypeToJsonType(Class<?> type) {
         if (type == int.class || type == long.class || type == Integer.class || type == Long.class) return "integer";
         if (type == double.class || type == float.class || type == Double.class || type == Float.class) return "number";
         if (type == boolean.class || type == Boolean.class) return "boolean";
         return "string";
     }
 
-    private String camelToSnake(String name) {
+    private static String camelToSnake(String name) {
         return name.replaceAll("([a-z])([A-Z])", "$1_$2").toLowerCase();
     }
 }

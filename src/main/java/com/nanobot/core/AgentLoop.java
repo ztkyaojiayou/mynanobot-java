@@ -233,8 +233,7 @@ public class AgentLoop {
      */
     private void loadHooks() {
         try {
-            HookLoader loader = new HookLoader(config.getHooks());
-            this.hooks = loader.loadHooks();
+            this.hooks = HookLoader.loadHooks(config.getHooks());
             logger.info("Loaded {} hooks", hooks.size());
         } catch (Exception e) {
             logger.error("Failed to load hooks: {}", e.getMessage());

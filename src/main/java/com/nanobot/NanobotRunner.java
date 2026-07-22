@@ -280,7 +280,7 @@ public class NanobotRunner implements ApplicationRunner {
      * API Key 来源优先级：secret.yaml > 环境变量
      */
     private LLMProvider initProvider() {
-        return new ProviderFactory().create(config);
+        return ProviderFactory.create(config);
     }
 
     /**
