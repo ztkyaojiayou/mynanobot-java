@@ -464,7 +464,7 @@ public class AgentLoop {
         stateHandlers.put(TurnState.RESTORE, new com.nanobot.core.state.RestoreState(sessionManager));
         stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(consolidator));
         stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, consolidator, dream, messageBus));
-        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, dream, skillManager != null ? skillManager.getRegistry() : null));
+        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, dream, skillManager != null ? skillManager.getRegistry() : null, config.getWorkspacePath()));
         stateHandlers.put(TurnState.RUN, new com.nanobot.core.state.RunState(runner, config, messageBus));
         stateHandlers.put(TurnState.SAVE, new com.nanobot.core.state.SaveState(sessionManager));
         stateHandlers.put(TurnState.RESPOND, new com.nanobot.core.state.RespondState(messageBus));

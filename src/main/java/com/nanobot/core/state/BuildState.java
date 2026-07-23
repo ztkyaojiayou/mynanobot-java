@@ -31,15 +31,23 @@ public class BuildState implements AgentState {
     private final BooleanSupplier planModeSupplier; // 支持运行时查询 planMode
     private final Dream dream; // 可为 null
     private final SkillRegistry skillRegistry; // 可为 null — 用于注入技能目录
+    private final String workspacePath; // 工作区路径，用于读取 NANOBOT.md
 
     public BuildState(IdentityManager identityManager, RuleManager ruleManager,
                       BooleanSupplier planModeSupplier, Dream dream,
-                      SkillRegistry skillRegistry) {
+                      SkillRegistry skillRegistry, String workspacePath) {
         this.identityManager = identityManager;
         this.ruleManager = ruleManager;
         this.planModeSupplier = planModeSupplier;
         this.dream = dream;
         this.skillRegistry = skillRegistry;
+        this.workspacePath = workspacePath;
+    }
+
+    public BuildState(IdentityManager identityManager, RuleManager ruleManager,
+                      BooleanSupplier planModeSupplier, Dream dream,
+                      SkillRegistry skillRegistry) {
+        this(identityManager, ruleManager, planModeSupplier, dream, skillRegistry, ".");
     }
 
     @Override
@@ -135,7 +143,7 @@ public class BuildState implements AgentState {
 
     private void appendNanobotMd(StringBuilder sb) {
         try {
-            java.nio.file.Path path = java.nio.file.Paths.get("NANOBOT.md");
+            java.nio.file.Path path = java.nio.file.Paths.get(workspacePath, "NANOBOT.md");
             if (java.nio.file.Files.exists(path)) {
                 String content = java.nio.file.Files.readString(path);
                 sb.append("\n\n【项目上下文 — 来自 NANOBOT.md】\n").append(content).append("\n");

@@ -51,13 +51,13 @@ public class SkillManager {
      * 初始化技能搜索路径
      */
     private void initSkillPaths() {
-        // 1. 项目级技能目录
-        Path projectSkills = Paths.get(".nanobot", "skills");
+        // 1. 项目级技能目录 {workspace}/.nanobot/skills/
+        Path projectSkills = Paths.get(config.getNanobotDir(), "skills");
         if (Files.exists(projectSkills)) {
             skillPaths.add(projectSkills.toAbsolutePath().normalize());
         }
-        
-        // 2. 用户级技能目录
+
+        // 2. 用户级技能目录 ~/.nanobot/skills/（跨项目共享,不变）
         Path userSkills = Paths.get(System.getProperty("user.home"), ".nanobot", "skills");
         if (Files.exists(userSkills)) {
             skillPaths.add(userSkills.toAbsolutePath().normalize());

@@ -149,7 +149,16 @@ public class ConfigLoader {
         if (Files.exists(localConfig)) {
             return load(localConfig);
         }
-        
+
+        // 3. 工作区项目配置 .nanobot/config.yaml（workspace 级别）
+        Path nanobotConfig = Paths.get(".nanobot", "config.yaml");
+        if (Files.exists(nanobotConfig)) {
+            logger.info("Loading configuration from: {}", nanobotConfig);
+            Config config = load(nanobotConfig);
+            mergeSecretKeys(Paths.get("").toAbsolutePath(), config);
+            return config;
+        }
+
         // 尝试从类路径加载主配置
         try (InputStream is = ConfigLoader.class.getClassLoader()
                 .getResourceAsStream(CLASSPATH_CONFIG)) {

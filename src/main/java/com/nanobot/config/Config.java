@@ -534,6 +534,11 @@ public class Config {
 
     // ==================== 辅助方法 ====================
 
+    /** 获取 .nanobot 配置目录完整路径（{workspace}/.nanobot） */
+    public String getNanobotDir() {
+        return java.nio.file.Paths.get(getWorkspacePath(), ".nanobot").toString();
+    }
+
     /**
      * 获取完整的工作空间路径
      */

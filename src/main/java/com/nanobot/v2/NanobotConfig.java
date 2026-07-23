@@ -411,7 +411,7 @@ public class NanobotConfig {
     @Bean
     public Dream dream(LLMProvider llmProvider, Config config) {
         int maxMemories = config.getMemory().getDream().getMaxMemories();
-        java.nio.file.Path memoryDir = java.nio.file.Paths.get(".nanobot", "memory").toAbsolutePath().normalize();
+        java.nio.file.Path memoryDir = java.nio.file.Paths.get(config.getNanobotDir(), "memory").toAbsolutePath().normalize();
         Dream d = new Dream(llmProvider, maxMemories, memoryDir);
         d.loadFromMemoryFile(memoryDir);  // 恢复之前持久化的记忆
         return d;
