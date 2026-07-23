@@ -19,10 +19,18 @@ import org.jline.utils.NonBlockingReader;
 import org.springframework.context.ConfigurableApplicationContext;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * CLI 交互通道 — 命令行终端直接对话。
@@ -251,6 +259,179 @@ public class CliChannel {
         return true;
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // @ 文件引用
+    // ═══════════════════════════════════════════════════════════════
+
+    /** @ 文件引用匹配：@后跟路径，以空格/行尾/标点结束 */
+    private static final Pattern FILE_REF_PATTERN =
+            Pattern.compile("@([^\\s,.!?;:'\"\\)\\]}\\{]+(?:/[^\\s,.!?;:'\"\\)\\]}\\{]+)*)");
+
+    /** 单次注入最大行数（超过截断） */
+    private static final int MAX_FILE_LINES = 500;
+
+    /** 最大文件字节数（超过拒绝读取，防止大文件 OOM） */
+    private static final long MAX_FILE_BYTES = 2 * 1024 * 1024; // 2MB
+
+    /** 危险路径模式（禁止访问） */
+    private static final Pattern DANGEROUS_PATH = Pattern.compile(
+            "(\\.\\./|\\.\\.\\\\|^/etc/|^/proc/|^/sys/|^/dev/|~/.ssh|~/.gnupg|" +
+            "\\.pem$|\\.key$|\\.crt$|\\.pfx$|\\.p12$|\\.keystore$|\\.jks$)");
+
+    /** 二进制文件检测：前 512 字节中 null 字节比例超过阈值视为二进制 */
+    private static final double BINARY_NULL_RATIO_THRESHOLD = 0.05;
+
+    /**
+     * 解析用户输入中的 @文件引用，读取文件内容并替换为 markdown 代码块。
+     *
+     * @return 替换后的内容；文件读取失败时 @引用保留原文并输出警告
+     */
+    private String resolveFileRefs(String content) {
+        Matcher matcher = FILE_REF_PATTERN.matcher(content);
+        if (!matcher.find()) return content; // 没有 @引用，直接返回
+
+        // 用列表收集替换（不能在循环中修改原字符串，会打乱索引）
+        record Replacement(int start, int end, String text) {}
+        List<Replacement> replacements = new ArrayList<>();
+
+        matcher.reset(); // 重置匹配器
+        while (matcher.find()) {
+            String rawPath = matcher.group(1);
+            String resolved = resolveFilePath(rawPath);
+            replacements.add(new Replacement(matcher.start(), matcher.end(), resolved));
+        }
+
+        // 从后往前替换（避免索引偏移）
+        StringBuilder result = new StringBuilder(content);
+        for (int i = replacements.size() - 1; i >= 0; i--) {
+            Replacement r = replacements.get(i);
+            result.replace(r.start, r.end, r.text);
+        }
+        return result.toString();
+    }
+
+    /** 解析单个 @文件引用：安全检查 + 读取 + 格式化为 markdown 代码块 */
+    private String resolveFilePath(String rawPath) {
+        // ── 1. 展开 ~ → 用户主目录 ──
+        String expanded = rawPath.startsWith("~")
+                ? rawPath.replaceFirst("^~", System.getProperty("user.home", "~"))
+                : rawPath;
+
+        // ── 2. 解析为绝对路径并规范化 ──
+        Path path = Paths.get(expanded);
+        if (!path.isAbsolute()) {
+            path = Paths.get(System.getProperty("user.dir", ".")).resolve(path);
+        }
+        path = path.toAbsolutePath().normalize();
+
+        // ── 3. 安全检查：危险路径拒绝 ──
+        if (DANGEROUS_PATH.matcher(path.toString()).find()) {
+            System.out.println("⚠  危险路径已拒绝: " + rawPath);
+            return "@" + rawPath; // 保留原文
+        }
+
+        // ── 4. 文件存在性 + 类型检查 ──
+        if (!Files.exists(path)) {
+            System.out.println("⚠  文件未找到: " + rawPath);
+            return "@" + rawPath;
+        }
+        if (Files.isDirectory(path)) {
+            System.out.println("⚠  是目录，请指定具体文件: " + rawPath);
+            return "@" + rawPath;
+        }
+
+        // ── 5. 大小检查 ──
+        try {
+            long size = Files.size(path);
+            if (size > MAX_FILE_BYTES) {
+                System.out.println("⚠  文件过大 (>" + (MAX_FILE_BYTES / 1024 / 1024) + "MB): " + rawPath);
+                return "@" + rawPath;
+            }
+            if (size == 0) {
+                System.out.println("⚠  空文件: " + rawPath);
+                return "@" + rawPath;
+            }
+        } catch (IOException e) {
+            System.out.println("⚠  无法读取文件大小: " + rawPath);
+            return "@" + rawPath;
+        }
+
+        // ── 6. 二进制检测 ──
+        try {
+            byte[] head = new byte[512];
+            try (var in = Files.newInputStream(path)) {
+                int read = in.read(head);
+                if (read > 0) {
+                    int nullCount = 0;
+                    for (int i = 0; i < read; i++) {
+                        if (head[i] == 0) nullCount++;
+                    }
+                    if ((double) nullCount / read > BINARY_NULL_RATIO_THRESHOLD) {
+                        System.out.println("⚠  二进制文件，跳过: " + rawPath);
+                        return "@" + rawPath;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            System.out.println("⚠  无法读取文件: " + rawPath + " (" + e.getMessage() + ")");
+            return "@" + rawPath;
+        }
+
+        // ── 7. 读取文件内容 ──
+        try {
+            List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+            String lang = inferLanguage(path.getFileName().toString());
+            boolean truncated = lines.size() > MAX_FILE_LINES;
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("```").append(lang).append("\n");
+            int limit = Math.min(lines.size(), MAX_FILE_LINES);
+            for (int i = 0; i < limit; i++) {
+                sb.append(lines.get(i)).append("\n");
+            }
+            if (truncated) {
+                sb.append("... (截断，共 ").append(lines.size()).append(" 行，仅显示前 ").append(MAX_FILE_LINES).append(" 行)\n");
+            }
+            sb.append("```");
+
+            System.out.println("📄 已注入: " + rawPath + (truncated ? " (截断至 " + MAX_FILE_LINES + " 行)" : ""));
+            return sb.toString();
+        } catch (IOException e) {
+            System.out.println("⚠  无法读取文件: " + rawPath + " (" + e.getMessage() + ")");
+            return "@" + rawPath;
+        }
+    }
+
+    /** 根据文件扩展名推断 markdown 代码块语言标记 */
+    private static String inferLanguage(String fileName) {
+        String name = fileName.toLowerCase();
+        if (name.endsWith(".java")) return "java";
+        if (name.endsWith(".kt")) return "kotlin";
+        if (name.endsWith(".py")) return "python";
+        if (name.endsWith(".js")) return "javascript";
+        if (name.endsWith(".ts") || name.endsWith(".tsx")) return "typescript";
+        if (name.endsWith(".jsx")) return "jsx";
+        if (name.endsWith(".go")) return "go";
+        if (name.endsWith(".rs")) return "rust";
+        if (name.endsWith(".c") || name.endsWith(".h")) return "c";
+        if (name.endsWith(".cpp") || name.endsWith(".cc") || name.endsWith(".cxx") || name.endsWith(".hpp")) return "cpp";
+        if (name.endsWith(".cs")) return "csharp";
+        if (name.endsWith(".rb")) return "ruby";
+        if (name.endsWith(".sh") || name.endsWith(".bash")) return "bash";
+        if (name.endsWith(".sql")) return "sql";
+        if (name.endsWith(".xml")) return "xml";
+        if (name.endsWith(".json")) return "json";
+        if (name.endsWith(".yaml") || name.endsWith(".yml")) return "yaml";
+        if (name.endsWith(".toml")) return "toml";
+        if (name.endsWith(".md") || name.endsWith(".markdown")) return "markdown";
+        if (name.endsWith(".html")) return "html";
+        if (name.endsWith(".css")) return "css";
+        if (name.endsWith(".properties")) return "properties";
+        if (name.endsWith(".gradle")) return "groovy";
+        if (name.endsWith(".xml") || name.endsWith(".pom")) return "xml";
+        return "";
+    }
+
     /**
      * 发送用户消息到 MessageBus
      */
@@ -258,6 +439,9 @@ public class CliChannel {
         String requestId = java.util.UUID.randomUUID().toString();
         currentRequestId = requestId;
         cancelled = false;
+
+        // ── @ 文件引用解析 ──
+        content = resolveFileRefs(content);
 
         // 后台监听线程：流式输出期间按 Esc 中断当前回复
         Thread cancelMonitor = new Thread(() -> {
