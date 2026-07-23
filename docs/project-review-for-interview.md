@@ -1112,4 +1112,148 @@ CompletableFuture<MCPResult> future = pendingRequests.remove(requestId);
 | **调用方负责并发控制** | SessionManager 加锁 → SessionStore 无锁 |
 | **单线程消费是最大简化** | AgentLoop 单 daemon 消费，同一会话不并发处理 |
 | **零订阅者守护** | subscriberQueues.isEmpty() → 直接 return，防阻塞 |
+
+---
+
+## 十、可观测性设计
+
+> 面试官："你的系统怎么监控运行状态？" —— 本章覆盖从终端统计行到健康检查端点的完整方案。
+
+### 10.1 流式结束统计行
+
+LLM 流式回复结束后，CLI 自动打印一行统计信息：
+
+```
+> 帮我分析一下 AgentLoop.java
+
+  当然，AgentLoop 是整个系统的核心...           ← 流式输出
+  ...                                          ← 流式输出
+
+  ⏱ 3.2s · 1234 tokens · 2 tool calls         ← 流结束自动打印
+```
+
+**实现**：`RunState.sendStreamEnd()` 将 token 数和工具迭代次数塞进 `OutboundMessage` metadata（`_token_count`、`_tool_iterations`），CLI 消费者线程收到 `_stream_end` 时提取显示。零额外网络请求，数据来自当前轮次 `TurnContext`。
+
+### 10.2 /stats 命令 —— 一键诊断
+
+内置命令，实时查看系统状态：
+
+```
+> /stats
+
+📊 会话统计
+
+消息数: 12 条 · Token 估算: 4,200
+LLM 迭代次: 5
+
+📊 全局
+
+会话总数: 47 个
+入站队列: 3/100
+出站队列: 0/1000
+订阅者数: 1
+长期记忆: 23 条
+
+📊 工具耗时
+
+  read_file: 45 calls, avg 3ms, max 15ms
+  web_search: 12 calls, avg 2100ms, max 5200ms
+  exec: 8 calls, avg 340ms, max 1200ms
+  grep: 30 calls, avg 8ms, max 25ms
+
+📊 全局指标
+
+总请求: 230
+总 Token: 156,000
+运行时间: 35.2 分
+平均耗时: 4200ms
+错误率: 0.87%
+```
+
+**实现**：`CommandState` 内置 `/stats` case。数据来源：
+- 会话统计：`ctx.getMessages()` + `ctx.getIteration()`
+- 队列深度：`messageBus.getInboundSize()` / `getOutboundQueueSize()` / `getSubscriberCount()`
+- 工具耗时：`MetricsHook.recordToolTiming()` 在每次工具执行后记录，按 `totalMs` 降序取 top 10
+- 全局指标：`MetricsHook` 的 `GlobalMetrics`（累计请求数、token、错误率、运行时间）
+
+### 10.3 工具级别耗时追踪
+
+每个工具调用自动计时，无需侵入业务代码：
+
+```java
+// ToolRegistry.execute() 中
+long start = System.currentTimeMillis();
+Object result = tool.execute(params).join();
+MetricsHook.recordToolTiming(name, System.currentTimeMillis() - start);
+```
+
+`ToolTiming` 内部类用 `synchronized` 保护 `calls`/`totalMs`/`maxMs` 三个字段的联合原子更新，`ConcurrentHashMap<String, ToolTiming>` 隔离不同工具。
+
+### 10.4 消息队列积压监控
+
+`AgentLoop` 心跳日志每 30 秒报告队列深度，超阈值告警：
+
+```
+💓 AgentLoop heartbeat: processed=230, inbound=3/100, outbound=0/1000, subscribers=1
+⚠️ 入站队列堆积: 55/100
+```
+
+入站 > 50 或出站 > 500 时打印 WARN。运维人员一眼看出系统是否过载。
+
+### 10.5 健康检查端点
+
+`GET /actuator/health` 返回组件状态 + 队列深度：
+
+```json
+{
+  "status": "UP",
+  "components": {
+    "messageBus": "UP",
+    "agentLoop": "UP",
+    "sessionManager": "UP",
+    "config": "UP"
+  },
+  "queues": {
+    "inboundSize": 3, "inboundCapacity": 100,
+    "outboundSize": 0, "outboundCapacity": 1000,
+    "subscribers": 1
+  }
+}
+```
+
+**实现**：`HealthController` 检查 `AgentLoop.isRunning()` 和 `MessageBus` 状态，所有组件 UP 才返回 UP。可接入 Prometheus/Nginx 等外部监控系统。
+
+### 10.6 全局指标追踪
+
+`MetricsHook` 在 Agent 生命周期各阶段自动收集：
+
+| 指标 | 收集点 | 说明 |
+|------|-------|------|
+| `totalRequests` | `beforeIteration` | 每次迭代 +1 |
+| `totalTokens` | `finalizeContent` | 累计 prompt + completion |
+| `totalDurationMs` | `finalizeContent` | 所有请求累计耗时 |
+| `avgDurationMs` | — | totalDuration / totalRequests |
+| `errorRate` | `afterIteration` | 有 error 时 +1 |
+
+`GlobalMetrics` 线程安全（synchronized），`SessionMetrics` 按 sessionKey 隔离（CHM）。
+
+### 10.7 可观测性架构总览
+
+```
+CLI 终端                      HTTP API                     JVM 运行时
+  │                              │                            │
+  ├─ 流统计行                    ├─ /actuator/health          ├─ MetricsHook
+  │   _stream_end metadata       │   JSON 组件状态             │   GlobalMetrics
+  │   ⏱ 3.2s · 1234 tokens     │   队列深度                  │   累计统计
+  │                              │                            │
+  ├─ /stats 命令                 ├─ /actuator/metrics         ├─ AgentLoop heartbeat
+  │   会话+全局+工具耗时         │   JVM 内存/uptime          │   30s 队列深度
+  │   top10 排行榜               │   会话数                    │   积压 WARN
+  │                              │                            │
+  └─ 📊 工具耗时                 │                            └─ ToolTiming (CHM)
+      每次工具调用自动计时         │                               read_file 3ms avg
+      synchronized 联合更新         │                               web_search 2100ms avg
+```
+
+**设计原则**：零侵入——所有统计通过 hook + metadata 旁路收集，不修改核心 LLM 调用逻辑。需要什么加什么，取什么看什么。
 | **不可变 > 同步** | final State Handler 字段，重建替代 setter |
