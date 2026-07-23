@@ -150,7 +150,8 @@ public class CliChannel {
         consumerThread.start();
 
         printBanner();
-        System.out.println("输入消息开始对话，/exit 退出系统，/clear 清上下文，Esc 中断当前回复");
+        System.out.println("输入消息开始对话，/exit 退出，/clear 清上下文，Esc 中断回复");
+        System.out.println("💡 @文件路径 可引用文件内容（如 @src/main/Foo.java）");
         System.out.println();
 
         //持续监听用户输入，这就是入口！！！
@@ -263,9 +264,9 @@ public class CliChannel {
     // @ 文件引用
     // ═══════════════════════════════════════════════════════════════
 
-    /** @ 文件引用匹配：@后跟路径，以空格/行尾/标点结束 */
+    /** @ 文件引用匹配：@后跟非空白字符，捕获后再清理尾部标点 */
     private static final Pattern FILE_REF_PATTERN =
-            Pattern.compile("@([^\\s,.!?;:'\"\\)\\]}\\{]+(?:/[^\\s,.!?;:'\"\\)\\]}\\{]+)*)");
+            Pattern.compile("@(\\S+)");
 
     /** 单次注入最大行数（超过截断） */
     private static final int MAX_FILE_LINES = 500;
@@ -290,6 +291,8 @@ public class CliChannel {
         Matcher matcher = FILE_REF_PATTERN.matcher(content);
         if (!matcher.find()) return content; // 没有 @引用，直接返回
 
+        System.out.println();  // 视觉分隔
+
         // 用列表收集替换（不能在循环中修改原字符串，会打乱索引）
         record Replacement(int start, int end, String text) {}
         List<Replacement> replacements = new ArrayList<>();
@@ -300,6 +303,8 @@ public class CliChannel {
             String resolved = resolveFilePath(rawPath);
             replacements.add(new Replacement(matcher.start(), matcher.end(), resolved));
         }
+
+        System.out.println();  // 视觉分隔
 
         // 从后往前替换（避免索引偏移）
         StringBuilder result = new StringBuilder(content);
@@ -312,6 +317,9 @@ public class CliChannel {
 
     /** 解析单个 @文件引用：安全检查 + 读取 + 格式化为 markdown 代码块 */
     private String resolveFilePath(String rawPath) {
+        // ── 0. 清理尾部标点（如 @foo.java, → foo.java）──
+        rawPath = rawPath.replaceAll("[,;:'\"!?)\\]}]+$", "");
+
         // ── 1. 展开 ~ → 用户主目录 ──
         String expanded = rawPath.startsWith("~")
                 ? rawPath.replaceFirst("^~", System.getProperty("user.home", "~"))

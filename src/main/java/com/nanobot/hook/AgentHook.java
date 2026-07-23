@@ -1,10 +1,5 @@
-package com.nanobot.core.hook;
+package com.nanobot.hook;
 
-import com.nanobot.core.TurnContext;
-import com.nanobot.providers.LLMResponse;
-
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**

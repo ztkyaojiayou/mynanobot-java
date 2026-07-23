@@ -1,4 +1,4 @@
-package com.nanobot.core.subagent;
+package com.nanobot.subagent;
 
 import com.nanobot.core.TurnContext;
 

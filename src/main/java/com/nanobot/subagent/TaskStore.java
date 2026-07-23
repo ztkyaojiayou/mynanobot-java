@@ -1,4 +1,4 @@
-package com.nanobot.core;
+package com.nanobot.subagent;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;

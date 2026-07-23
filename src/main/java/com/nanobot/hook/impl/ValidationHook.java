@@ -1,7 +1,7 @@
-package com.nanobot.core.hook.impl;
+package com.nanobot.hook.impl;
 
-import com.nanobot.core.hook.AgentHook;
-import com.nanobot.core.hook.AgentHookContext;
+import com.nanobot.hook.AgentHook;
+import com.nanobot.hook.AgentHookContext;
 import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * 内容验证钩子 - 敏感词过滤与内容合规检查

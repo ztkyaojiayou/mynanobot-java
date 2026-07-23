@@ -2,12 +2,11 @@ package com.nanobot.core;
 
 import com.nanobot.bus.*;
 import com.nanobot.config.Config;
-import com.nanobot.core.hook.AgentHookContext;
-import com.nanobot.core.hook.CompositeHook;
-import com.nanobot.core.hook.HookLoader;
+import com.nanobot.hook.AgentHookContext;
+import com.nanobot.hook.CompositeHook;
+import com.nanobot.hook.HookLoader;
 import com.nanobot.identity.IdentityManager;
 import com.nanobot.providers.LLMProvider;
-import com.nanobot.providers.LLMResponse;
 import com.nanobot.rules.RuleManager;
 import com.nanobot.session.SessionManager;
 import com.nanobot.skill.SkillManager;
@@ -15,11 +14,9 @@ import com.nanobot.tools.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 
 /**
  * Agent Loop - 消息处理状态机引擎

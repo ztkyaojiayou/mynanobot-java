@@ -1,6 +1,6 @@
-package com.nanobot.core.hook;
+package com.nanobot.hook;
 
-import com.nanobot.core.hook.impl.ValidationHook;
+import com.nanobot.hook.impl.ValidationHook;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

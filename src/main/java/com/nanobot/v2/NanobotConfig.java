@@ -2,8 +2,8 @@ package com.nanobot.v2;
 
 import com.nanobot.config.Config;
 import com.nanobot.config.ConfigLoader;
-import com.nanobot.core.TaskStore;
-import com.nanobot.core.subagent.AgentCoordinator;
+import com.nanobot.subagent.TaskStore;
+import com.nanobot.subagent.AgentCoordinator;
 import com.nanobot.identity.IdentityManager;
 import com.nanobot.mcp.MCPManager;
 import com.nanobot.memory.Consolidator;

@@ -1,7 +1,7 @@
-package com.nanobot.core.hook.impl;
+package com.nanobot.hook.impl;
 
-import com.nanobot.core.hook.AgentHook;
-import com.nanobot.core.hook.AgentHookContext;
+import com.nanobot.hook.AgentHook;
+import com.nanobot.hook.AgentHookContext;
 import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
