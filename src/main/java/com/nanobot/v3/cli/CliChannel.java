@@ -116,6 +116,7 @@ public class CliChannel {
         AtomicBoolean consumerRunning = new AtomicBoolean(true);
         // 流式输出线程：持续监听 outbound 扇出队列，渲染到控制台
         Thread consumerThread = new Thread(() -> {
+            long firstDeltaTime = 0;
             while (consumerRunning.get()) {
                 try {
                     //取走即移除引用（但对应的消息还在堆中，等待JVM GC回收），避免阻塞其他线程
@@ -131,11 +132,22 @@ public class CliChannel {
                         }
                     } else if (msg.isStreamDelta()) {
                         if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
+                            if (firstDeltaTime == 0) firstDeltaTime = System.currentTimeMillis();
                             System.out.print(MarkdownRenderer.renderStreaming(msg.getContent()));
                         }
                     } else if (msg.isStreamEnd()) {
                         if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
                             System.out.println();
+                            // 打印统计行
+                            int tokens = msg.getMetadataInt("_token_count", -1);
+                            int iterations = msg.getMetadataInt("_tool_iterations", 0);
+                            long duration = firstDeltaTime > 0 ? System.currentTimeMillis() - firstDeltaTime : 0;
+                            StringBuilder stats = new StringBuilder("  ⏱ ");
+                            if (duration > 0) stats.append(String.format("%.1fs", duration / 1000.0));
+                            if (tokens > 0) stats.append(" · ").append(tokens).append(" tokens");
+                            if (iterations > 0) stats.append(" · ").append(iterations).append(" tool calls");
+                            if (stats.length() > 5) System.out.println(stats);
+                            firstDeltaTime = 0;
                             currentRequestId = null;
                         }
                     }
@@ -227,14 +239,18 @@ public class CliChannel {
     }
 
     /**
-     * 处理 / 命令，返回 true 表示退出循环
+     * 处理 / 命令，返回 true 表示退出循环。
+     *
+     * clear/exit/help/mode/init/resume 在 CLI 本地处理，
+     * 其余命令（/stats, /compact, /remember, /skills, /rules 等）透传到 AgentLoop 的 CommandState。
      */
     private boolean handleCommand(String cmd) {
         String cmdName = cmd.length() > 1 ? cmd.substring(1).trim().split("\\s+")[0].toLowerCase() : "";
         return switch (cmdName) {
-            case "clear"    -> handleClear();
+            case "clear"            -> handleClear();
             case "exit", "q", "quit" -> handleExit();
-            default         -> { commands.execute(cmdCtx, cmd); yield false; }
+            case "help", "mode", "init", "resume" -> { commands.execute(cmdCtx, cmd); yield false; }
+            default                 -> false;  // 透传到 AgentLoop CommandState
         };
     }
 
@@ -338,14 +354,42 @@ public class CliChannel {
             return "@" + rawPath; // 保留原文
         }
 
-        // ── 4. 文件存在性 + 类型检查 ──
+        // ── 4. 文件存在性 + 类型检查（智能截断：后缀不是文件则逐字符回退）──
         if (!Files.exists(path)) {
-            System.out.println("⚠  文件未找到: " + rawPath);
-            return "@" + rawPath;
+            // 尝试逐字符回退找到有效路径（如 @foo/bar 分析一下 → @foo/bar）
+            Path probe = path;
+            while (probe != null && !Files.exists(probe)) {
+                Path parent = probe.getParent();
+                if (parent == null) break;
+                probe = parent;
+            }
+            if (probe != null && Files.exists(probe)) {
+                path = probe;
+                // 回退成功，继续按目录/文件处理
+            } else {
+                System.out.println("⚠  文件未找到: " + rawPath);
+                return "@" + rawPath;
+            }
         }
         if (Files.isDirectory(path)) {
-            System.out.println("⚠  是目录，请指定具体文件: " + rawPath);
-            return "@" + rawPath;
+            // 列出目录内容而非拒绝
+            try {
+                var children = Files.list(path).limit(50).toList();
+                StringBuilder sb = new StringBuilder("```\n");
+                sb.append(path).append("/\n");
+                for (var child : children) {
+                    String name = child.getFileName().toString();
+                    if (Files.isDirectory(child)) name += "/";
+                    sb.append("  ").append(name).append("\n");
+                }
+                if (children.size() == 50) sb.append("  ... (截断)\n");
+                sb.append("```");
+                System.out.println("📂 已注入目录: " + rawPath + " (" + children.size() + " 项)");
+                return sb.toString();
+            } catch (IOException e) {
+                System.out.println("⚠  无法列出目录: " + rawPath);
+                return "@" + rawPath;
+            }
         }
 
         // ── 5. 大小检查 ──

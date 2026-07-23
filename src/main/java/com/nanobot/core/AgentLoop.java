@@ -358,7 +358,12 @@ public class AgentLoop {
                 // 每30秒心跳，证明 loop 还活着
                 long now = System.currentTimeMillis();
                 if (now - lastHeartbeat > 30_000) {
-                    logger.info("💓 AgentLoop heartbeat: running={}, processed={}", running.get(), processedCount);
+                    int inboundSize = messageBus.getInboundSize();
+                    int outboundSize = messageBus.getOutboundQueueSize();
+                    logger.info("💓 AgentLoop heartbeat: processed={}, inbound={}/100, outbound={}/1000, subscribers={}",
+                            processedCount, inboundSize, outboundSize, messageBus.getSubscriberCount());
+                    if (inboundSize > 50) logger.warn("⚠️ 入站队列堆积: {}/100", inboundSize);
+                    if (outboundSize > 500) logger.warn("⚠️ 出站队列堆积: {}/1000", outboundSize);
                     lastHeartbeat = now;
                 }
 

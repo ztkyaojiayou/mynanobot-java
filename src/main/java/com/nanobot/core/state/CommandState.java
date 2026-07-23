@@ -107,8 +107,66 @@ public class CommandState implements AgentState {
                 ctx.setFinalContent(summary);
                 yield TurnState.DONE;
             }
+            case "/stats" -> handleStats(ctx);
             default -> null;  // 不是内置命令 → 返回 null，让调用方继续
         };
+    }
+
+    /** /stats — 显示当前会话和全局统计 */
+    private TurnState handleStats(TurnContext ctx) {
+        StringBuilder sb = new StringBuilder("📊 会话统计\n\n");
+        // 当前会话
+        var msgs = ctx.getMessages();
+        int msgCount = (int) msgs.stream().filter(m -> !"system".equals(m.get("role"))).count();
+        int tokens = (int) (msgs.stream()
+                .mapToInt(m -> m.getOrDefault("content", "").toString().length()).sum() / 4.0);
+        sb.append("消息数: ").append(msgCount).append(" 条 · Token 估算: ").append(tokens).append("\n");
+
+        // 迭代信息
+        sb.append("LLM 迭代次: ").append(ctx.getIteration()).append("\n\n");
+
+        // 全局
+        sb.append("📊 全局\n\n");
+        sb.append("会话总数: ").append(sessionManager.getSessionCount()).append(" 个\n");
+
+        // 队列
+        sb.append("入站队列: ").append(messageBus.getInboundSize())
+                .append("/").append(100 - messageBus.getInboundRemainingCapacity() + 100).append("\n");
+        sb.append("出站队列: ").append(messageBus.getOutboundQueueSize()).append("/1000\n");
+        sb.append("订阅者数: ").append(messageBus.getSubscriberCount()).append("\n");
+
+        // 记忆
+        if (dream != null) {
+            sb.append("长期记忆: ").append(dream.getMemoryCount()).append(" 条\n");
+        }
+
+        // 工具耗时
+        var timings = com.nanobot.hook.impl.MetricsHook.getToolTimings();
+        if (!timings.isEmpty()) {
+            sb.append("\n📊 工具耗时\n\n");
+            timings.values().stream()
+                    .sorted((a, b) -> Long.compare(b.totalMs(), a.totalMs()))
+                    .limit(10)
+                    .forEach(t -> sb.append("  ").append(t).append("\n"));
+        }
+
+        // 全局指标
+        var instance = com.nanobot.hook.impl.MetricsHook.getInstance();
+        if (instance != null) {
+            var global = instance.getGlobalMetrics();
+            sb.append("\n📊 全局指标\n\n");
+            sb.append("总请求: ").append(global.get("totalRequests")).append("\n");
+            sb.append("总 Token: ").append(global.get("totalTokens")).append("\n");
+            sb.append("运行时间: ").append(String.format("%.1f 分",
+                    ((Number) global.get("uptimeMs")).longValue() / 60000.0)).append("\n");
+            if (global.containsKey("avgDurationMs")) {
+                sb.append("平均耗时: ").append(global.get("avgDurationMs")).append("ms\n");
+                sb.append("错误率: ").append(global.get("errorRate")).append("\n");
+            }
+        }
+
+        ctx.setFinalContent(sb.toString());
+        return TurnState.DONE;
     }
 
     /** /compact — 手动触发对话历史压缩 */

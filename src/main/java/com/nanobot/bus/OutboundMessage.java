@@ -202,6 +202,12 @@ public class OutboundMessage {
         return getMetadataBoolean("_progress", false);
     }
 
+    /** 获取 int 类型元数据值 */
+    public int getMetadataInt(String key, int defaultValue) {
+        Object value = getMetadataValue(key);
+        return value instanceof Number n ? n.intValue() : defaultValue;
+    }
+
     /**
      * 检查是否为流式消息片段
      */

@@ -61,6 +61,12 @@ public class MetricsHook implements AgentHook {
     
     /** 全局指标 */
     private final GlobalMetrics globalMetrics = new GlobalMetrics();
+
+    /** 工具级别耗时统计（静态，供 /stats 命令查询） */
+    private static final ConcurrentHashMap<String, ToolTiming> toolTimings = new ConcurrentHashMap<>();
+
+    /** 本实例（供静态访问） */
+    private static volatile MetricsHook instance;
     
     /** 当前会话开始时间 */
     private final ThreadLocal<Instant> startTime = new ThreadLocal<>();
@@ -70,7 +76,29 @@ public class MetricsHook implements AgentHook {
     
     /** 工具执行累计时间 */
     private final ThreadLocal<Long> toolDurationAccumulator = ThreadLocal.withInitial(() -> 0L);
-    
+
+    /** 当前工具名称（用于记录单个工具耗时） */
+    private final ThreadLocal<String> currentToolName = new ThreadLocal<>();
+
+    public MetricsHook() {
+        instance = this;
+    }
+
+    /** 获取单例（供 CommandState /stats 等使用） */
+    public static MetricsHook getInstance() { return instance; }
+
+    /** 获取工具耗时统计 */
+    public static Map<String, ToolTiming> getToolTimings() { return new ConcurrentHashMap<>(toolTimings); }
+
+    /** 记录单个工具调用耗时 */
+    public static void recordToolTiming(String toolName, long durationMs) {
+        toolTimings.compute(toolName, (k, v) -> {
+            if (v == null) v = new ToolTiming(toolName);
+            v.addCall(durationMs);
+            return v;
+        });
+    }
+
     // ==================== 钩子方法 ====================
     
     @Override
@@ -340,6 +368,24 @@ public class MetricsHook implements AgentHook {
                 map.put("errorRate", String.format("%.2f%%", (double) totalErrors / totalRequests * 100));
             }
             return map;
+        }
+    }
+
+    /** 单个工具耗时统计 */
+    public static class ToolTiming {
+        private final String toolName;
+        private int calls;
+        private long totalMs;
+        private long maxMs;
+        ToolTiming(String n) { toolName = n; }
+        synchronized void addCall(long ms) { calls++; totalMs += ms; if (ms > maxMs) maxMs = ms; }
+        public String toolName() { return toolName; }
+        public synchronized int calls() { return calls; }
+        public synchronized long totalMs() { return totalMs; }
+        public synchronized long avgMs() { return calls > 0 ? totalMs / calls : 0; }
+        public synchronized long maxMs() { return maxMs; }
+        @Override public synchronized String toString() {
+            return String.format("%s: %d calls, avg %dms, max %dms", toolName, calls, avgMs(), maxMs);
         }
     }
 }
