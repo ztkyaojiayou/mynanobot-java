@@ -10,4 +10,4 @@ if not exist "%JAR%" (
     pushd "%SCRIPT_DIR%" && call mvn package -DskipTests -q && popd
 )
 
-java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "%JAR%" %*
+pushd "%SCRIPT_DIR%" && java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "%JAR%" %*

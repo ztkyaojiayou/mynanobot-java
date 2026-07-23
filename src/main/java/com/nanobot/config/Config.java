@@ -540,28 +540,15 @@ public class Config {
     }
 
     /**
-     * 获取完整的工作空间路径
+     * 获取完整的工作空间路径。
+     * 相对路径基于 user.dir（用户启动 nanobot 的当前目录）解析。
      */
     public String getWorkspacePath() {
         String path = agents.getDefaults().getWorkspace();
         if (path.startsWith("~")) {
             path = System.getProperty("user.home") + path.substring(1);
-            return java.nio.file.Paths.get(path).toAbsolutePath().normalize().toString();
         }
-        // 相对路径：从 classpath 推断项目根目录（target/classes 的父目录的父目录）
-        if (!java.nio.file.Paths.get(path).isAbsolute()) {
-            try {
-                java.net.URL classUrl = Config.class.getProtectionDomain().getCodeSource().getLocation();
-                java.nio.file.Path classesDir = java.nio.file.Paths.get(classUrl.toURI());
-                // classesDir = .../target/classes → 向上两级 = 项目根
-                java.nio.file.Path projectRoot = classesDir.getParent().getParent();
-                return projectRoot.resolve(path).normalize().toString();
-            } catch (Exception e) {
-                // fallback: 使用 user.dir
-                return java.nio.file.Paths.get(path).toAbsolutePath().normalize().toString();
-            }
-        }
-        return path;
+        return java.nio.file.Paths.get(path).toAbsolutePath().normalize().toString();
     }
 
     /**

@@ -160,7 +160,8 @@ public class NanobotRunner implements ApplicationRunner {
        // 注册 JVM 关闭钩子 — 按正确顺序关闭组件，避免数据丢失.
         registerShutdownHook();
 
-        logger.info("Nanobot ready. Model: {}", config.getAgents().getDefaults().getModel());
+        logger.info("Nanobot ready. Workspace: {}, Model: {}",
+                config.getWorkspacePath(), config.getAgents().getDefaults().getModel());
     }
 
     /**

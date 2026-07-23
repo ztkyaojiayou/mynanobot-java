@@ -1,0 +1,4 @@
+# 本地开发——让 workspace 指向父目录 ai-project/
+agents:
+  defaults:
+    workspace: ".."
