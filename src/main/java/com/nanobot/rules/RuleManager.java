@@ -53,19 +53,21 @@ public class RuleManager {
      * 初始化规则搜索路径
      */
     private void initRulePaths() {
+        Path workspace = Paths.get(config.getWorkspacePath());
+
         // 1. 项目级规则文件 NANOBOT.md
-        Path claudeMd = Paths.get("NANOBOT.md");
+        Path claudeMd = workspace.resolve("NANOBOT.md");
         if (Files.exists(claudeMd)) {
             rulePaths.add(claudeMd.toAbsolutePath().normalize());
         }
-        
-        // 2. 项目级规则目录
-        Path projectRules = Paths.get(".nanobot", "rules");
+
+        // 2. 项目级规则目录 {workspace}/.nanobot/rules/
+        Path projectRules = Paths.get(config.getNanobotDir(), "rules");
         if (Files.exists(projectRules)) {
             rulePaths.add(projectRules.toAbsolutePath().normalize());
         }
-        
-        // 3. 用户级规则目录
+
+        // 3. 用户级规则目录 ~/.nanobot/rules/（跨项目共享,不变）
         Path userRules = Paths.get(System.getProperty("user.home"), ".nanobot", "rules");
         if (Files.exists(userRules)) {
             rulePaths.add(userRules.toAbsolutePath().normalize());

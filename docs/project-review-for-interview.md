@@ -119,6 +119,198 @@ RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE
 - EditFile 唯一性校验（对齐 Claude Code）、大文件自动分页
 - 工具结果结构化标记 `[TOOL_OK]`/`[TOOL_ERR]` 帮助 LLM 判断
 
+### 1.7 端到端请求追踪 — 一条消息的完整生命周期
+
+> 面试官："从用户发消息到看到回复，你们的系统经历了什么？"
+> 以下是精确到线程级别的完整追踪。假设用户在 Web 前端输入"帮我写一个排序算法"并点击发送。
+
+#### 第一跳：前端 → ChatController
+
+```
+浏览器 JS 线程
+  fetch('/api/chat/stream', {body: {sessionId, content: "帮我写一个排序算法"}})
+    ↓
+Tomcat HTTP 线程 (http-nio-8080-exec-N)
+```
+
+ChatController 三步走，**顺序至关重要**——必须先订阅再发消息，否则 AgentLoop 快于订阅建立，流式 token 丢失：
+
+```java
+// ① 订阅 → 获得专属 subscriberQueue（容量 500）
+BlockingQueue<OutboundMessage> subscriberQueue = messageBus.subscribeToOutbound();
+
+// ② 启动 SSE-consumer-{uuid} daemon 线程
+//    死循环 poll subscriberQueue(1s) → 按 sessionId+requestId 过滤
+//    → emitter.send(SseEmitter.event().data(token)) 推给浏览器
+
+// ③ 构建 InboundMessage → 发到 MessageBus
+messageBus.publishInbound(message);
+
+// ④ 立刻 return emitter（Tomcat 线程释放回池，耗时 ~1ms）
+```
+
+**设计决策**：Tomcat 线程不等待 LLM。如果每个请求阻塞 30 秒，200 线程池 20 个并发用户就耗尽。现在 Tomcat 线程 ~1ms 即释放。
+
+#### 第二跳：MessageBus.inboundQueue → AgentLoop
+
+```
+Tomcat HTTP 线程
+  messageBus.publishInbound(message)
+    → inboundQueue.put(message)    ← ArrayBlockingQueue(100)，有界背压
+    ↓
+AgentLoop daemon 线程（单线程死循环）
+  msg = inboundQueue.poll(1s)       ← 超时返回 null，不浪费 CPU
+  messageExecutor.submit(() -> processMessage(msg))  ← 提交到 worker 池
+    ↓
+AgentLoop-worker 线程（4 线程池）
+  processMessage(msg)               ← 开始 8 状态机
+```
+
+**为什么分两层？** 主循环只管取消息（<1ms），worker 管处理（5-30s）。如果同线程，一条慢 LLM 调用阻塞整个系统的消息消费。
+
+#### 第三跳：8 状态机流转（AgentLoop-worker 线程中）
+
+```
+RESTORE → SessionManager.loadHistory()
+  从 .nanobot/sessions/{key}/history.jsonl 恢复历史，首次对话返回空
+
+COMPACT → Consolidator.consolidate()
+  token > contextWindowTokens × 90%? → LLM 总结 → system 替换 : 跳过
+
+COMMAND → CommandState.execute()
+  content.startsWith("/")? → 匹配内置命令(/stop/clear等)或技能 : 继续
+
+BUILD → BuildState.execute()      ★ 构建 System Prompt
+  8 来源按序拼接：
+    ① 身份+日期（首位效应）   ② SOUL+IDENTITY+USER
+    ③ 联网搜索开关（条件注入） ④ Dream 长期记忆检索（关键词匹配 top 5）
+    ⑤ NANOBOT.md 项目记忆     ⑥ Skills 技能目录（渐进式加载第一层，~50 token）
+    ⑦ Rules 规则注入           ⑧ 工具格式说明（近因效应）
+  插入到 messages[0] 作为 system 消息
+
+RUN → RunState.execute()        ★ 核心（下一跳详解）
+
+SAVE → SaveState.execute()
+  sessionManager.saveHistory() → JSONL 增量追加
+  dream.extractAndStore() → fire-and-forget，不阻塞响应
+
+RESPOND → RespondState.execute()
+  publishOutbound(response) → sessionResponses Map（sync /api/chat 专用）
+```
+
+#### 第四跳：RunState → LLM 调用 + 流式 Fan-Out（跨 4 个线程）
+
+```
+AgentLoop-worker 线程
+  │
+  ├─ buildOnDelta() 闭包:
+  │    delta → { publishToOutboundQueue(OutboundMessage with _stream_delta: true) }
+  │
+  ├─ runner.run(ctx, messages, onDelta).join()   ← 阻塞等待 LLM 完成
+  │
+  └─ sendStreamEnd() → OutboundMessage(_stream_end: true)
+
+  ════════════════════ 跨线程边界 ════════════════════
+
+DeepSeekProvider (ForkJoinPool 线程)
+  CompletableFuture.supplyAsync(HTTP POST DeepSeek API)
+  每收到 SSE chunk → onDelta.accept(token)
+    → publishToOutboundQueue(msg)
+      → outboundQueue.put(msg)          ← ArrayBlockingQueue(1000)，背压
+        ↓
+MessageBus-dispatcher daemon 线程
+  msg = outboundQueue.poll(1s)          ← 消息到达微秒唤醒
+  for (sq : subscriberQueues) {         ← CopyOnWriteArrayList
+      sq.offer(msg, 100ms)              ← 非阻塞，队列满丢弃该订阅者
+  }                                     ← 同一份 msg 引用，零拷贝
+        ↓
+SSE-consumer-{uuid} daemon 线程
+  msg = subscriberQueue.poll(1s)
+  if (sessionId+requestId 匹配) {
+      emitter.send(SseEmitter.event().data(msg.content))
+  }
+        ↓
+浏览器 JS EventSource 线程
+  event.data → 累积 currentStreamingContent → md2html() → innerHTML
+  用户看到逐字输出 "帮\n你\n写\n一\n个\n排\n序\n算\n法\n..."
+```
+
+#### 第五跳：流结束 → 清理
+
+```
+AgentLoop-worker
+  sendStreamEnd() → Dispatcher → SSE-consumer
+    → emitter.send(data: "[DONE]")
+    → emitter.complete()
+    → consumerThread 终止 + unsubscribeFromOutbound()  ← 防泄漏
+
+浏览器
+  收到 "[DONE]" → currentStreamingEl = null
+  下一次 addMsg 创建新 bubble
+
+RespondState
+  sessionManager.saveHistory() → 用户消息+AI回复写入 history.jsonl
+  Dream.extractAndStore() → fire-and-forget 异步提取长期记忆
+```
+
+#### 线程边界全景图
+
+```
+浏览器(JS) ──fetch──▶ Tomcat(http-nio-8080-exec-N) ──publishInbound──▶ inboundQueue(100)
+                                                                          │
+                                          AgentLoop daemon ◀── poll(1s) ──┘
+                                                │ submit()
+                                          AgentLoop-worker (1 of 4)
+                                                │ RunState.runner.run().join()
+                          ┌─────────────────────┼─────────────────────┐
+                          ▼                     ▼                     ▼
+              DeepSeekProvider            onDelta 回调              工具执行
+              ForkJoinPool               HTTP IO 线程              ToolExecutor
+                    │                       │                       │
+                    │  SSE chunk             │  publishToOutbound    │  CompletableFuture
+                    │                       ▼                       │
+                    │              outboundQueue(1000)               │
+                    │                       │                       │
+                    │          Dispatcher daemon ◀── poll(1s)        │
+                    │            fan-out (同一份引用扇出)              │
+                    │     ┌──────────┼──────────┐                   │
+                    │     ▼          ▼          ▼                   │
+                    │  SSE-cons   CLI-cons   WS-cons                │
+                    │     │          │          │                   │
+                    ▼     ▼          ▼          ▼                   ▼
+              用户看到输出   终端渲染   WebSocket   结果回注 → 递归 LLM
+```
+
+**从发送到第一个 token 到达前端，至少经过 4 个线程边界。每一跳都是解耦点，都有明确的工程目的**——不是随意跨线程。
+
+---
+
+### 1.8 项目架构 vs Claude Code 对比
+
+> 面试常见追问："你这个和 Claude Code 有什么区别？"
+
+| 维度 | Claude Code | Nanobot-Java | 对比分析 |
+|------|-------------|-------------|---------|
+| **消息模型** | 单会话单进程，用户输入 → 同步处理 → 输出 | 异步消息总线，多通道共享 AgentLoop | Claude Code 是单用户 CLI 工具，不需要消息队列；Nanobot 作为服务需要多通道并发 |
+| **流式输出** | 直接 stdout（单个消费者） | Fan-Out Pub-Sub（outboundQueue → Dispatcher 扇出 → SSE/CLI/WS 三通道） | Claude Code 一个终端就够；Nanobot 需要考虑多通道零拷贝分发 |
+| **工具注册** | 内置工具集（Bash/Read/Write/Edit/Glob/Grep/WebFetch/WebSearch/Task/Agent 等） | 18+ Tool 接口 + @ToolDef 注解扫描 + MCP 外部工具 | 接口设计相似，Nanobot 多了注解自动注册和 MCP 协议 |
+| **权限模型** | allow/deny 规则（allow 可被 deny 覆盖）+ permissionMode（default/acceptEdits/bypass/plan） | Hook → Guard×3 → RuleEngine → PermissionMode 四步管道 | Claude Code 更简洁（产品化），Nanobot 更多层（展示设计能力）。分层边界清晰，向外展示"如何设计可扩展安全模型" |
+| **Skills 加载** | 渐进式：System Prompt 注入目录 → LLM 决定 → 调 use_skill 工具 → 返回 SKILL.md 全文 | 完全对齐：BuildState 注入目录 + UseSkillTool 返回全文 | 100% 对齐，包括内置命令优先级 > 技能匹配 |
+| **Rules 机制** | YAML frontmatter + markdown 内容，System Prompt 每轮注入 | 同：.nanobot/rules/*.md 文件加载，BuildState 每轮注入 | 格式相同，但 Nanobot 支持项目级/用户级/内置三层优先级 |
+| **记忆系统** | CLAUDE.md 项目记忆 + 长期记忆（自动提取） | NANOBOT.md + Dream 全自动闭环（提取→节流→JSON解析→持久化→检索注入） | 理念一致，Nanobot 多了增量节流和 /remember 手动触发 |
+| **System Prompt** | Identity + CLAUDE.md + Rules + Skills catalog + Plan mode | 8 步流水线：身份+日期+SOUL+搜索+记忆+NANOBOT.md+技能目录+Rules+工具格式 | Nanobot 更显式（便于面试展示），Claude Code 更内聚 |
+| **子 Agent** | Task 工具 + 异步委派 | SpawnTool + AgentCoordinator（4 分配策略）+ inbox 文件通信 | 相似，Nanobot 多了策略模式和 inbox 异步 |
+| **上下文压缩** | /compact 命令 + 自动压缩 | Consolidator 自动触发（>90% budget）+ /compact 手动 | 几乎一样 |
+| **配置管理** | JSON/YAML 配置 + 环境变量 | ConfigLoader 合并 config.yaml + secret.yaml | 思路相同 |
+| **启动方式** | CLI 单进程 | V1 纯 Java / V2 Spring Boot Web / V3 Spring CLI 三种 | Nanobot 多了服务化能力 |
+| **权限确认** | 交互式 ask-user 弹窗 | CLI [1/2/3] 交互确认 + InteractiveHandler 接口 | Nanobot 更灵活（可注入不同交互实现） |
+
+**关键差异总结**：
+- Claude Code 是**产品**（单用户 CLI），优化到极致简洁
+- Nanobot 是**基础设施**（多用户服务），展示架构设计广度
+
+面试时可以这样表述："我参考了 Claude Code 的设计理念——Skills 渐进式加载、Rules 约束、权限确认——但作为 Java 服务化实现，我额外解决了多通道并发（Fan-Out Pub-Sub）、多版本架构（V1/V2/V3）、MCP 协议集成等 Claude Code 作为 CLI 产品不需要考虑的问题。这不是复制，是**理解和重构**。"
+
 ---
 
 ## 二、技术难点（Real engineering challenges）
@@ -920,4 +1112,148 @@ CompletableFuture<MCPResult> future = pendingRequests.remove(requestId);
 | **调用方负责并发控制** | SessionManager 加锁 → SessionStore 无锁 |
 | **单线程消费是最大简化** | AgentLoop 单 daemon 消费，同一会话不并发处理 |
 | **零订阅者守护** | subscriberQueues.isEmpty() → 直接 return，防阻塞 |
+
+---
+
+## 十、可观测性设计
+
+> 面试官："你的系统怎么监控运行状态？" —— 本章覆盖从终端统计行到健康检查端点的完整方案。
+
+### 10.1 流式结束统计行
+
+LLM 流式回复结束后，CLI 自动打印一行统计信息：
+
+```
+> 帮我分析一下 AgentLoop.java
+
+  当然，AgentLoop 是整个系统的核心...           ← 流式输出
+  ...                                          ← 流式输出
+
+  ⏱ 3.2s · 1234 tokens · 2 tool calls         ← 流结束自动打印
+```
+
+**实现**：`RunState.sendStreamEnd()` 将 token 数和工具迭代次数塞进 `OutboundMessage` metadata（`_token_count`、`_tool_iterations`），CLI 消费者线程收到 `_stream_end` 时提取显示。零额外网络请求，数据来自当前轮次 `TurnContext`。
+
+### 10.2 /stats 命令 —— 一键诊断
+
+内置命令，实时查看系统状态：
+
+```
+> /stats
+
+📊 会话统计
+
+消息数: 12 条 · Token 估算: 4,200
+LLM 迭代次: 5
+
+📊 全局
+
+会话总数: 47 个
+入站队列: 3/100
+出站队列: 0/1000
+订阅者数: 1
+长期记忆: 23 条
+
+📊 工具耗时
+
+  read_file: 45 calls, avg 3ms, max 15ms
+  web_search: 12 calls, avg 2100ms, max 5200ms
+  exec: 8 calls, avg 340ms, max 1200ms
+  grep: 30 calls, avg 8ms, max 25ms
+
+📊 全局指标
+
+总请求: 230
+总 Token: 156,000
+运行时间: 35.2 分
+平均耗时: 4200ms
+错误率: 0.87%
+```
+
+**实现**：`CommandState` 内置 `/stats` case。数据来源：
+- 会话统计：`ctx.getMessages()` + `ctx.getIteration()`
+- 队列深度：`messageBus.getInboundSize()` / `getOutboundQueueSize()` / `getSubscriberCount()`
+- 工具耗时：`MetricsHook.recordToolTiming()` 在每次工具执行后记录，按 `totalMs` 降序取 top 10
+- 全局指标：`MetricsHook` 的 `GlobalMetrics`（累计请求数、token、错误率、运行时间）
+
+### 10.3 工具级别耗时追踪
+
+每个工具调用自动计时，无需侵入业务代码：
+
+```java
+// ToolRegistry.execute() 中
+long start = System.currentTimeMillis();
+Object result = tool.execute(params).join();
+MetricsHook.recordToolTiming(name, System.currentTimeMillis() - start);
+```
+
+`ToolTiming` 内部类用 `synchronized` 保护 `calls`/`totalMs`/`maxMs` 三个字段的联合原子更新，`ConcurrentHashMap<String, ToolTiming>` 隔离不同工具。
+
+### 10.4 消息队列积压监控
+
+`AgentLoop` 心跳日志每 30 秒报告队列深度，超阈值告警：
+
+```
+💓 AgentLoop heartbeat: processed=230, inbound=3/100, outbound=0/1000, subscribers=1
+⚠️ 入站队列堆积: 55/100
+```
+
+入站 > 50 或出站 > 500 时打印 WARN。运维人员一眼看出系统是否过载。
+
+### 10.5 健康检查端点
+
+`GET /actuator/health` 返回组件状态 + 队列深度：
+
+```json
+{
+  "status": "UP",
+  "components": {
+    "messageBus": "UP",
+    "agentLoop": "UP",
+    "sessionManager": "UP",
+    "config": "UP"
+  },
+  "queues": {
+    "inboundSize": 3, "inboundCapacity": 100,
+    "outboundSize": 0, "outboundCapacity": 1000,
+    "subscribers": 1
+  }
+}
+```
+
+**实现**：`HealthController` 检查 `AgentLoop.isRunning()` 和 `MessageBus` 状态，所有组件 UP 才返回 UP。可接入 Prometheus/Nginx 等外部监控系统。
+
+### 10.6 全局指标追踪
+
+`MetricsHook` 在 Agent 生命周期各阶段自动收集：
+
+| 指标 | 收集点 | 说明 |
+|------|-------|------|
+| `totalRequests` | `beforeIteration` | 每次迭代 +1 |
+| `totalTokens` | `finalizeContent` | 累计 prompt + completion |
+| `totalDurationMs` | `finalizeContent` | 所有请求累计耗时 |
+| `avgDurationMs` | — | totalDuration / totalRequests |
+| `errorRate` | `afterIteration` | 有 error 时 +1 |
+
+`GlobalMetrics` 线程安全（synchronized），`SessionMetrics` 按 sessionKey 隔离（CHM）。
+
+### 10.7 可观测性架构总览
+
+```
+CLI 终端                      HTTP API                     JVM 运行时
+  │                              │                            │
+  ├─ 流统计行                    ├─ /actuator/health          ├─ MetricsHook
+  │   _stream_end metadata       │   JSON 组件状态             │   GlobalMetrics
+  │   ⏱ 3.2s · 1234 tokens     │   队列深度                  │   累计统计
+  │                              │                            │
+  ├─ /stats 命令                 ├─ /actuator/metrics         ├─ AgentLoop heartbeat
+  │   会话+全局+工具耗时         │   JVM 内存/uptime          │   30s 队列深度
+  │   top10 排行榜               │   会话数                    │   积压 WARN
+  │                              │                            │
+  └─ 📊 工具耗时                 │                            └─ ToolTiming (CHM)
+      每次工具调用自动计时         │                               read_file 3ms avg
+      synchronized 联合更新         │                               web_search 2100ms avg
+```
+
+**设计原则**：零侵入——所有统计通过 hook + metadata 旁路收集，不修改核心 LLM 调用逻辑。需要什么加什么，取什么看什么。
 | **不可变 > 同步** | final State Handler 字段，重建替代 setter |

@@ -1,7 +1,7 @@
-package com.nanobot.core.subagent;
+package com.nanobot.subagent;
 
 import com.nanobot.core.TurnContext;
-import com.nanobot.core.subagent.impl.SimpleSubagent;
+import com.nanobot.subagent.impl.SimpleSubagent;
 import com.nanobot.providers.LLMProvider;
 import com.nanobot.tools.ToolRegistry;
 import org.slf4j.Logger;

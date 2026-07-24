@@ -43,7 +43,7 @@ public class IdentityManager {
 
     public IdentityManager(Config config) {
         this.config = config;
-        this.baseDir = Paths.get(".nanobot").toAbsolutePath().normalize();
+        this.baseDir = Paths.get(config.getNanobotDir()).toAbsolutePath().normalize();
     }
 
     /**

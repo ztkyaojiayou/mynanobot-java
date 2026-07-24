@@ -19,10 +19,18 @@ import org.jline.utils.NonBlockingReader;
 import org.springframework.context.ConfigurableApplicationContext;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * CLI 交互通道 — 命令行终端直接对话。
@@ -108,6 +116,7 @@ public class CliChannel {
         AtomicBoolean consumerRunning = new AtomicBoolean(true);
         // 流式输出线程：持续监听 outbound 扇出队列，渲染到控制台
         Thread consumerThread = new Thread(() -> {
+            long firstDeltaTime = 0;
             while (consumerRunning.get()) {
                 try {
                     //取走即移除引用（但对应的消息还在堆中，等待JVM GC回收），避免阻塞其他线程
@@ -123,11 +132,22 @@ public class CliChannel {
                         }
                     } else if (msg.isStreamDelta()) {
                         if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
+                            if (firstDeltaTime == 0) firstDeltaTime = System.currentTimeMillis();
                             System.out.print(MarkdownRenderer.renderStreaming(msg.getContent()));
                         }
                     } else if (msg.isStreamEnd()) {
                         if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
                             System.out.println();
+                            // 打印统计行
+                            int tokens = msg.getMetadataInt("_token_count", -1);
+                            int iterations = msg.getMetadataInt("_tool_iterations", 0);
+                            long duration = firstDeltaTime > 0 ? System.currentTimeMillis() - firstDeltaTime : 0;
+                            StringBuilder stats = new StringBuilder("  ⏱ ");
+                            if (duration > 0) stats.append(String.format("%.1fs", duration / 1000.0));
+                            if (tokens > 0) stats.append(" · ").append(tokens).append(" tokens");
+                            if (iterations > 0) stats.append(" · ").append(iterations).append(" tool calls");
+                            if (stats.length() > 5) System.out.println(stats);
+                            firstDeltaTime = 0;
                             currentRequestId = null;
                         }
                     }
@@ -142,7 +162,8 @@ public class CliChannel {
         consumerThread.start();
 
         printBanner();
-        System.out.println("输入消息开始对话，/exit 退出系统，/clear 清上下文，Esc 中断当前回复");
+        System.out.println("输入消息开始对话，/exit 退出，/clear 清上下文，Esc 中断回复");
+        System.out.println("💡 @文件路径 可引用文件内容（如 @src/main/Foo.java）");
         System.out.println();
 
         //持续监听用户输入，这就是入口！！！
@@ -218,14 +239,18 @@ public class CliChannel {
     }
 
     /**
-     * 处理 / 命令，返回 true 表示退出循环
+     * 处理 / 命令，返回 true 表示退出循环。
+     *
+     * clear/exit/help/mode/init/resume 在 CLI 本地处理，
+     * 其余命令（/stats, /compact, /remember, /skills, /rules 等）透传到 AgentLoop 的 CommandState。
      */
     private boolean handleCommand(String cmd) {
         String cmdName = cmd.length() > 1 ? cmd.substring(1).trim().split("\\s+")[0].toLowerCase() : "";
         return switch (cmdName) {
-            case "clear"    -> handleClear();
+            case "clear"            -> handleClear();
             case "exit", "q", "quit" -> handleExit();
-            default         -> { commands.execute(cmdCtx, cmd); yield false; }
+            case "help", "mode", "init", "resume" -> { commands.execute(cmdCtx, cmd); yield false; }
+            default                 -> false;  // 透传到 AgentLoop CommandState
         };
     }
 
@@ -251,6 +276,214 @@ public class CliChannel {
         return true;
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // @ 文件引用
+    // ═══════════════════════════════════════════════════════════════
+
+    /** @ 文件引用匹配：@后跟非空白字符，捕获后再清理尾部标点 */
+    private static final Pattern FILE_REF_PATTERN =
+            Pattern.compile("@(\\S+)");
+
+    /** 单次注入最大行数（超过截断） */
+    private static final int MAX_FILE_LINES = 500;
+
+    /** 最大文件字节数（超过拒绝读取，防止大文件 OOM） */
+    private static final long MAX_FILE_BYTES = 2 * 1024 * 1024; // 2MB
+
+    /** 危险路径模式（禁止访问） */
+    private static final Pattern DANGEROUS_PATH = Pattern.compile(
+            "(\\.\\./|\\.\\.\\\\|^/etc/|^/proc/|^/sys/|^/dev/|~/.ssh|~/.gnupg|" +
+            "\\.pem$|\\.key$|\\.crt$|\\.pfx$|\\.p12$|\\.keystore$|\\.jks$)");
+
+    /** 二进制文件检测：前 512 字节中 null 字节比例超过阈值视为二进制 */
+    private static final double BINARY_NULL_RATIO_THRESHOLD = 0.05;
+
+    /**
+     * 解析用户输入中的 @文件引用，读取文件内容并替换为 markdown 代码块。
+     *
+     * @return 替换后的内容；文件读取失败时 @引用保留原文并输出警告
+     */
+    private String resolveFileRefs(String content) {
+        Matcher matcher = FILE_REF_PATTERN.matcher(content);
+        if (!matcher.find()) return content; // 没有 @引用，直接返回
+
+        System.out.println();  // 视觉分隔
+
+        // 用列表收集替换（不能在循环中修改原字符串，会打乱索引）
+        record Replacement(int start, int end, String text) {}
+        List<Replacement> replacements = new ArrayList<>();
+
+        matcher.reset(); // 重置匹配器
+        while (matcher.find()) {
+            String rawPath = matcher.group(1);
+            String resolved = resolveFilePath(rawPath);
+            replacements.add(new Replacement(matcher.start(), matcher.end(), resolved));
+        }
+
+        System.out.println();  // 视觉分隔
+
+        // 从后往前替换（避免索引偏移）
+        StringBuilder result = new StringBuilder(content);
+        for (int i = replacements.size() - 1; i >= 0; i--) {
+            Replacement r = replacements.get(i);
+            result.replace(r.start, r.end, r.text);
+        }
+        return result.toString();
+    }
+
+    /** 解析单个 @文件引用：安全检查 + 读取 + 格式化为 markdown 代码块 */
+    private String resolveFilePath(String rawPath) {
+        // ── 0. 清理尾部标点（如 @foo.java, → foo.java）──
+        rawPath = rawPath.replaceAll("[,;:'\"!?)\\]}]+$", "");
+
+        // ── 1. 展开 ~ → 用户主目录 ──
+        String expanded = rawPath.startsWith("~")
+                ? rawPath.replaceFirst("^~", System.getProperty("user.home", "~"))
+                : rawPath;
+
+        // ── 2. 解析为绝对路径并规范化 ──
+        Path path = Paths.get(expanded);
+        if (!path.isAbsolute()) {
+            path = Paths.get(System.getProperty("user.dir", ".")).resolve(path);
+        }
+        path = path.toAbsolutePath().normalize();
+
+        // ── 3. 安全检查：危险路径拒绝 ──
+        if (DANGEROUS_PATH.matcher(path.toString()).find()) {
+            System.out.println("⚠  危险路径已拒绝: " + rawPath);
+            return "@" + rawPath; // 保留原文
+        }
+
+        // ── 4. 文件存在性 + 类型检查（智能截断：后缀不是文件则逐字符回退）──
+        if (!Files.exists(path)) {
+            // 尝试逐字符回退找到有效路径（如 @foo/bar 分析一下 → @foo/bar）
+            Path probe = path;
+            while (probe != null && !Files.exists(probe)) {
+                Path parent = probe.getParent();
+                if (parent == null) break;
+                probe = parent;
+            }
+            if (probe != null && Files.exists(probe)) {
+                path = probe;
+                // 回退成功，继续按目录/文件处理
+            } else {
+                System.out.println("⚠  文件未找到: " + rawPath);
+                return "@" + rawPath;
+            }
+        }
+        if (Files.isDirectory(path)) {
+            // 列出目录内容而非拒绝
+            try {
+                var children = Files.list(path).limit(50).toList();
+                StringBuilder sb = new StringBuilder("```\n");
+                sb.append(path).append("/\n");
+                for (var child : children) {
+                    String name = child.getFileName().toString();
+                    if (Files.isDirectory(child)) name += "/";
+                    sb.append("  ").append(name).append("\n");
+                }
+                if (children.size() == 50) sb.append("  ... (截断)\n");
+                sb.append("```");
+                System.out.println("📂 已注入目录: " + rawPath + " (" + children.size() + " 项)");
+                return sb.toString();
+            } catch (IOException e) {
+                System.out.println("⚠  无法列出目录: " + rawPath);
+                return "@" + rawPath;
+            }
+        }
+
+        // ── 5. 大小检查 ──
+        try {
+            long size = Files.size(path);
+            if (size > MAX_FILE_BYTES) {
+                System.out.println("⚠  文件过大 (>" + (MAX_FILE_BYTES / 1024 / 1024) + "MB): " + rawPath);
+                return "@" + rawPath;
+            }
+            if (size == 0) {
+                System.out.println("⚠  空文件: " + rawPath);
+                return "@" + rawPath;
+            }
+        } catch (IOException e) {
+            System.out.println("⚠  无法读取文件大小: " + rawPath);
+            return "@" + rawPath;
+        }
+
+        // ── 6. 二进制检测 ──
+        try {
+            byte[] head = new byte[512];
+            try (var in = Files.newInputStream(path)) {
+                int read = in.read(head);
+                if (read > 0) {
+                    int nullCount = 0;
+                    for (int i = 0; i < read; i++) {
+                        if (head[i] == 0) nullCount++;
+                    }
+                    if ((double) nullCount / read > BINARY_NULL_RATIO_THRESHOLD) {
+                        System.out.println("⚠  二进制文件，跳过: " + rawPath);
+                        return "@" + rawPath;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            System.out.println("⚠  无法读取文件: " + rawPath + " (" + e.getMessage() + ")");
+            return "@" + rawPath;
+        }
+
+        // ── 7. 读取文件内容 ──
+        try {
+            List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+            String lang = inferLanguage(path.getFileName().toString());
+            boolean truncated = lines.size() > MAX_FILE_LINES;
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("```").append(lang).append("\n");
+            int limit = Math.min(lines.size(), MAX_FILE_LINES);
+            for (int i = 0; i < limit; i++) {
+                sb.append(lines.get(i)).append("\n");
+            }
+            if (truncated) {
+                sb.append("... (截断，共 ").append(lines.size()).append(" 行，仅显示前 ").append(MAX_FILE_LINES).append(" 行)\n");
+            }
+            sb.append("```");
+
+            System.out.println("📄 已注入: " + rawPath + (truncated ? " (截断至 " + MAX_FILE_LINES + " 行)" : ""));
+            return sb.toString();
+        } catch (IOException e) {
+            System.out.println("⚠  无法读取文件: " + rawPath + " (" + e.getMessage() + ")");
+            return "@" + rawPath;
+        }
+    }
+
+    /** 根据文件扩展名推断 markdown 代码块语言标记 */
+    private static String inferLanguage(String fileName) {
+        String name = fileName.toLowerCase();
+        if (name.endsWith(".java")) return "java";
+        if (name.endsWith(".kt")) return "kotlin";
+        if (name.endsWith(".py")) return "python";
+        if (name.endsWith(".js")) return "javascript";
+        if (name.endsWith(".ts") || name.endsWith(".tsx")) return "typescript";
+        if (name.endsWith(".jsx")) return "jsx";
+        if (name.endsWith(".go")) return "go";
+        if (name.endsWith(".rs")) return "rust";
+        if (name.endsWith(".c") || name.endsWith(".h")) return "c";
+        if (name.endsWith(".cpp") || name.endsWith(".cc") || name.endsWith(".cxx") || name.endsWith(".hpp")) return "cpp";
+        if (name.endsWith(".cs")) return "csharp";
+        if (name.endsWith(".rb")) return "ruby";
+        if (name.endsWith(".sh") || name.endsWith(".bash")) return "bash";
+        if (name.endsWith(".sql")) return "sql";
+        if (name.endsWith(".xml")) return "xml";
+        if (name.endsWith(".json")) return "json";
+        if (name.endsWith(".yaml") || name.endsWith(".yml")) return "yaml";
+        if (name.endsWith(".toml")) return "toml";
+        if (name.endsWith(".md") || name.endsWith(".markdown")) return "markdown";
+        if (name.endsWith(".html")) return "html";
+        if (name.endsWith(".css")) return "css";
+        if (name.endsWith(".properties")) return "properties";
+        if (name.endsWith(".gradle")) return "groovy";
+        if (name.endsWith(".xml") || name.endsWith(".pom")) return "xml";
+        return "";
+    }
+
     /**
      * 发送用户消息到 MessageBus
      */
@@ -258,6 +491,9 @@ public class CliChannel {
         String requestId = java.util.UUID.randomUUID().toString();
         currentRequestId = requestId;
         cancelled = false;
+
+        // ── @ 文件引用解析 ──
+        content = resolveFileRefs(content);
 
         // 后台监听线程：流式输出期间按 Esc 中断当前回复
         Thread cancelMonitor = new Thread(() -> {

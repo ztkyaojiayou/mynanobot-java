@@ -2,12 +2,11 @@ package com.nanobot.core;
 
 import com.nanobot.bus.*;
 import com.nanobot.config.Config;
-import com.nanobot.core.hook.AgentHookContext;
-import com.nanobot.core.hook.CompositeHook;
-import com.nanobot.core.hook.HookLoader;
+import com.nanobot.hook.AgentHookContext;
+import com.nanobot.hook.CompositeHook;
+import com.nanobot.hook.HookLoader;
 import com.nanobot.identity.IdentityManager;
 import com.nanobot.providers.LLMProvider;
-import com.nanobot.providers.LLMResponse;
 import com.nanobot.rules.RuleManager;
 import com.nanobot.session.SessionManager;
 import com.nanobot.skill.SkillManager;
@@ -15,11 +14,9 @@ import com.nanobot.tools.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 
 /**
  * Agent Loop - 消息处理状态机引擎
@@ -361,7 +358,12 @@ public class AgentLoop {
                 // 每30秒心跳，证明 loop 还活着
                 long now = System.currentTimeMillis();
                 if (now - lastHeartbeat > 30_000) {
-                    logger.info("💓 AgentLoop heartbeat: running={}, processed={}", running.get(), processedCount);
+                    int inboundSize = messageBus.getInboundSize();
+                    int outboundSize = messageBus.getOutboundQueueSize();
+                    logger.info("💓 AgentLoop heartbeat: processed={}, inbound={}/100, outbound={}/1000, subscribers={}",
+                            processedCount, inboundSize, outboundSize, messageBus.getSubscriberCount());
+                    if (inboundSize > 50) logger.warn("⚠️ 入站队列堆积: {}/100", inboundSize);
+                    if (outboundSize > 500) logger.warn("⚠️ 出站队列堆积: {}/1000", outboundSize);
                     lastHeartbeat = now;
                 }
 
@@ -462,7 +464,7 @@ public class AgentLoop {
         stateHandlers.put(TurnState.RESTORE, new com.nanobot.core.state.RestoreState(sessionManager));
         stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(consolidator));
         stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, consolidator, dream, messageBus));
-        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, dream, skillManager != null ? skillManager.getRegistry() : null));
+        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, dream, skillManager != null ? skillManager.getRegistry() : null, config.getWorkspacePath()));
         stateHandlers.put(TurnState.RUN, new com.nanobot.core.state.RunState(runner, config, messageBus));
         stateHandlers.put(TurnState.SAVE, new com.nanobot.core.state.SaveState(sessionManager));
         stateHandlers.put(TurnState.RESPOND, new com.nanobot.core.state.RespondState(messageBus));

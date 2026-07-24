@@ -32,15 +32,28 @@ public class HealthController {
         result.put("timestamp", System.currentTimeMillis());
         
         // 组件状态
-        Map<String, Boolean> components = new HashMap<>();
-        components.put("messageBus", NanobotRunner.getMessageBus() != null);
-        components.put("agentLoop", NanobotRunner.getAgentLoop() != null);
-        components.put("sessionManager", NanobotRunner.getSessionManager() != null);
-        components.put("config", NanobotRunner.getConfig() != null);
+        MessageBus bus = NanobotRunner.getMessageBus();
+        AgentLoop loop = NanobotRunner.getAgentLoop();
+        Map<String, Object> components = new HashMap<>();
+        components.put("messageBus", bus != null ? "UP" : "DOWN");
+        components.put("agentLoop", loop != null && loop.isRunning() ? "UP" : "DOWN");
+        components.put("sessionManager", NanobotRunner.getSessionManager() != null ? "UP" : "DOWN");
+        components.put("config", NanobotRunner.getConfig() != null ? "UP" : "DOWN");
         result.put("components", components);
-        
+
+        // 队列状态
+        if (bus != null) {
+            Map<String, Integer> queues = new HashMap<>();
+            queues.put("inboundSize", bus.getInboundSize());
+            queues.put("inboundCapacity", 100);
+            queues.put("outboundSize", bus.getOutboundQueueSize());
+            queues.put("outboundCapacity", 1000);
+            queues.put("subscribers", bus.getSubscriberCount());
+            result.put("queues", queues);
+        }
+
         // 所有组件都健康才返回 UP
-        boolean allHealthy = components.values().stream().allMatch(v -> v);
+        boolean allHealthy = components.values().stream().allMatch(v -> "UP".equals(v));
         result.put("status", allHealthy ? "UP" : "DOWN");
         
         return ResponseEntity.ok(result);

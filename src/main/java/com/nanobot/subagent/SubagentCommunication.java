@@ -1,4 +1,4 @@
-package com.nanobot.core.subagent;
+package com.nanobot.subagent;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

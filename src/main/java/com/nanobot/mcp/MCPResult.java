@@ -6,6 +6,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * MCP 工具调用结果类 — 表示 MCP 工具调用的返回结果。
+ * @author zoutongkun
  */
 @Data
 @NoArgsConstructor

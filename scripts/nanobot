@@ -12,4 +12,4 @@ if [[ ! -f "$JAR" ]] || [[ -n "$(find "$SCRIPT_DIR/src/main/java" -name '*.java'
     (cd "$SCRIPT_DIR" && mvn package -DskipTests -q)
 fi
 
-java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "$JAR" "$@"
+cd "$SCRIPT_DIR" && java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "$JAR" "$@"

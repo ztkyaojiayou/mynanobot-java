@@ -3050,6 +3050,91 @@ providers:
 
 ---
 
+### 5.23 可观测性设计 — 运行时监控与诊断 ★
+
+> 可观测性是生产级系统的必备能力。本节覆盖从终端统计、诊断命令到健康检查端点的完整方案。
+
+#### 流式结束统计行
+
+LLM 每次流式回复完成后，CLI 终端自动打印一行统计信息，无需主动查询：
+
+```
+> 帮我分析一下 AgentLoop.java
+  当然，AgentLoop 是整个系统的核心...           ← 流式输出
+  ...
+  ⏱ 3.2s · 1234 tokens · 2 tool calls         ← 自动打印
+```
+
+**实现机制**：`RunState.sendStreamEnd()` 将本轮 token 数（`ctx.getTotalTokens()`）和工具迭代次数（`ctx.getIteration()`）写入 `OutboundMessage` metadata（`_token_count`、`_tool_iterations`），CLI 消费者线程收到 `_stream_end` 时提取并显示。零额外网络请求，数据来自当前轮次 TurnContext。
+
+#### /stats 命令 — 一键诊断
+
+内置命令 `/stats`，实时展示系统运行状态：
+
+```
+> /stats
+📊 会话统计
+消息数: 12 条 · Token 估算: 4,200
+LLM 迭代次: 5
+
+📊 全局
+会话总数: 47 个
+入站队列: 3/100  ·  出站队列: 0/1000
+长期记忆: 23 条
+
+📊 工具耗时
+  read_file: 45 calls, avg 3ms, max 15ms
+  web_search: 12 calls, avg 2100ms, max 5200ms
+  exec: 8 calls, avg 340ms, max 1200ms
+
+📊 全局指标
+总请求: 230  ·  总 Token: 156,000
+运行时间: 35.2 分  ·  错误率: 0.87%
+```
+
+各部分数据来源：
+- **会话统计**：`ctx.getMessages()` 计算消息数和 token 估算
+- **队列深度**：`messageBus.getInboundSize()` / `getOutboundQueueSize()`
+- **工具耗时**：`MetricsHook.getToolTimings()` 按 totalMs 降序取 top 10
+- **全局指标**：`MetricsHook.GlobalMetrics` 提供累计请求数、token、错误率、运行时间
+
+#### 消息队列积压监控
+
+`AgentLoop` 每 30 秒心跳日志报告队列深度，超过阈值自动告警：
+
+```
+💓 AgentLoop heartbeat: processed=230, inbound=3/100, outbound=0/1000, subscribers=1
+⚠️ 入站队列堆积: 55/100           ← 超过 50% 告警
+⚠️ 出站队列堆积: 520/1000         ← 超过 50% 告警
+```
+
+#### 健康检查端点
+
+`GET /actuator/health` 返回 JSON，可接入 Prometheus、Nginx 等外部监控：
+
+```json
+{
+  "status": "UP",
+  "components": {
+    "messageBus": "UP", "agentLoop": "UP",
+    "sessionManager": "UP", "config": "UP"
+  },
+  "queues": {
+    "inboundSize": 3, "outboundSize": 0, "subscribers": 1
+  }
+}
+```
+
+所有组件 UP 才返回 UP。`HealthController` 同时提供 `/actuator/info`（版本/模型/工作区）和 `/actuator/metrics`（JVM 内存/uptime/会话数）。
+
+#### 设计亮点
+
+1. **零侵入收集**：所有统计数据通过 hook（`MetricsHook`）+ metadata 旁路收集，不修改核心 LLM 调用逻辑。每个工具调用在 `ToolRegistry.execute()` 中自动计时
+2. **工具级耗时追踪**：`ConcurrentHashMap<String, ToolTiming>` 按工具名隔离，`synchronized` 保护 `calls`/`totalMs`/`maxMs` 联合原子更新
+3. **分层可观测性**：终端即时反馈（统计行）→ 诊断命令（`/stats`）→ HTTP API（`/actuator/health`）→ 外部监控接入，四层递进
+
+---
+
 ## 六、主流 AI 开发框架全景对比
 
 > **阅读目标**：理解 Nanobot 在 Java AI 开发生态中的位置，建立从"库 → 框架 → Agent 运行时 → Agent 终端产品"的层次认知。

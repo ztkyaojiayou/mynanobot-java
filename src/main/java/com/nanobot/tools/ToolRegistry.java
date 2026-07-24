@@ -410,10 +410,12 @@ public class ToolRegistry {
 
         // 5. 执行工具
         try {
+            long start = System.currentTimeMillis();
             CompletableFuture<Object> future = tool.execute(params);
             Object result = future.join();
-            
-            // 5. 处理结果 — 自动识别错误并标记 [TOOL_OK]/[TOOL_ERR]
+            com.nanobot.hook.impl.MetricsHook.recordToolTiming(name, System.currentTimeMillis() - start);
+
+            // 6. 处理结果 — 自动识别错误并标记 [TOOL_OK]/[TOOL_ERR]
             return ToolResult.wrap(result);
 
         } catch (CompletionException e) {

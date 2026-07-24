@@ -1,6 +1,4 @@
-package com.nanobot.core.hook;
-
-import com.nanobot.providers.LLMResponse;
+package com.nanobot.hook;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;

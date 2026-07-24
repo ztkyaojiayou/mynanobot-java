@@ -1,8 +1,8 @@
-package com.nanobot.core.hook;
+package com.nanobot.hook;
 
-import com.nanobot.core.hook.impl.MetricsHook;
-import com.nanobot.core.hook.impl.TracingHook;
-import com.nanobot.core.hook.impl.ValidationHook;
+import com.nanobot.hook.impl.MetricsHook;
+import com.nanobot.hook.impl.TracingHook;
+import com.nanobot.hook.impl.ValidationHook;
 import com.nanobot.config.Config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

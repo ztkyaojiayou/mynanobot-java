@@ -104,15 +104,19 @@ public class RunState implements AgentState {
         };
     }
 
-    /** 发布流结束标记到扇出队列 */
+    /** 发布流结束标记到扇出队列（附带 token 数 + 工具迭代次数） */
     private void sendStreamEnd(TurnContext ctx, String connectionId, String sessionId, String requestId) {
         try {
+            Map<String, Object> meta = new java.util.HashMap<>();
+            meta.put("_stream_end", true);
+            meta.put("_token_count", ctx.getTotalTokens());
+            meta.put("_tool_iterations", ctx.getIteration());
             OutboundMessage endMsg = OutboundMessage.builder()
                     .channel(ctx.getMessage().getChannel())
                     .sessionId(sessionId)
                     .requestId(requestId)
                     .connectionId(connectionId)
-                    .metadata(Map.of("_stream_end", true))
+                    .metadata(meta)
                     .build();
             messageBus.publishToOutboundQueue(endMsg);
         } catch (InterruptedException e) {
