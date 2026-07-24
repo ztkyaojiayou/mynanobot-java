@@ -4,6 +4,7 @@ import com.nanobot.bus.MessageBus;
 import com.nanobot.bus.OutboundMessage;
 import com.nanobot.core.TurnContext;
 import com.nanobot.core.TurnState;
+import com.nanobot.hook.HookManager;
 import com.nanobot.memory.Consolidator;
 import com.nanobot.memory.Dream;
 import com.nanobot.rules.RuleManager;
@@ -34,16 +35,18 @@ public class CommandState implements AgentState {
     private final Consolidator consolidator;
     private final Dream dream;
     private final MessageBus messageBus;
+    private final HookManager hookManager;
 
     public CommandState(SkillManager skillManager, RuleManager ruleManager,
                         SessionManager sessionManager, Consolidator consolidator,
-                        Dream dream, MessageBus messageBus) {
+                        Dream dream, MessageBus messageBus, HookManager hookManager) {
         this.skillManager = skillManager;
         this.ruleManager = ruleManager;
         this.sessionManager = sessionManager;
         this.consolidator = consolidator;
         this.dream = dream;
         this.messageBus = messageBus;
+        this.hookManager = hookManager;
     }
 
     @Override
@@ -140,28 +143,26 @@ public class CommandState implements AgentState {
             sb.append("长期记忆: ").append(dream.getMemoryCount()).append(" 条\n");
         }
 
-        // 工具耗时
-        var timings = com.nanobot.hook.impl.MetricsHook.getToolTimings();
-        if (!timings.isEmpty()) {
-            sb.append("\n📊 工具耗时\n\n");
-            timings.values().stream()
-                    .sorted((a, b) -> Long.compare(b.totalMs(), a.totalMs()))
-                    .limit(10)
-                    .forEach(t -> sb.append("  ").append(t).append("\n"));
-        }
+        // Hook 系统统计（由 HookManager 内置计数器提供）
+        if (hookManager != null) {
+            // Hook 事件触发次数
+            var eventCounts = hookManager.getRunCounts();
+            if (!eventCounts.isEmpty()) {
+                sb.append("\n📊 Hook 事件触发\n\n");
+                eventCounts.forEach((event, count) ->
+                        sb.append("  ").append(event.name()).append(": ").append(count).append(" 次\n"));
+            }
+            sb.append("Hook 拦截: ").append(hookManager.getRejectCount()).append(" 次\n");
+            sb.append("已注册: ").append(hookManager.getHookCount()).append(" 个 Hook\n");
 
-        // 全局指标
-        var instance = com.nanobot.hook.impl.MetricsHook.getInstance();
-        if (instance != null) {
-            var global = instance.getGlobalMetrics();
-            sb.append("\n📊 全局指标\n\n");
-            sb.append("总请求: ").append(global.get("totalRequests")).append("\n");
-            sb.append("总 Token: ").append(global.get("totalTokens")).append("\n");
-            sb.append("运行时间: ").append(String.format("%.1f 分",
-                    ((Number) global.get("uptimeMs")).longValue() / 60000.0)).append("\n");
-            if (global.containsKey("avgDurationMs")) {
-                sb.append("平均耗时: ").append(global.get("avgDurationMs")).append("ms\n");
-                sb.append("错误率: ").append(global.get("errorRate")).append("\n");
+            // 工具耗时（由 HookManager POST_TOOL_USE 自动记录）
+            var timings = hookManager.getToolTimings();
+            if (!timings.isEmpty()) {
+                sb.append("\n📊 工具耗时\n\n");
+                timings.values().stream()
+                        .sorted((a, b) -> Long.compare(b.totalMs(), a.totalMs()))
+                        .limit(10)
+                        .forEach(t -> sb.append("  ").append(t).append("\n"));
             }
         }
 

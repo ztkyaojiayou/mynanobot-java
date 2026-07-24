@@ -619,8 +619,8 @@ public class Config {
         /** 是否启用钩子系统 */
         private boolean enabled = true;
 
-        /** 钩子列表 */
-        private java.util.List<java.util.Map<String, Object>> list = new java.util.ArrayList<>();
+        /** 钩子列表 — ECA 声明式 Hook 规则 */
+        private java.util.List<com.nanobot.hook.Hook> list = new java.util.ArrayList<>();
     }
 
     // ==================== 通道 ACL 配置类 ====================

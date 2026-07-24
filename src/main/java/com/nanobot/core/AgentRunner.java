@@ -1,5 +1,8 @@
 package com.nanobot.core;
 
+import com.nanobot.hook.HookManager;
+import com.nanobot.hook.HookContext;
+import com.nanobot.hook.HookEvent;
 import com.nanobot.providers.LLMProvider;
 import com.nanobot.providers.LLMResponse;
 import com.nanobot.tools.Tool;
@@ -96,6 +99,12 @@ public class AgentRunner {
     private final LLMProvider provider;
     private final ToolRegistry registry;
     private final ObjectMapper objectMapper;
+
+    /**
+     * Hook 管理器 — 工具级事件（PRE_TOOL_USE/POST_TOOL_USE）在此触发.
+     * 可为 null（未配置 hook 时）.
+     */
+    private HookManager hookManager;
     
     // ==================== 配置 ====================
     
@@ -131,6 +140,11 @@ public class AgentRunner {
                 return t;
             }
         );
+    }
+
+    /** 注入 Hook 管理器（在 AgentLoop 初始化时调用） */
+    public void setHookManager(HookManager hookManager) {
+        this.hookManager = hookManager;
     }
     
     // ==================== 核心方法 ====================
@@ -389,10 +403,15 @@ public class AgentRunner {
     // ==================== 工具执行 ====================
     
     /**
-     * 执行工具调用
-     */
-    /**
-     * 执行工具调用 — 只读工具并行，写工具保持顺序。
+     * 执行工具调用 — 只读工具并行，写工具保持顺序.
+     *
+     * <h3>Hook 嵌入点</h3>
+     * <ol>
+     *   <li><b>PRE_TOOL_USE</b>（可拦截）：每个工具执行前同步检查.
+     *       reject Hook 匹配 → 跳过该工具，结果设为 "[HOOK BLOCKED]".</li>
+     *   <li><b>POST_TOOL_USE</b>：每个工具执行后触发（含耗时统计）.</li>
+     * </ol>
+     *
      * 所有工具通过 runAsync 提交到线程池并发执行，allOf 等待全部完成。
      * 结果按原始 tool_calls 顺序追加到 messages，保证 LLM 看到的顺序正确。
      */
@@ -408,6 +427,8 @@ public class AgentRunner {
         logger.info("Executing {} tool calls ({} read-only → parallel, {} write → serial-after-reads)",
                 toolCalls.size(), readCount, toolCalls.size() - readCount);
 
+        String sessionId = context.getSessionKey();
+
         // 提交所有工具到线程池并行执行，结果收集到有序数组
         String[] results = new String[toolCalls.size()];
         CompletableFuture<?>[] futures = new CompletableFuture<?>[toolCalls.size()];
@@ -415,15 +436,37 @@ public class AgentRunner {
         for (int i = 0; i < toolCalls.size(); i++) {
             final int idx = i;
             LLMResponse.ToolCallRequest call = toolCalls.get(i);
+            String toolName = call.getName();
+            Map<String, Object> toolArgs = call.getArguments();
+
+            // ── Hook: PRE_TOOL_USE（可拦截）──
+            if (hookManager != null) {
+                HookContext preCtx = HookContext.tool(HookEvent.PRE_TOOL_USE, toolName, toolArgs, sessionId);
+                boolean blocked = hookManager.runPreToolHooks(preCtx);
+                if (blocked) {
+                    results[idx] = "[HOOK BLOCKED]";
+                    continue; // 跳过该工具执行
+                }
+            }
+
             futures[i] = CompletableFuture.runAsync(() -> {
-                String toolName = call.getName();
-                Object result = executeToolWithRetry(toolName, call.getArguments(), call.getId());
+                long toolStart = System.currentTimeMillis();
+                Object result = executeToolWithRetry(toolName, toolArgs, call.getId());
+                long duration = System.currentTimeMillis() - toolStart;
+
                 String resultStr = result != null ? result.toString() : "";
                 if (resultStr.length() > maxToolResultChars) {
                     resultStr = resultStr.substring(0, maxToolResultChars)
                             + "\n\n[结果已截断，超出最大长度限制]";
                 }
                 results[idx] = resultStr; // 按索引写入，保证顺序
+
+                // ── Hook: POST_TOOL_USE + 工具耗时统计 ──
+                if (hookManager != null) {
+                    hookManager.recordToolTiming(toolName, duration);
+                    hookManager.runHooks(HookContext.toolResult(
+                            HookEvent.POST_TOOL_USE, toolName, toolArgs, sessionId, resultStr));
+                }
             }, toolExecutor);
         }
 
@@ -438,6 +481,10 @@ public class AgentRunner {
             }
         }).exceptionally(error -> {
             logger.error("Tool execution failed: {}", error.getMessage());
+            // ── Hook: ON_ERROR ──
+            if (hookManager != null) {
+                hookManager.runHooks(HookContext.error(sessionId, error.getMessage()));
+            }
             return null;
         });
     }

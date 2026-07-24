@@ -119,8 +119,8 @@
 |------|:--:|------|
 | Rule 规则引擎 | ✅ | 内置 coding-style/security/response-style |
 | Skill 技能系统 | ✅ | 加载 + 匹配 + 自动触发 |
-| AgentHook 生命周期 | ✅ | 7 个钩子点 |
-| MetricsHook | ✅ | 指标收集 |
+| HookManager (ECA 声明式) | ✅ | 9 事件+DSL 条件+3 动作 |
+| HookManager 内置统计 | ✅ | 工具耗时+事件计数+拦截计数 |
 | TracingHook | ✅ | 分布式追踪 |
 | ValidationHook | ✅ | 敏感词过滤 |
 | CronScheduler | ✅ | cron 表达式解析 + 调度 |

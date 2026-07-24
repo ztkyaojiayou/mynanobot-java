@@ -144,3 +144,56 @@ memory:
     intervalHours: 2
     # 每批最大条目数
     maxBatchSize: 20
+
+# ═══════════════════════════════════════════════════════════════
+# Hook 配置 — ECA 声明式事件钩子
+# ═══════════════════════════════════════════════════════════════
+#
+# 每条 Hook = Event（什么时候）+ Condition（什么情况下）+ Action（做什么）
+# 事件: SESSION_START | SESSION_END | TURN_START | TURN_END
+#       PRE_TOOL_USE | POST_TOOL_USE | ON_STREAM | STREAM_END | ON_ERROR
+# 动作: COMMAND(执行shell) | PROMPT(注入上下文) | SCRIPT(执行脚本)
+# 条件: "tool==bash" | "tool=~mcp__.*" | "args.key==val" | ""(无条件)
+#
+hooks:
+  enabled: true
+  list:
+    # ── 示例①：拦截危险命令 ──
+    # PRE_TOOL_USE 事件 + reject=true → 可阻止工具执行
+    # 条件 DSL 支持 && 组合：工具是 bash 且参数匹配 rm 开头
+    - id: "block-dangerous-bash"
+      event: PRE_TOOL_USE
+      condition: "tool==bash && args.cmd=~rm.*"
+      action:
+        type: COMMAND
+        command: "echo '[安全策略] 危险删除命令已拦截'"
+      reject: true
+
+    # ── 示例②：每轮对话前注入项目上下文 ──
+    # TURN_START 事件 + PROMPT 动作 → message 文本追加到 System Prompt
+    - id: "inject-workspace-info"
+      event: TURN_START
+      condition: ""
+      action:
+        type: PROMPT
+        message: "[项目上下文] 这是一个基于 Spring Boot 的 AI Agent 框架项目，架构遵循消息总线 8 状态机模式。"
+      reject: false
+
+    # ── 示例③：文件写入后记录审计日志 ──
+    # POST_TOOL_USE 事件 + COMMAND 动作 → 执行 shell 记录到文件
+    - id: "audit-file-writes"
+      event: POST_TOOL_USE
+      condition: "tool==write_file || tool==edit_file"
+      action:
+        type: PROMPT
+        message: "[审计] 文件写入操作已完成"
+      reject: false
+
+    # ── 示例④：记录错误便于排查 ──
+    - id: "log-errors"
+      event: ON_ERROR
+      condition: ""
+      action:
+        type: PROMPT
+        message: "[错误监控] 系统发生异常，请检查日志"
+      reject: false

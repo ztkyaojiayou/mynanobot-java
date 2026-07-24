@@ -305,7 +305,8 @@ public class Nanobot {
             config,
             ruleManager,
             skillManager,
-            identityManager
+            identityManager,
+            null  // v1 不启用 hook 系统
         );
         
         // 启动 Agent Loop

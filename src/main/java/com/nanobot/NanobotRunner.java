@@ -3,6 +3,9 @@ package com.nanobot;
 import com.nanobot.bus.MessageBus;
 import com.nanobot.config.Config;
 import com.nanobot.core.AgentLoop;
+import com.nanobot.hook.HookManager;
+import com.nanobot.hook.HookContext;
+import com.nanobot.hook.HookEvent;
 import com.nanobot.mcp.MCPManager;
 import com.nanobot.providers.LLMProvider;
 import com.nanobot.identity.IdentityManager;
@@ -90,6 +93,7 @@ public class NanobotRunner implements ApplicationRunner {
     private static SkillManager skillManager;
     private static IdentityManager identityManager;
     private static LLMProvider provider;
+    private static HookManager hookManager;
 
     // ═══════════════════════════════════════════════════════════════
     // Spring Bean 注入（全部由 NanobotConfig @Bean 创建，这里只收集引用）
@@ -145,6 +149,11 @@ public class NanobotRunner implements ApplicationRunner {
         NanobotRunner.mcpManager = mcpManager;
     }
 
+    @Autowired
+    private void setHookManager(HookManager hookManager) {
+        NanobotRunner.hookManager = hookManager;
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // 启动收尾（Spring 容器就绪后自动调用）
     // ═══════════════════════════════════════════════════════════════
@@ -156,6 +165,11 @@ public class NanobotRunner implements ApplicationRunner {
 
         // 启动 AgentLoop 的 daemon 线程，开始消费 MessageBus 中的消息
         agentLoop.start();
+
+        // ── Hook: SESSION_START ──
+        if (hookManager != null) {
+            hookManager.runHooks(HookContext.of(HookEvent.SESSION_START, null));
+        }
 
        // 注册 JVM 关闭钩子 — 按正确顺序关闭组件，避免数据丢失.
         registerShutdownHook();
@@ -190,6 +204,10 @@ public class NanobotRunner implements ApplicationRunner {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("Shutting down Nanobot...");
             try {
+                // ── Hook: SESSION_END（在组件关闭前触发，确保 Hook 还能访问组件）──
+                if (hookManager != null) {
+                    hookManager.runHooks(HookContext.of(HookEvent.SESSION_END, null));
+                }
                 if (mcpManager != null) mcpManager.close();
                 if (agentLoop != null) agentLoop.stop();
                 if (messageBus != null) messageBus.shutdown(5, TimeUnit.SECONDS);
@@ -239,5 +257,9 @@ public class NanobotRunner implements ApplicationRunner {
 
     public static LLMProvider getProvider() {
         return provider;
+    }
+
+    public static HookManager getHookManager() {
+        return hookManager;
     }
 }

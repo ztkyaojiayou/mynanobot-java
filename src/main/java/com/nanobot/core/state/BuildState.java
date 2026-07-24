@@ -2,6 +2,9 @@ package com.nanobot.core.state;
 
 import com.nanobot.core.TurnContext;
 import com.nanobot.core.TurnState;
+import com.nanobot.hook.HookManager;
+import com.nanobot.hook.HookContext;
+import com.nanobot.hook.HookEvent;
 import com.nanobot.identity.IdentityManager;
 import com.nanobot.memory.Dream;
 import com.nanobot.rules.RuleManager;
@@ -32,22 +35,19 @@ public class BuildState implements AgentState {
     private final Dream dream; // 可为 null
     private final SkillRegistry skillRegistry; // 可为 null — 用于注入技能目录
     private final String workspacePath; // 工作区路径，用于读取 NANOBOT.md
+    private final HookManager hookManager; // 可为 null — TURN_START PROMPT 钩子注入
 
     public BuildState(IdentityManager identityManager, RuleManager ruleManager,
                       BooleanSupplier planModeSupplier, Dream dream,
-                      SkillRegistry skillRegistry, String workspacePath) {
+                      SkillRegistry skillRegistry, String workspacePath,
+                      HookManager hookManager) {
         this.identityManager = identityManager;
         this.ruleManager = ruleManager;
         this.planModeSupplier = planModeSupplier;
         this.dream = dream;
         this.skillRegistry = skillRegistry;
         this.workspacePath = workspacePath;
-    }
-
-    public BuildState(IdentityManager identityManager, RuleManager ruleManager,
-                      BooleanSupplier planModeSupplier, Dream dream,
-                      SkillRegistry skillRegistry) {
-        this(identityManager, ruleManager, planModeSupplier, dream, skillRegistry, ".");
+        this.hookManager = hookManager;
     }
 
     @Override
@@ -73,6 +73,8 @@ public class BuildState implements AgentState {
         appendSkillCatalog(systemPrompt);
         // 7. Rules 规则
         appendRules(systemPrompt);
+        // 8. Hook PROMPT 注入（TURN_START 匹配的 PROMPT 钩子上下文）
+        appendHookPrompts(systemPrompt, ctx);
 
         // 添加到消息列表
         List<Map<String, Object>> messages = ctx.getMessages();
@@ -214,6 +216,34 @@ public class BuildState implements AgentState {
         if (ruleManager != null) {
             String prompt = ruleManager.getRulesPrompt();
             if (prompt != null && !prompt.isBlank()) sb.append("\n\n").append(prompt);
+        }
+    }
+
+    /**
+     * 注入 TURN_START 时匹配的 PROMPT 钩子上下文.
+     *
+     * 用户在 config.yaml 中配置的 PROMPT 类型 Hook（非 reject）
+     * 在 TURN_START 阶段被 {@link HookManager#collectPrompts(HookContext)} 收集，
+     * 其 message 文本在此追加到 System Prompt 尾部，LLM 可以看到.
+     *
+     * <h3>示例</h3>
+     * 配置:
+     * <pre>
+     * - id: "inject-git-status"
+     *   event: TURN_START
+     *   condition: ""
+     *   action: { type: PROMPT, message: "[上下文] 当前分支: main, 未提交文件: 3" }
+     * </pre>
+     * LLM 会在 System Prompt 末尾看到这段文本.
+     */
+    private void appendHookPrompts(StringBuilder sb, TurnContext ctx) {
+        if (hookManager == null) return;
+        String sessionId = ctx.getMessage() != null ? ctx.getMessage().getSessionId() : null;
+        String userMessage = ctx.getMessage() != null ? ctx.getMessage().getContent() : "";
+        HookContext hookCtx = HookContext.message(HookEvent.TURN_START, sessionId, userMessage);
+        String prompts = hookManager.collectPrompts(hookCtx);
+        if (!prompts.isEmpty()) {
+            sb.append("\n\n【Hook 上下文注入】\n").append(prompts);
         }
     }
 }

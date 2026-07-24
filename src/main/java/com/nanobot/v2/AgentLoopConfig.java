@@ -3,6 +3,7 @@ package com.nanobot.v2;
 import com.nanobot.bus.MessageBus;
 import com.nanobot.config.Config;
 import com.nanobot.core.AgentLoop;
+import com.nanobot.hook.HookManager;
 import com.nanobot.identity.IdentityManager;
 import com.nanobot.memory.Consolidator;
 import com.nanobot.memory.Dream;
@@ -81,6 +82,7 @@ public class AgentLoopConfig {
             SkillManager skillManager,
             RuleManager ruleManager,
             IdentityManager identityManager,
+            HookManager hookManager,
             Consolidator consolidator,
             Dream dream,
             Config config) {
@@ -92,7 +94,8 @@ public class AgentLoopConfig {
                 config,
                 ruleManager,
                 skillManager,
-                identityManager
+                identityManager,
+                hookManager
         );
         agentLoop.setConsolidator(consolidator);
         agentLoop.setDream(dream);

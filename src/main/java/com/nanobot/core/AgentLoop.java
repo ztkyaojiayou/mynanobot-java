@@ -2,9 +2,9 @@ package com.nanobot.core;
 
 import com.nanobot.bus.*;
 import com.nanobot.config.Config;
-import com.nanobot.hook.AgentHookContext;
-import com.nanobot.hook.CompositeHook;
-import com.nanobot.hook.HookLoader;
+import com.nanobot.hook.HookManager;
+import com.nanobot.hook.HookContext;
+import com.nanobot.hook.HookEvent;
 import com.nanobot.identity.IdentityManager;
 import com.nanobot.providers.LLMProvider;
 import com.nanobot.rules.RuleManager;
@@ -187,23 +187,23 @@ public class AgentLoop {
     private volatile boolean planMode = false;
 
     /**
-     * 钩子管理器
+     * Hook 管理器 — ECA 声明式钩子系统.
+     * 在 9 个生命周期节点触发，支持条件 DSL 匹配 + 三种动作（COMMAND/PROMPT/SCRIPT）.
+     * 通过构造函数注入.
      */
-    private CompositeHook hooks;
+    private HookManager hookManager;
 
     // ==================== 构造函数 ====================
 
     public AgentLoop(MessageBus messageBus, LLMProvider provider, ToolRegistry registry, SessionManager sessionManager, Config config) {
-
-        this(messageBus, provider, registry, sessionManager, config, null, null);
+        this(messageBus, provider, registry, sessionManager, config, null, null, null, null);
     }
 
     public AgentLoop(MessageBus messageBus, LLMProvider provider, ToolRegistry registry, SessionManager sessionManager, Config config, RuleManager ruleManager, SkillManager skillManager) {
-
-        this(messageBus, provider, registry, sessionManager, config, ruleManager, skillManager, null);
+        this(messageBus, provider, registry, sessionManager, config, ruleManager, skillManager, null, null);
     }
 
-    public AgentLoop(MessageBus messageBus, LLMProvider provider, ToolRegistry registry, SessionManager sessionManager, Config config, RuleManager ruleManager, SkillManager skillManager, IdentityManager identityManager) {
+    public AgentLoop(MessageBus messageBus, LLMProvider provider, ToolRegistry registry, SessionManager sessionManager, Config config, RuleManager ruleManager, SkillManager skillManager, IdentityManager identityManager, HookManager hookManager) {
 
         this.messageBus = Objects.requireNonNull(messageBus, "messageBus cannot be null");
         this.provider = Objects.requireNonNull(provider, "provider cannot be null");
@@ -213,43 +213,32 @@ public class AgentLoop {
         this.ruleManager = ruleManager;
         this.skillManager = skillManager;
         this.identityManager = identityManager;
+        this.hookManager = hookManager;
 
         this.runner = new AgentRunner(provider, registry);
+        if (hookManager != null) {
+            this.runner.setHookManager(hookManager);
+        }
         this.consolidator = null;  // 通过 setConsolidator() 注入
 
         // 初始化 State 处理器 (State 模式)
         initStateHandlers();
-        // 加载钩子配置
-        loadHooks();
     }
 
-    // ==================== 钩子加载 ====================
+    // ==================== Hook 管理器 ====================
 
     /**
-     * 加载钩子配置
+     * 获取 Hook 管理器.
      */
-    private void loadHooks() {
-        try {
-            this.hooks = HookLoader.loadHooks(config.getHooks());
-            logger.info("Loaded {} hooks", hooks.size());
-        } catch (Exception e) {
-            logger.error("Failed to load hooks: {}", e.getMessage());
-            this.hooks = new CompositeHook();
-        }
+    public HookManager getHookManager() {
+        return hookManager;
     }
 
     /**
-     * 获取钩子管理器
+     * 设置 Hook 管理器（用于测试或运行时替换）.
      */
-    public CompositeHook getHooks() {
-        return hooks;
-    }
-
-    /**
-     * 设置钩子管理器
-     */
-    public void setHooks(CompositeHook hooks) {
-        this.hooks = hooks;
+    public void setHookManager(HookManager hookManager) {
+        this.hookManager = hookManager;
     }
 
     // ==================== 生命周期 ====================
@@ -381,10 +370,37 @@ public class AgentLoop {
 
     /**
      * 处理单条消息
+     *
+     * <h3>Hook 嵌入点</h3>
+     * <ol>
+     *   <li><b>TURN_START</b>（可拦截）：消息进入后、状态机处理前.
+     *       reject 的 Hook 匹配则直接返回拒绝信息，不走 LLM.</li>
+     *   <li><b>TURN_START PROMPT</b>（非拦截）：收集匹配的 PROMPT 钩子文本，
+     *       注入到 TurnContext 的 metadata 中，由 BuildState 拼接进 System Prompt.</li>
+     *   <li><b>TURN_END</b>：状态机完成后.</li>
+     *   <li><b>ON_ERROR</b>：任何异常时.</li>
+     * </ol>
      */
     private void processMessage(InboundMessage message) {
-        String sessionKey = message.getSessionKey();
-        logger.info("Processing message for session: {}", sessionKey);
+        String sessionId = message.getSessionId();
+        logger.info("Processing message for session: {}", sessionId);
+
+        // ── Hook: TURN_START（可拦截）──
+        if (hookManager != null) {
+            HookContext startCtx = HookContext.message(HookEvent.TURN_START,
+                    sessionId, message.getContent());
+            if (hookManager.runTurnStartHooks(startCtx)) {
+                logger.info("Turn blocked by hook for session: {}", sessionId);
+                sendResponse(message, "[HOOK BLOCKED] 消息被拦截，未进入处理", null);
+                // TURN_END 仍触发
+                hookManager.runHooks(HookContext.of(HookEvent.TURN_END, sessionId));
+                return;
+            }
+            // 收集 PROMPT 钩子的上下文注入文本
+            // TODO: 将 hookPrompts 注入到 BuildState 的 System Prompt 构建中
+            // String hookPrompts = hookManager.collectPrompts(startCtx);
+            hookManager.collectPrompts(startCtx);
+        }
 
         long startTime = System.currentTimeMillis();
 
@@ -400,21 +416,23 @@ public class AgentLoop {
             // 相当于是一套模板代码，一种状态就是一个步骤。
             String result = processStates(context);
 
-            // 调用 finalizeContent 钩子
-            if (hooks != null && !hooks.isEmpty()) {
-                AgentHookContext hookContext = AgentHookContext.from(context);
-                result = hooks.finalizeContent(hookContext, result);
-                context.setFinalContent(result);
-            }
-
             // 发送响应到出站队列，同步聊天接口在轮询拉取该消息
             sendResponse(message, result, context);
 
             long duration = System.currentTimeMillis() - startTime;
             logger.info("Message processed in {}ms, tokens: {}", duration, context.getTotalTokens());
 
+            // ── Hook: TURN_END ──
+            if (hookManager != null) {
+                hookManager.runHooks(HookContext.of(HookEvent.TURN_END, sessionId));
+            }
+
         } catch (Exception e) {
             logger.error("Failed to process message: {}", e.getMessage(), e);
+            // ── Hook: ON_ERROR ──
+            if (hookManager != null) {
+                hookManager.runHooks(HookContext.error(sessionId, e.getMessage()));
+            }
             sendResponse(message, "发生错误：" + e.getMessage(), null);
         }
     }
@@ -463,9 +481,9 @@ public class AgentLoop {
     private void initStateHandlers() {
         stateHandlers.put(TurnState.RESTORE, new com.nanobot.core.state.RestoreState(sessionManager));
         stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(consolidator));
-        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, consolidator, dream, messageBus));
-        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, dream, skillManager != null ? skillManager.getRegistry() : null, config.getWorkspacePath()));
-        stateHandlers.put(TurnState.RUN, new com.nanobot.core.state.RunState(runner, config, messageBus));
+        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, consolidator, dream, messageBus, hookManager));
+        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, dream, skillManager != null ? skillManager.getRegistry() : null, config.getWorkspacePath(), hookManager));
+        stateHandlers.put(TurnState.RUN, new com.nanobot.core.state.RunState(runner, config, messageBus, hookManager));
         stateHandlers.put(TurnState.SAVE, new com.nanobot.core.state.SaveState(sessionManager));
         stateHandlers.put(TurnState.RESPOND, new com.nanobot.core.state.RespondState(messageBus));
     }
@@ -476,7 +494,7 @@ public class AgentLoop {
     public void setConsolidator(com.nanobot.memory.Consolidator c) {
         this.consolidator = c;
         stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(c));
-        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, c, dream, messageBus));
+        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, c, dream, messageBus, hookManager));
     }
 
     /**
@@ -490,8 +508,8 @@ public class AgentLoop {
     public void setDream(com.nanobot.memory.Dream d) {
         this.dream = d;
         stateHandlers.put(TurnState.SAVE, new com.nanobot.core.state.SaveState(sessionManager, d));
-        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, d, skillManager != null ? skillManager.getRegistry() : null));
-        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, consolidator, d, messageBus));
+        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, d, skillManager != null ? skillManager.getRegistry() : null, config.getWorkspacePath(), hookManager));
+        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, consolidator, d, messageBus, hookManager));
     }
 
     // ==================== 响应发送 ====================

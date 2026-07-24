@@ -1054,7 +1054,7 @@ public void setDream(Dream d) {
 
 V1 遗留：HTTP handler `synchronized(handler) { handler.wait(300000); }` 挂起等 LLM，流式回调 `synchronized(handler) { handler.notifyAll(); }` 唤醒。双层锁不同粒度。**设计批判**：CHM + synchronized(CHM) 冗余——CHM 的分段锁完全未使用，普通 HashMap 效果一样。V2 已迁移到 Fan-Out Pub-Sub。
 
-### 9.14 MetricsHook — synchronized 多字段联合原子更新
+### 9.14 HookManager.ToolTiming — synchronized 多字段联合原子更新
 
 `synchronized void addTokens(prompt, completion)`：AtomicInteger 只保证单变量原子性，promptTokens 和 completionTokens 必须一起更新。**多个字段联合原子更新必须用锁**。
 
@@ -1092,7 +1092,7 @@ CompletableFuture<MCPResult> future = pendingRequests.remove(requestId);
 | `ConcurrentHashMap` | 15+ 处 | 分段锁，高并发 |
 | `CopyOnWriteArrayList` | MessageBus subscriberQueues | 读多写极少，无锁遍历 |
 | `synchronized(perKeyLock)` | SessionManager | 锁粒度最优 |
-| `synchronized(method)` | MetricsHook.SessionMetrics | 多字段联合原子更新 |
+| `synchronized(method)` | HookManager.ToolTiming | 多字段联合原子更新 |
 | `CompletableFuture.thenCompose` | AgentRunner | 异步递归，不阻塞线程池 |
 | `CompletableFuture + CHM` | MCP | CHM 路由 + Future 信号量 |
 | `AtomicBoolean` | MessageBus, AgentLoop, WebSocket | 启停状态 + 可见性 |
@@ -1173,8 +1173,8 @@ LLM 迭代次: 5
 **实现**：`CommandState` 内置 `/stats` case。数据来源：
 - 会话统计：`ctx.getMessages()` + `ctx.getIteration()`
 - 队列深度：`messageBus.getInboundSize()` / `getOutboundQueueSize()` / `getSubscriberCount()`
-- 工具耗时：`MetricsHook.recordToolTiming()` 在每次工具执行后记录，按 `totalMs` 降序取 top 10
-- 全局指标：`MetricsHook` 的 `GlobalMetrics`（累计请求数、token、错误率、运行时间）
+- 工具耗时：`HookManager.recordToolTiming()` 在 POST_TOOL_USE 事件中自动记录，按 `totalMs` 降序取 top 10
+- 事件计数：`HookManager.getRunCounts()` 展示各事件触发次数和拦截次数（ECA Hook 系统内置）
 
 ### 10.3 工具级别耗时追踪
 
@@ -1183,8 +1183,7 @@ LLM 迭代次: 5
 ```java
 // ToolRegistry.execute() 中
 long start = System.currentTimeMillis();
-Object result = tool.execute(params).join();
-MetricsHook.recordToolTiming(name, System.currentTimeMillis() - start);
+// 工具耗时统计已由 HookManager 的 POST_TOOL_USE 事件自动记录（ECA Hook 系统）
 ```
 
 `ToolTiming` 内部类用 `synchronized` 保护 `calls`/`totalMs`/`maxMs` 三个字段的联合原子更新，`ConcurrentHashMap<String, ToolTiming>` 隔离不同工具。
@@ -1225,7 +1224,7 @@ MetricsHook.recordToolTiming(name, System.currentTimeMillis() - start);
 
 ### 10.6 全局指标追踪
 
-`MetricsHook` 在 Agent 生命周期各阶段自动收集：
+HookManager（ECA Hook 系统）在 Agent 生命周期各阶段自动收集：
 
 | 指标 | 收集点 | 说明 |
 |------|-------|------|
@@ -1242,8 +1241,8 @@ MetricsHook.recordToolTiming(name, System.currentTimeMillis() - start);
 ```
 CLI 终端                      HTTP API                     JVM 运行时
   │                              │                            │
-  ├─ 流统计行                    ├─ /actuator/health          ├─ MetricsHook
-  │   _stream_end metadata       │   JSON 组件状态             │   GlobalMetrics
+  ├─ 流统计行                    ├─ /actuator/health          ├─ HookManager
+  │   _stream_end metadata       │   JSON 组件状态             │   内置统计计数器
   │   ⏱ 3.2s · 1234 tokens     │   队列深度                  │   累计统计
   │                              │                            │
   ├─ /stats 命令                 ├─ /actuator/metrics         ├─ AgentLoop heartbeat

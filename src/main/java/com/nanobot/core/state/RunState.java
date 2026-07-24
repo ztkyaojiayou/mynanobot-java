@@ -6,6 +6,9 @@ import com.nanobot.config.Config;
 import com.nanobot.core.AgentRunner;
 import com.nanobot.core.TurnContext;
 import com.nanobot.core.TurnState;
+import com.nanobot.hook.HookManager;
+import com.nanobot.hook.HookContext;
+import com.nanobot.hook.HookEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,11 +34,13 @@ public class RunState implements AgentState {
     private final AgentRunner runner;
     private final Config config;
     private final MessageBus messageBus;
+    private final HookManager hookManager;
 
-    public RunState(AgentRunner runner, Config config, MessageBus messageBus) {
+    public RunState(AgentRunner runner, Config config, MessageBus messageBus, HookManager hookManager) {
         this.runner = runner;
         this.config = config;
         this.messageBus = messageBus;
+        this.hookManager = hookManager;
     }
 
     @Override
@@ -87,6 +92,11 @@ public class RunState implements AgentState {
 
         return delta -> {
             try {
+                // ── Hook: ON_STREAM（每个 token 触发一次）──
+                if (hookManager != null) {
+                    hookManager.runHooks(HookContext.message(HookEvent.ON_STREAM, sessionId, delta));
+                }
+
                 OutboundMessage msg = OutboundMessage.builder()
                         .channel(channel)
                         .sessionId(sessionId)
@@ -106,6 +116,11 @@ public class RunState implements AgentState {
 
     /** 发布流结束标记到扇出队列（附带 token 数 + 工具迭代次数） */
     private void sendStreamEnd(TurnContext ctx, String connectionId, String sessionId, String requestId) {
+        // ── Hook: STREAM_END ──
+        if (hookManager != null) {
+            hookManager.runHooks(HookContext.of(HookEvent.STREAM_END, sessionId));
+        }
+
         try {
             Map<String, Object> meta = new java.util.HashMap<>();
             meta.put("_stream_end", true);

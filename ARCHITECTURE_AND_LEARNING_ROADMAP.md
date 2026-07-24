@@ -1098,8 +1098,8 @@ Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 │   │                      Run / Save / Respond                        │   │
 │   └──────────────────────────────────────────────────────────────────┘   │
 │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                  │
-│   │ AgentRunner  │  │  TurnContext │  │  CompositeHook│                  │
-│   │ (LLM+工具循环)│  │  (会话上下文) │  │  (生命周期钩子)│                  │
+│   │ AgentRunner  │  │  TurnContext │  │  HookManager  │                  │
+│   │ (LLM+工具循环)│  │  (会话上下文) │  │ (ECA 声明式钩子)│                 │
 │   └──────────────┘  └──────────────┘  └──────────────┘                  │
 └──────────────────────────────────┬───────────────────────────────────────┘
                                    │
@@ -1143,7 +1143,7 @@ Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 | **SessionManager** | 会话业务层（锁管理+协调） | `session/SessionManager.java` |
 | **SessionStore** | 会话存储层（纯文件 I/O） | `session/SessionStore.java` |
 | **Config / ConfigLoader** | 配置加载和管理 | `config/` |
-| **AgentHook / CompositeHook** | 钩子系统（Chain of Responsibility） | `core/hook/` |
+| **HookManager / HookLoader** | ECA 声明式钩子系统（事件-条件-动作） | `hook/` |
 | **Command / CommandRegistry** | 命令系统（Command 模式） | `command/` |
 | **MCPManager** | MCP 服务器管理和工具注册 | `mcp/MCPManager.java` |
 | **MCPClient / StdioMCPClient / HttpMCPClient** | MCP 客户端实现（Template Method） | `mcp/` |
@@ -1184,9 +1184,16 @@ nanobot-java/
 │   │   │   ├── RestoreState.java / CompactState.java / CommandState.java
 │   │   │   ├── BuildState.java / RunState.java
 │   │   │   └── SaveState.java / RespondState.java
-│   │   ├── hook/              # 钩子系统
 │   │   └── subagent/          # 子 Agent
-│   ├── cron/                  # 定时任务
+│   ├── hook/                  # ECA 声明式钩子系统
+│   │   ├── HookEvent.java     # 9 个生命周期事件枚举
+│   │   ├── Hook.java          # ECA 规则 record (event+condition+action+reject)
+│   │   ├── HookAction.java    # 动作 record (COMMAND/PROMPT/SCRIPT)
+│   │   ├── HookContext.java   # 运行时上下文字段快照
+│   │   ├── HookResult.java    # 执行结果 record
+│   │   ├── HookLoader.java    # 加载器 (config.yaml → .nanobot/hooks/ → BuiltinHooks)
+│   │   ├── HookManager.java   # 管理器 (注册/匹配DSL/执行/统计)
+│   │   └── BuiltinHooks.java  # 内置默认 Hook (6 条)
 │   ├── identity/              # 身份系统 (SOUL/IDENTITY/USER)
 │   ├── mcp/                   # MCP 协议
 │   ├── memory/                # 记忆存储
@@ -1199,7 +1206,7 @@ nanobot-java/
 │   │   ├── PermissionManager.java
 │   │   ├── PermissionMode.java   # PLAN/DEFAULT/ACCEPT_EDITS/BYPASS
 │   │   ├── guard/             # PathGuard/CommandGuard/NetworkGuard
-│   │   ├── hook/              # PreToolUseHook
+│   │   ├── hook/              # 安全层 PreToolUseHook（独立于 ECA Hook 系统）
 │   │   └── rule/              # RuleEngine
 │   ├── session/               # 会话管理
 │   │   ├── SessionManager.java    # 业务层
@@ -1254,19 +1261,58 @@ public interface LLMProvider {
 }
 ```
 
-#### 4.4.3 AgentHook 接口
+#### 4.4.3 Hook — ECA 声明式钩子
 
-生命周期钩子扩展点（Chain of Responsibility 模式）：
+**设计演进**：v1 采用接口回调模式（`AgentHook` 接口，7 个生命周期方法），方法名=事件，条件/动作硬编码在实现类内。v2 重构为 ECA（Event-Condition-Action）声明式模式——一条 Hook 就是一条规则，"什么时候→什么情况下→做什么"，YAML 可配。
+
+**核心模型**：
 
 ```java
-public interface AgentHook {
-    default CompletableFuture<Void> beforeIteration(AgentHookContext ctx) {...}
-    default CompletableFuture<Void> beforeExecuteTools(AgentHookContext ctx) {...}
-    default CompletableFuture<Void> afterIteration(AgentHookContext ctx) {...}
-    default String finalizeContent(AgentHookContext ctx, String content) { return content; }
-    String getName();
-}
+// 一条 Hook = 什么时候 + 什么情况下 + 做什么 + 要不要拦
+public record Hook(
+    String id,           // 唯一标识
+    HookEvent event,     // 事件: 9 种生命周期事件
+    String condition,    // 条件 DSL: "tool==bash && args.cmd=~rm.*"
+    HookAction action,   // 动作: COMMAND / PROMPT / SCRIPT
+    boolean reject       // 是否拦截 (仅 TURN_START / PRE_TOOL_USE 有效)
+) {}
 ```
+
+**9 个生命周期事件**：
+
+| 分类 | 事件 | 可拦截 | 触发位置 |
+|------|------|--------|----------|
+| 会话级 | `SESSION_START`, `SESSION_END` | 否 | NanobotRunner |
+| 轮次级 | `TURN_START`, `TURN_END` | TURN_START 可拦截 | AgentLoop.processMessage() |
+| 工具级 | `PRE_TOOL_USE`, `POST_TOOL_USE` | PRE_TOOL_USE 可拦截 | AgentRunner.executeTools() |
+| 流式级 | `ON_STREAM`, `STREAM_END` | 否 | RunState |
+| 异常级 | `ON_ERROR` | 否 | AgentLoop/AgentRunner |
+
+**条件 DSL**：
+
+| 语法 | 含义 | 示例 |
+|------|------|------|
+| `""` | 无条件匹配 | 始终触发 |
+| `tool==name` | 工具名精确匹配 | `tool==bash` |
+| `tool=~regex` | 工具名正则匹配 | `tool=~mcp__.*` |
+| `args.key==val` | 参数值匹配 | `args.cmd=~rm.*` |
+| `a && b` | AND 组合 | `tool==bash && args.cmd=~rm.*` |
+
+**三种动作类型**：`COMMAND`（执行 shell）、`PROMPT`（注入 LLM 上下文）、`SCRIPT`（执行脚本文件）
+
+**加载优先级（合并模式）**：config.yaml → `.nanobot/hooks/*.yaml` → BuiltinHooks 兜底
+
+**内部对比**：
+
+| 维度 | 旧 AgentHook | 新 ECA Hook |
+|------|-------------|------------|
+| 架构模式 | 接口回调 (CoR) | 声明式 ECA |
+| 事件定义 | 方法名（7个） | 枚举（9个） |
+| 条件 | 硬编码 if/else | DSL 条件表达式 |
+| 动作 | 焊死在实现类 | COMMAND/PROMPT/SCRIPT |
+| 拦截能力 | ❌ | ✅ reject 字段 |
+| 配置方式 | Java 代码 | YAML + 文件系统 |
+| 代码量 | ~900 行（7 类） | ~400 行（9 文件） |
 
 #### 4.4.4 AgentState 接口（State 模式）
 
@@ -3095,8 +3141,8 @@ LLM 迭代次: 5
 各部分数据来源：
 - **会话统计**：`ctx.getMessages()` 计算消息数和 token 估算
 - **队列深度**：`messageBus.getInboundSize()` / `getOutboundQueueSize()`
-- **工具耗时**：`MetricsHook.getToolTimings()` 按 totalMs 降序取 top 10
-- **全局指标**：`MetricsHook.GlobalMetrics` 提供累计请求数、token、错误率、运行时间
+- **工具耗时**：`HookManager.getToolTimings()` 按 totalMs 降序取 top 10（POST_TOOL_USE 事件自动记录）
+- **事件计数**：`HookManager.getRunCounts()` 展示各事件触发次数和拦截次数
 
 #### 消息队列积压监控
 
@@ -3129,7 +3175,7 @@ LLM 迭代次: 5
 
 #### 设计亮点
 
-1. **零侵入收集**：所有统计数据通过 hook（`MetricsHook`）+ metadata 旁路收集，不修改核心 LLM 调用逻辑。每个工具调用在 `ToolRegistry.execute()` 中自动计时
+1. **零侵入收集**：所有统计数据通过 ECA Hook 系统旁路收集（POST_TOOL_USE 事件自动记录工具耗时，TURN_START/TURN_END 记录轮次计数），不修改核心 LLM 调用逻辑
 2. **工具级耗时追踪**：`ConcurrentHashMap<String, ToolTiming>` 按工具名隔离，`synchronized` 保护 `calls`/`totalMs`/`maxMs` 联合原子更新
 3. **分层可观测性**：终端即时反馈（统计行）→ 诊断命令（`/stats`）→ HTTP API（`/actuator/health`）→ 外部监控接入，四层递进
 
@@ -4684,7 +4730,7 @@ Owner Agent 是整个 Harness 体系的总指挥。它定义了 AI 的角色定�
 | C-008 | 会话管理（SessionManager + SessionStore + Web UI） | done |
 | C-009 | 安全权限（PermissionManager + Guard + RuleEngine） | done |
 | C-010 | 命令系统（/exit /help /init /mode /resume） | done |
-| C-011 | 钩子系统（AgentHook + Metrics/Validation/Tracing） | done |
+| C-011 | 钩子系统（ECA 声明式 Hook，9 事件+DSL 条件+3 动作） | done ✅ (v2 重构) |
 | C-012 | 身份系统（SOUL + IDENTITY + USER） | done |
 | C-013 | V3 CLI（JLine + Markdown + Esc 中断） | done |
 | C-014 | Plan Mode（/plan → /plan approve） | done |

@@ -417,6 +417,44 @@ public class NanobotConfig {
         return d;
     }
 
+    /**
+     * Hook 管理器 — ECA 声明式钩子系统中枢.
+     *
+     * <h3>全生命周期</h3>
+     * <ol>
+     *   <li><b>定义</b>：在 config.yaml 的 {@code hooks.list} 中声明 Hook 规则</li>
+     *   <li><b>加载</b>：Spring 启动时 {@code HookLoader.load(config.getHooks())} →
+     *       产出 {@code List<Hook>} → {@code hookManager.load(list)}</li>
+     *   <li><b>触发</b>：AgentLoop/AgentRunner/RunState 在 9 个生命周期节点调用
+     *       {@code hookManager.runHooks()}</li>
+     *   <li><b>匹配</b>：遍历 Hook → 比对事件 → 解析条件 DSL → 执行动作</li>
+     * </ol>
+     *
+     * <h3>配置示例</h3>
+     * <pre>
+     * hooks:
+     *   enabled: true
+     *   list:
+     *     - id: "block-rm"
+     *       event: PRE_TOOL_USE
+     *       condition: "tool==bash && args.cmd=~rm.*"
+     *       action: { type: COMMAND, command: "echo blocked" }
+     *       reject: true
+     * </pre>
+     *
+     * @see com.nanobot.hook.HookManager
+     * @see com.nanobot.hook.Hook
+     */
+    @Bean
+    public com.nanobot.hook.HookManager hookManager(Config config) {
+        // HookLoader 负责加载（config.yaml → .nanobot/hooks/ 文件系统 → BuiltinHooks 回退）
+        java.util.List<com.nanobot.hook.Hook> hooks = com.nanobot.hook.HookLoader.load(config);
+        com.nanobot.hook.HookManager hm = new com.nanobot.hook.HookManager();
+        hm.load(hooks);
+        logger.info("HookManager initialized with {} hooks", hm.getHookCount());
+        return hm;
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // 第 6 层：扩展能力 — MCP + 子 Agent
     // ═══════════════════════════════════════════════════════════════════

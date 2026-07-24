@@ -413,7 +413,8 @@ public class ToolRegistry {
             long start = System.currentTimeMillis();
             CompletableFuture<Object> future = tool.execute(params);
             Object result = future.join();
-            com.nanobot.hook.impl.MetricsHook.recordToolTiming(name, System.currentTimeMillis() - start);
+
+            // 工具耗时统计已由 HookManager 的 POST_TOOL_USE 事件自动记录
 
             // 6. 处理结果 — 自动识别错误并标记 [TOOL_OK]/[TOOL_ERR]
             return ToolResult.wrap(result);
