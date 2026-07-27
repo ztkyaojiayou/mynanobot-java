@@ -331,68 +331,117 @@ public class CliChannel {
         return result.toString();
     }
 
-    /** 解析单个 @文件引用：安全检查 + 读取 + 格式化为 markdown 代码块 */
+    /**
+     * 解析单个 @文件引用：安全检查 + 读取 + 格式化为 markdown 代码块.
+     *
+     * <h3>处理流程（6 步）</h3>
+     * <ol>
+     *   <li>清理尾部标点</li>
+     *   <li>展开 ~ 并规范化为绝对路径</li>
+     *   <li>安全检查（危险路径拒绝）</li>
+     *   <li>文件存在性检查（含智能回退 + 目录列表）</li>
+     *   <li>文件校验（大小 + 二进制检测）</li>
+     *   <li>读取文件内容并格式化为 markdown 代码块</li>
+     * </ol>
+     */
     private String resolveFilePath(String rawPath) {
-        // ── 0. 清理尾部标点（如 @foo.java, → foo.java）──
-        rawPath = rawPath.replaceAll("[,;:'\"!?)\\]}]+$", "");
+        // ① 清理尾部标点（如 @foo.java, → foo.java）
+        String cleaned = cleanTrailingPunctuation(rawPath);
 
-        // ── 1. 展开 ~ → 用户主目录 ──
+        // ② 展开 ~ 并规范化为绝对路径
+        Path path = expandAndResolvePath(cleaned);
+
+        // ③ 安全检查
+        if (isDangerousPath(path)) {
+            System.out.println("⚠  危险路径已拒绝: " + cleaned);
+            return "@" + cleaned;
+        }
+
+        // ④ 文件存在性检查（含智能回退）+ 目录列表
+        path = resolveExistingPath(path, cleaned);
+        if (path == null) return "@" + cleaned;
+        if (Files.isDirectory(path)) return listDirectory(path, cleaned);
+
+        // ⑤ 文件校验（大小 + 二进制检测）
+        String error = validateFile(path, cleaned);
+        if (error != null) return error;
+
+        // ⑥ 读取文件内容
+        return readFileAsCodeBlock(path, cleaned);
+    }
+
+    // ── resolveFilePath 子步骤 ──
+
+    /** ① 清理尾部标点（逗号、分号、引号、括号等） */
+    private static String cleanTrailingPunctuation(String rawPath) {
+        return rawPath.replaceAll("[,;:'\"!?)\\]}]+$", "");
+    }
+
+    /** ② 展开 ~ 为用户主目录，解析相对路径为绝对路径并规范化 */
+    private static Path expandAndResolvePath(String rawPath) {
         String expanded = rawPath.startsWith("~")
                 ? rawPath.replaceFirst("^~", System.getProperty("user.home", "~"))
                 : rawPath;
-
-        // ── 2. 解析为绝对路径并规范化 ──
         Path path = Paths.get(expanded);
         if (!path.isAbsolute()) {
             path = Paths.get(System.getProperty("user.dir", ".")).resolve(path);
         }
-        path = path.toAbsolutePath().normalize();
+        return path.toAbsolutePath().normalize();
+    }
 
-        // ── 3. 安全检查：危险路径拒绝 ──
-        if (DANGEROUS_PATH.matcher(path.toString()).find()) {
-            System.out.println("⚠  危险路径已拒绝: " + rawPath);
-            return "@" + rawPath; // 保留原文
-        }
+    /** ③ 检查路径是否匹配危险模式 */
+    private boolean isDangerousPath(Path path) {
+        return DANGEROUS_PATH.matcher(path.toString()).find();
+    }
 
-        // ── 4. 文件存在性 + 类型检查（智能截断：后缀不是文件则逐字符回退）──
-        if (!Files.exists(path)) {
-            // 尝试逐字符回退找到有效路径（如 @foo/bar 分析一下 → @foo/bar）
-            Path probe = path;
-            while (probe != null && !Files.exists(probe)) {
-                Path parent = probe.getParent();
-                if (parent == null) break;
-                probe = parent;
-            }
-            if (probe != null && Files.exists(probe)) {
-                path = probe;
-                // 回退成功，继续按目录/文件处理
-            } else {
-                System.out.println("⚠  文件未找到: " + rawPath);
-                return "@" + rawPath;
-            }
-        }
-        if (Files.isDirectory(path)) {
-            // 列出目录内容而非拒绝
-            try {
-                var children = Files.list(path).limit(50).toList();
-                StringBuilder sb = new StringBuilder("```\n");
-                sb.append(path).append("/\n");
-                for (var child : children) {
-                    String name = child.getFileName().toString();
-                    if (Files.isDirectory(child)) name += "/";
-                    sb.append("  ").append(name).append("\n");
-                }
-                if (children.size() == 50) sb.append("  ... (截断)\n");
-                sb.append("```");
-                System.out.println("📂 已注入目录: " + rawPath + " (" + children.size() + " 项)");
-                return sb.toString();
-            } catch (IOException e) {
-                System.out.println("⚠  无法列出目录: " + rawPath);
-                return "@" + rawPath;
-            }
-        }
+    /**
+     * ④-a 智能回退路径：路径不存在时逐级向上查找存在的父路径.
+     *
+     * @return 找到的路径（可能是目录），或 null 表示完全不存在
+     */
+    private Path resolveExistingPath(Path path, String rawPath) {
+        if (Files.exists(path)) return path;
 
-        // ── 5. 大小检查 ──
+        Path probe = path;
+        while (probe != null && !Files.exists(probe)) {
+            Path parent = probe.getParent();
+            if (parent == null) break;
+            probe = parent;
+        }
+        if (probe != null && Files.exists(probe)) return probe;
+
+        System.out.println("⚠  文件未找到: " + rawPath);
+        return null;
+    }
+
+    /** ④-b 列出目录内容（markdown 格式），最多 50 项 */
+    private String listDirectory(Path dir, String rawPath) {
+        try {
+            var children = Files.list(dir).limit(50).toList();
+            StringBuilder sb = new StringBuilder("```\n");
+            sb.append(dir).append("/\n");
+            for (var child : children) {
+                String name = child.getFileName().toString();
+                if (Files.isDirectory(child)) name += "/";
+                sb.append("  ").append(name).append("\n");
+            }
+            if (children.size() == 50) sb.append("  ... (截断)\n");
+            sb.append("```");
+            System.out.println("📂 已注入目录: " + rawPath + " (" + children.size() + " 项)");
+            return sb.toString();
+        } catch (IOException e) {
+            System.out.println("⚠  无法列出目录: " + rawPath);
+            return "@" + rawPath;
+        }
+    }
+
+    /**
+     * ⑤ 文件校验：大小检查 + 二进制检测.
+     *
+     * @return 错误消息（以 @ 开头），或 null 表示校验通过
+     */
+    private String validateFile(Path path, String rawPath) {
+        // 大小检查
         try {
             long size = Files.size(path);
             if (size > MAX_FILE_BYTES) {
@@ -408,7 +457,7 @@ public class CliChannel {
             return "@" + rawPath;
         }
 
-        // ── 6. 二进制检测 ──
+        // 二进制检测
         try {
             byte[] head = new byte[512];
             try (var in = Files.newInputStream(path)) {
@@ -429,7 +478,11 @@ public class CliChannel {
             return "@" + rawPath;
         }
 
-        // ── 7. 读取文件内容 ──
+        return null; // 校验通过
+    }
+
+    /** ⑥ 读取文件内容并格式化为 markdown 代码块，超过 MAX_FILE_LINES 行则截断 */
+    private String readFileAsCodeBlock(Path path, String rawPath) {
         try {
             List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
             String lang = inferLanguage(path.getFileName().toString());
@@ -442,11 +495,13 @@ public class CliChannel {
                 sb.append(lines.get(i)).append("\n");
             }
             if (truncated) {
-                sb.append("... (截断，共 ").append(lines.size()).append(" 行，仅显示前 ").append(MAX_FILE_LINES).append(" 行)\n");
+                sb.append("... (截断，共 ").append(lines.size())
+                        .append(" 行，仅显示前 ").append(MAX_FILE_LINES).append(" 行)\n");
             }
             sb.append("```");
 
-            System.out.println("📄 已注入: " + rawPath + (truncated ? " (截断至 " + MAX_FILE_LINES + " 行)" : ""));
+            System.out.println("📄 已注入: " + rawPath
+                    + (truncated ? " (截断至 " + MAX_FILE_LINES + " 行)" : ""));
             return sb.toString();
         } catch (IOException e) {
             System.out.println("⚠  无法读取文件: " + rawPath + " (" + e.getMessage() + ")");
