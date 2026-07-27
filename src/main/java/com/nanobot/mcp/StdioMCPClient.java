@@ -1,357 +1,260 @@
 package com.nanobot.mcp;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nanobot.config.Config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.*;
+import java.util.concurrent.*;
 
 /**
- * 基于标准输入输出的 MCP 客户端实现
- * 
- * 通过启动外部进程并使用标准输入输出进行通信。
- * 适用于本地 MCP 服务器（如 git-mcp、file-mcp 等）。
- * 
- * 工作原理：
- * 1. 通过 ProcessBuilder 启动外部进程
- * 2. 监听进程的 stdout 获取响应
- * 3. 通过 stdin 发送请求
- * 4. 使用 JSON 格式进行消息交换
+ * Stdio MCP 客户端 — 通过子进程 stdin/stdout 与 MCP Server 通信。
+ *
+ * <h3>协议</h3>
+ * 遵循 MCP 规范（JSON-RPC 2.0 over stdio）。
+ * 每行一个 JSON 消息，使用标准 {@link JsonRpcMessage.Request} / {@link JsonRpcMessage.Response}。
+ *
+ * <h3>并发模型</h3>
+ * <ul>
+ *   <li>{@code pendingRequests} (CHM) — 请求-响应路由表，按消息 id 精确匹配</li>
+ *   <li>{@code responseListener} (daemon) — 读 stdout 行，匹配 pending request</li>
+ *   <li>{@code executorService} — 超时调度（schedule）+ callTool 异步提交</li>
+ * </ul>
  */
 public class StdioMCPClient implements MCPClient {
-    
+
     private static final Logger log = LoggerFactory.getLogger(StdioMCPClient.class);
-    
-    private final Config.MCPServerConfig config;
-    private final ObjectMapper objectMapper;
-    private final ScheduledExecutorService executorService;
-    
-    private Process process;
-    private BufferedReader reader;
-    private PrintWriter writer;
-    
-    /**
-     * 待处理的请求（按消息 ID 映射）
-     */
-    private final Map<String, CompletableFuture<MCPResult>> pendingRequests = new ConcurrentHashMap<>();
-    
-    /**
-     * 是否已关闭
-     */
-    private volatile boolean closed = false;
-    
-    /**
-     * 服务器名称
-     */
+
     private final String serverName;
-    
-    // ==================== 构造函数 ====================
-    
+    private final Config.MCPServerConfig config;
+    private final ObjectMapper mapper;
+    private final ScheduledExecutorService executor;
+
+    private Process process;
+    private PrintWriter writer;
+    private BufferedReader reader;
+    private volatile boolean closed;
+
+    /** 请求-响应路由表（CHM + remove() 原子性 → fetch/complete 不重复） */
+    private final Map<String, CompletableFuture<JsonRpcMessage.Response>> pendingRequests = new ConcurrentHashMap<>();
+
     public StdioMCPClient(String serverName, Config.MCPServerConfig config) {
         this.serverName = serverName;
         this.config = config;
-        this.objectMapper = new ObjectMapper();
-        this.executorService = Executors.newScheduledThreadPool(2);
+        this.mapper = new ObjectMapper();
+        this.executor = Executors.newScheduledThreadPool(2, r -> new Thread(r, "MCP-stdio-" + serverName));
     }
-    
-    /**
-     * 启动连接
-     */
+
+    // ═══════════ 连接 + 握手 ═══════════
+
+    /** 启动子进程 + initialize 握手。调用一次即完成完整的 MCP 连接建立。 */
     public void connect() throws IOException {
-        if (process != null && process.isAlive()) {
-            log.debug("MCP server {} is already running", serverName);
-            return;
-        }
-        
-        String command = config.getCommand();
-        List<String> args = config.getArgs();
-        
-        ProcessBuilder pb = new ProcessBuilder();
-        pb.command(buildCommand(command, args));
-        
-        // 设置工作目录（可选）
-        String workspace = System.getProperty("user.home") + "/.nanobot";
-        pb.directory(new java.io.File(workspace));
-        
-        // 合并错误输出到标准输出
+        if (process != null && process.isAlive()) return;
+
+        // ── 启动子进程 ──
+        List<String> cmd = new ArrayList<>();
+        cmd.add(config.getCommand());
+        if (config.getArgs() != null) cmd.addAll(config.getArgs());
+
+        ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
-        
-        log.info("Starting MCP server {}: {} {}", serverName, command, args);
-        
-        process = pb.start();
-        
-        // 设置输入输出流
-        reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
-        writer = new PrintWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8), true);
-        
-        // 启动响应监听线程
-        startResponseListener();
-        
-        log.info("MCP server {} started successfully", serverName);
-    }
-    
-    /**
-     * 构建命令列表
-     */
-    private List<String> buildCommand(String command, List<String> args) {
-        List<String> cmdList = new ArrayList<>();
-        cmdList.add(command);
-        if (args != null) {
-            cmdList.addAll(args);
+        if (config.getWorkspace() != null && !config.getWorkspace().isBlank()) {
+            pb.directory(new File(config.getWorkspace()));
         }
-        return cmdList;
+
+        log.info("Starting MCP server {}: {}", serverName, String.join(" ", cmd));
+        process = pb.start();
+        writer = new PrintWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8), true);
+        reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
+
+        // ── 启动响应监听 ──
+        startResponseListener();
+
+        // ── initialize 握手 ──
+        JsonRpcMessage.Response initResp = sendAndWait(JsonRpcMessage.Request.initialize(), config.getToolTimeout());
+        if (!initResp.isSuccess()) {
+            throw new IOException("Initialize failed: " + initResp.error());
+        }
+        log.info("MCP server {} initialized, protocol={}", serverName,
+                initResp.result() != null ? initResp.result().get("protocolVersion").asText() : "unknown");
+
+        // ── 发送 initialized 通知 ──
+        sendNotification(JsonRpcMessage.Request.notification(JsonRpcMessage.INITIALIZED));
     }
-    
-    /**
-     * 启动响应监听线程
-     */
+
+    // ═══════════ 消息收发 ═══════════
+
+    /** 发送通知（无 id，不期待响应） */
+    private void sendNotification(JsonRpcMessage.Request notification) {
+        try {
+            String json = mapper.writeValueAsString(notification);
+            writer.println(json);
+            writer.flush();
+        } catch (JsonProcessingException e) {
+            log.error("Failed to serialize notification: {}", e.getMessage());
+        }
+    }
+
+    /** 发送请求并等待响应 */
+    private JsonRpcMessage.Response sendAndWait(JsonRpcMessage.Request request, int timeoutSecs) throws IOException {
+        CompletableFuture<JsonRpcMessage.Response> future = new CompletableFuture<>();
+        pendingRequests.put(request.id(), future);
+        try {
+            String json = mapper.writeValueAsString(request);
+            writer.println(json);
+            writer.flush();
+            return future.get(timeoutSecs, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            pendingRequests.remove(request.id());
+            return new JsonRpcMessage.Response("2.0", request.id(), null,
+                    JsonRpcMessage.Response.Error.internal("Request timed out"));
+        } catch (Exception e) {
+            pendingRequests.remove(request.id());
+            throw new IOException("Request failed: " + e.getMessage(), e);
+        }
+    }
+
+    /** 读 stdout 行 → 反序列化为 Response → 匹配 pendingRequest */
     private void startResponseListener() {
-        executorService.submit(() -> {
+        executor.submit(() -> {
             try {
                 String line;
                 while ((line = reader.readLine()) != null && !closed) {
+                    if (line.isBlank()) continue;
+                    // 跳过非 JSON 行（MCP Server 启动时的日志输出等）
+                    if (!line.startsWith("{")) continue;
                     try {
-                        processResponse(line);
+                        JsonRpcMessage.Response resp = mapper.readValue(line, JsonRpcMessage.Response.class);
+                        // 无 id = 服务端推送的通知（当前忽略）
+                        if (resp.id() == null) continue;
+                        // 使用 remove() 而非 get()+remove()，原子性防止竞态
+                        CompletableFuture<JsonRpcMessage.Response> future = pendingRequests.remove(resp.id());
+                        if (future != null) future.complete(resp);
                     } catch (Exception e) {
-                        log.error("Failed to process MCP response: {}", e.getMessage());
+                        log.debug("Skipping non-JSON MCP output: {}", line.substring(0, Math.min(80, line.length())));
                     }
                 }
             } catch (IOException e) {
-                if (!closed) {
-                    log.error("Error reading from MCP server {}: {}", serverName, e.getMessage());
-                }
+                if (!closed) log.error("MCP reader error for {}: {}", serverName, e.getMessage());
             }
         });
     }
-    
-    /**
-     * 处理响应消息
-     */
-    private void processResponse(String line) throws IOException {
-        if (line.isBlank()) {
-            return;
-        }
-        
-        MCPMessage message = objectMapper.readValue(line, MCPMessage.class);
-        
-        CompletableFuture<MCPResult> pending = pendingRequests.remove(message.getId());
-        if (pending != null) {
-            MCPResult result = parseResult(message);
-            pending.complete(result);
-        }
-    }
-    
-    /**
-     * 解析结果消息
-     */
-    private MCPResult parseResult(MCPMessage message) {
-        if ("error".equalsIgnoreCase(message.getType())) {
-            return MCPResult.error(message.getError());
-        }
-        
-        JsonNode content = message.getContent();
-        if (content == null) {
-            return MCPResult.error("Empty response");
-        }
-        
-        // 检查是否有错误字段
-        JsonNode errorNode = content.get("error");
-        if (errorNode != null && !errorNode.isNull()) {
-            return MCPResult.error(errorNode.asText());
-        }
-        
-        // 获取结果类型和内容
-        JsonNode typeNode = content.get("type");
-        JsonNode valueNode = content.get("value");
-        
-        if (typeNode == null || valueNode == null) {
-            // 尝试直接获取文本内容
-            return MCPResult.text(content.asText());
-        }
-        
-        String type = typeNode.asText();
-        if ("text".equalsIgnoreCase(type)) {
-            return MCPResult.text(valueNode.asText());
-        } else if ("json".equalsIgnoreCase(type)) {
-            return MCPResult.json(valueNode);
-        } else {
-            return MCPResult.text(valueNode.asText());
-        }
-    }
-    
-    /**
-     * 发送消息
-     */
-    private void sendMessage(MCPMessage message) throws IOException {
-        String json = objectMapper.writeValueAsString(message);
-        writer.println(json);
-        writer.flush();
-        log.debug("Sent MCP message: {}", json);
-    }
-    
-    // ==================== MCPClient 接口实现 ====================
-    
+
+    // ═══════════ MCPClient 接口 ═══════════
+
     @Override
     public CompletableFuture<MCPResult> callTool(String toolName, Map<String, Object> arguments) {
-        CompletableFuture<MCPResult> future = new CompletableFuture<>();
-        
-        executorService.submit(() -> {
+        return CompletableFuture.supplyAsync(() -> {
             try {
-                // 确保连接已建立
-                if (!isConnected()) {
-                    connect();
-                }
-                
-                JsonNode argsNode = objectMapper.valueToTree(arguments);
-                MCPMessage request = MCPMessage.createInvoke(toolName, argsNode);
-                
-                pendingRequests.put(request.getId(), future);
-                sendMessage(request);
-                
-                // 设置超时
-                executorService.schedule(() -> {
-                    CompletableFuture<MCPResult> pending = pendingRequests.remove(request.getId());
-                    if (pending != null && !pending.isDone()) {
-                        pending.complete(MCPResult.error("Tool call timeout"));
-                    }
-                }, config.getToolTimeout(), java.util.concurrent.TimeUnit.SECONDS);
-                
+                if (!isConnected()) connect();
+                JsonRpcMessage.Request req = JsonRpcMessage.Request.callTool(toolName, arguments);
+                JsonRpcMessage.Response resp = sendAndWait(req, config.getToolTimeout());
+                return resp.isSuccess()
+                        ? MCPResult.fromJsonRpcResponse(resp)
+                        : MCPResult.error(resp.error().toString());
             } catch (Exception e) {
-                future.completeExceptionally(e);
+                return MCPResult.error(e.getMessage());
             }
-        });
-        
-        return future;
+        }, executor);
     }
-    
+
     @Override
     public CompletableFuture<List<MCPToolInfo>> listTools() {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // 确保连接已建立
-                if (!isConnected()) {
-                    connect();
+                if (!isConnected()) connect();
+                JsonRpcMessage.Response resp = sendAndWait(JsonRpcMessage.Request.listTools(), config.getToolTimeout());
+                if (!resp.isSuccess()) {
+                    log.warn("listTools failed: {}", resp.error());
+                    return Collections.emptyList();
                 }
-                
-                MCPMessage request = MCPMessage.createListTools();
-                CompletableFuture<MCPResult> future = new CompletableFuture<>();
-                
-                pendingRequests.put(request.getId(), future);
-                sendMessage(request);
-                
-                MCPResult result = future.get(config.getToolTimeout(), java.util.concurrent.TimeUnit.SECONDS);
-                
-                if (!result.isSuccess()) {
-                    log.warn("Failed to list tools: {}", result.getErrorMessage());
-                    return new ArrayList<>();
-                }
-                
-                return parseToolList(result);
-                
+                return parseToolList(resp.result());
             } catch (Exception e) {
-                log.error("Failed to list tools: {}", e.getMessage());
-                return new ArrayList<>();
+                log.error("listTools failed: {}", e.getMessage());
+                return Collections.emptyList();
             }
-        }, executorService);
+        }, executor);
     }
-    
-    /**
-     * 解析工具列表
-     */
-    private List<MCPToolInfo> parseToolList(MCPResult result) throws IOException {
-        List<MCPToolInfo> tools = new ArrayList<>();
-        
-        JsonNode content = objectMapper.readTree(result.getTextContent());
-        JsonNode toolsNode = content.get("content");
-        
-        if (toolsNode == null) {
-            toolsNode = content;
-        }
-        
-        JsonNode toolsArray = toolsNode.get("tools");
-        if (toolsArray == null || !toolsArray.isArray()) {
-            return tools;
-        }
-        
-        for (JsonNode toolNode : toolsArray) {
-            MCPToolInfo toolInfo = new MCPToolInfo();
-            toolInfo.setName(toolNode.get("name").asText());
-            toolInfo.setDescription(toolNode.get("description").asText());
-            toolInfo.setParameters(toolNode.get("parameters"));
-            toolInfo.setReturnType(toolNode.has("return_type") ? toolNode.get("return_type").asText() : "text");
-            toolInfo.setReadOnly(toolNode.has("read_only") && toolNode.get("read_only").asBoolean());
-            toolInfo.setServerName(serverName);
-            tools.add(toolInfo);
-        }
-        
-        return tools;
-    }
-    
+
     @Override
     public CompletableFuture<MCPResult> readResource(String uri) {
-        return callTool("read_resource", Map.of("uri", uri));
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (!isConnected()) connect();
+                JsonRpcMessage.Response resp = sendAndWait(JsonRpcMessage.Request.readResource(uri), config.getToolTimeout());
+                return resp.isSuccess() ? MCPResult.fromJsonRpcResponse(resp) : MCPResult.error(resp.error().toString());
+            } catch (Exception e) {
+                return MCPResult.error(e.getMessage());
+            }
+        }, executor);
     }
-    
+
     @Override
     public CompletableFuture<MCPResult> getPrompt(String promptName, Map<String, Object> arguments) {
-        Map<String, Object> params = new HashMap<>(arguments);
-        params.put("prompt_name", promptName);
-        return callTool("get_prompt", params);
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (!isConnected()) connect();
+                JsonRpcMessage.Response resp = sendAndWait(JsonRpcMessage.Request.getPrompt(promptName, arguments), config.getToolTimeout());
+                return resp.isSuccess() ? MCPResult.fromJsonRpcResponse(resp) : MCPResult.error(resp.error().toString());
+            } catch (Exception e) {
+                return MCPResult.error(e.getMessage());
+            }
+        }, executor);
     }
-    
+
+    // ═══════════ 解析 ═══════════
+
+    /** 解析标准 tools/list 响应 */
+    private List<MCPToolInfo> parseToolList(JsonNode result) {
+        List<MCPToolInfo> tools = new ArrayList<>();
+        JsonNode toolsArray = result.get("tools");
+        if (toolsArray == null || !toolsArray.isArray()) return tools;
+
+        for (JsonNode node : toolsArray) {
+            MCPToolInfo info = new MCPToolInfo();
+            info.setName(node.get("name").asText());
+            info.setDescription(node.has("description") ? node.get("description").asText() : "");
+            info.setParameters(node.has("inputSchema") ? node.get("inputSchema") : node.get("parameters"));
+            info.setReadOnly(!isWriteTool(node.get("name").asText()));
+            info.setServerName(serverName);
+            tools.add(info);
+        }
+        return tools;
+    }
+
+    /** 判断工具是否为写操作（写工具需要权限确认） */
+    private static boolean isWriteTool(String name) {
+        String n = name.toLowerCase();
+        return n.contains("write") || n.contains("save") || n.contains("delete") || n.contains("remove")
+                || n.contains("create") || n.contains("update") || n.contains("edit") || n.contains("exec")
+                || n.contains("run") || n.contains("build") || n.contains("deploy") || n.contains("commit");
+    }
+
+    // ═══════════ 生命周期 ═══════════
+
     @Override
     public void close() {
         closed = true;
-        
-        if (writer != null) {
-            writer.close();
-        }
-        
-        if (reader != null) {
-            try {
-                reader.close();
-            } catch (IOException e) {
-                // ignore
-            }
-        }
-        
+        try { if (writer != null) writer.close(); } catch (Exception ignored) {}
+        try { if (reader != null) reader.close(); } catch (IOException ignored) {}
         if (process != null) {
             process.destroy();
-            try {
-                process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            if (process.isAlive()) {
-                process.destroyForcibly();
-            }
+            try { process.waitFor(5, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            if (process.isAlive()) process.destroyForcibly();
         }
-        
-        executorService.shutdown();
-        
-        log.info("MCP client {} closed", serverName);
+        executor.shutdown();
     }
-    
+
     @Override
     public boolean isConnected() {
         return process != null && process.isAlive() && !closed;
     }
-    
+
     @Override
     public String getServerName() {
         return serverName;

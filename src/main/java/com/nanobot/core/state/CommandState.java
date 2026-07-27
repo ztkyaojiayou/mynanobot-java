@@ -55,10 +55,14 @@ public class CommandState implements AgentState {
         if (content == null || !content.startsWith("/")) return TurnState.BUILD;
 
         String command = content.split("\\s")[0].toLowerCase();
+        logger.info("CommandState: content='{}', command='{}'", content, command);
 
         // ── ① 内置命令优先（系统级操作不能被用户技能覆盖）──
         TurnState builtinResult = handleBuiltinCommand(command, ctx);
-        if (builtinResult != null) return builtinResult;
+        if (builtinResult != null) {
+            logger.info("CommandState: handled by builtin, result={}", builtinResult);
+            return builtinResult;
+        }
 
         // ── ② 不是内置命令 → 尝试技能匹配 ──
         if (skillManager != null) {

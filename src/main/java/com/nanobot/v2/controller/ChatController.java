@@ -189,7 +189,9 @@ public class ChatController {
                         } else if (msg.isStreamDelta()) {
                             dataCount[0]++;
                             emitter.send(SseEmitter.event().data(msg.getContent() != null ? msg.getContent() : ""));
-                        } else if (msg.isStreamEnd()) {
+                        }
+                        // 独立判断（不用 else-if，命令响应同时带 delta+end）
+                        if (msg.isStreamEnd()) {
                             emitter.send(SseEmitter.event().data("[DONE]"));
                             emitter.complete();
                             logger.info("SSE stream completed ({} data events)", dataCount[0]);

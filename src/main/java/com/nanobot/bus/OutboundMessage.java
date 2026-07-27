@@ -222,6 +222,9 @@ public class OutboundMessage {
         return getMetadataBoolean("_stream_end", false);
     }
 
+    /** 检查是否为工具调用通知 */
+    public boolean isToolCall() { return getMetadataBoolean("_tool_call", false); }
+
     /** 检查是否为会话清除事件（通知前端清空消息列表） */
     public boolean isSessionCleared() {
         return getMetadataBoolean("_session_cleared", false);

@@ -138,10 +138,16 @@ public class AgentRunner {
      * 工具执行线程池
      */
     private final ExecutorService toolExecutor;
+    private com.nanobot.bus.MessageBus messageBus;
 
     // ==================== 构造函数 ====================
 
     public AgentRunner(LLMProvider provider, ToolRegistry registry) {
+        this(provider, registry, null);
+    }
+
+    public AgentRunner(LLMProvider provider, ToolRegistry registry, com.nanobot.bus.MessageBus messageBus) {
+        this.messageBus = messageBus;
         this.provider = Objects.requireNonNull(provider, "provider cannot be null");
         this.registry = Objects.requireNonNull(registry, "registry cannot be null");
         this.objectMapper = new ObjectMapper();
@@ -573,8 +579,19 @@ public class AgentRunner {
                 boolean blocked = hookManager.runPreToolHooks(preCtx);
                 if (blocked) {
                     results[idx] = "[HOOK BLOCKED]";
-                    continue; // 跳过该工具执行
+                    continue;
                 }
+            }
+
+            // ── 通知各通道：即将调用工具 ──
+            if (messageBus != null) {
+                try {
+                    messageBus.publishToOutboundQueue(com.nanobot.bus.OutboundMessage.builder()
+                            .sessionId(sessionId).channel("system")
+                            .content("🔧 " + toolName)
+                            .metadata(java.util.Map.of("_tool_call", true))
+                            .build());
+                } catch (Exception ignored) {}
             }
 
             futures[i] = CompletableFuture.runAsync(() -> {

@@ -123,6 +123,13 @@ public class ConfigLoader {
         yamlFactory.disable(YAMLGenerator.Feature.WRITE_DOC_START_MARKER);
         yamlMapper = new ObjectMapper(yamlFactory);
         yamlMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        // 优先使用字段上的 @JsonProperty 注解（而非 getter 方法名）
+        yamlMapper.setVisibility(com.fasterxml.jackson.annotation.PropertyAccessor.FIELD,
+                com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility.ANY);
+        yamlMapper.setVisibility(com.fasterxml.jackson.annotation.PropertyAccessor.GETTER,
+                com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility.NONE);
+        yamlMapper.setVisibility(com.fasterxml.jackson.annotation.PropertyAccessor.IS_GETTER,
+                com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility.NONE);
     }
     
     // ==================== 加载方法 ====================
@@ -146,6 +153,8 @@ public class ConfigLoader {
         }
         
         Path localConfig = Paths.get(DEFAULT_CONFIG_FILE);
+        logger.info("ConfigLoader searching: {} (exists={}, absolute={})",
+                localConfig, Files.exists(localConfig), localConfig.toAbsolutePath());
         if (Files.exists(localConfig)) {
             return load(localConfig);
         }
@@ -204,6 +213,16 @@ public class ConfigLoader {
         try {
             String content = Files.readString(path);
             Config config = parse(content, path.toString());
+
+            // 合并 classpath 默认配置（补全 partial config 中缺失的值）
+            Config defaults = loadClasspathDefaults();
+            if (defaults != null) {
+                config = mergeWithDefaults(config, defaults);
+                logger.info("Merged partial config with classpath defaults, model={}",
+                        config.getAgents().getDefaults().getModel());
+            } else {
+                logger.warn("No classpath defaults found, using partial config as-is");
+            }
 
             // 合并 secret.yaml（独立管理的 API Key 文件，不提交 Git）
             mergeSecretKeys(path.getParent(), config);
@@ -564,5 +583,53 @@ public class ConfigLoader {
             logger.error("Failed to generate example configuration", e);
             throw new RuntimeException("Failed to generate example configuration", e);
         }
+    }
+
+    // ═══════════ 配置合并（partial config 补全默认值） ═══════════
+
+    /** 从 classpath 加载默认配置（不应用文件系统覆盖） */
+    private static Config loadClasspathDefaults() {
+        try (InputStream is = ConfigLoader.class.getClassLoader()
+                .getResourceAsStream(CLASSPATH_CONFIG)) {
+            if (is != null) {
+                String content = new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                return parse(content, "classpath-defaults");
+            }
+        } catch (Exception e) {
+            logger.debug("No classpath defaults to merge: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /** 将 partial 配置与默认值合并：partial 中的 null/empty 字段用 defaults 补全 */
+    private static Config mergeWithDefaults(Config partial, Config defaults) {
+        if (partial.getAgents() == null) partial.setAgents(defaults.getAgents());
+        else if (partial.getAgents().getDefaults() == null)
+            partial.getAgents().setDefaults(defaults.getAgents().getDefaults());
+
+        if (partial.getProviders() == null || !hasAnyProvider(partial))
+            partial.setProviders(defaults.getProviders());
+        else mergeProviders(partial.getProviders(), defaults.getProviders());
+
+        if (partial.getTools() == null) partial.setTools(defaults.getTools());
+        if (partial.getMemory() == null) partial.setMemory(defaults.getMemory());
+        if (partial.getChannels() == null) partial.setChannels(defaults.getChannels());
+        if (partial.getHooks() == null) partial.setHooks(defaults.getHooks());
+
+        logger.debug("Merged partial config with classpath defaults");
+        return partial;
+    }
+
+    private static boolean hasAnyProvider(Config c) {
+        var p = c.getProviders();
+        return p.getDeepseek().isConfigured() || p.getOpenai().isConfigured()
+                || p.getAnthropic().isConfigured() || p.getGroq().isConfigured()
+                || p.getOllama().isConfigured();
+    }
+
+    private static void mergeProviders(Config.ProvidersConfig partial, Config.ProvidersConfig defaults) {
+        if (!partial.getDeepseek().isConfigured()) partial.setDeepseek(defaults.getDeepseek());
+        if (!partial.getOpenai().isConfigured()) partial.setOpenai(defaults.getOpenai());
+        if (!partial.getAnthropic().isConfigured()) partial.setAnthropic(defaults.getAnthropic());
     }
 }

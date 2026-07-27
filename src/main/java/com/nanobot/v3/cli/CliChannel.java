@@ -125,7 +125,9 @@ public class CliChannel {
                     if (!sessionId.equals(msg.getSessionId())) continue;
 
                     //流式数据处理：根据 requestId 匹配当前流式输出，渲染到控制台
-                    if (msg.isSessionCleared()) {
+                    if (msg.isToolCall()) {
+                        System.out.print("\n  " + msg.getContent() + " ");
+                    } else if (msg.isSessionCleared()) {
                         if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
                             System.out.println();
                             currentRequestId = null;
@@ -135,10 +137,11 @@ public class CliChannel {
                             if (firstDeltaTime == 0) firstDeltaTime = System.currentTimeMillis();
                             System.out.print(MarkdownRenderer.renderStreaming(msg.getContent()));
                         }
-                    } else if (msg.isStreamEnd()) {
+                    }
+                    // stream_end 独立判断（不用 else-if，因为命令响应同时带 delta+end）
+                    if (msg.isStreamEnd()) {
                         if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
                             System.out.println();
-                            // 打印统计行
                             int tokens = msg.getMetadataInt("_token_count", -1);
                             int iterations = msg.getMetadataInt("_tool_iterations", 0);
                             long duration = firstDeltaTime > 0 ? System.currentTimeMillis() - firstDeltaTime : 0;
@@ -173,10 +176,18 @@ public class CliChannel {
             if (!scanner.hasNextLine()) break;
             String line = scanner.nextLine().trim();
             if (line.isEmpty()) continue;
-            //优先处理命令
+            //优先处理本地命令，其余透传给 AgentLoop 的 CommandState
             if (line.startsWith("/")) {
-                if (handleCommand(line)) break;
-                continue;
+                String cmdName = line.length() > 1 ? line.substring(1).trim().split("\\s+")[0].toLowerCase() : "";
+                switch (cmdName) {
+                    case "clear" -> { handleClear(); continue; }
+                    case "exit", "q", "quit" -> { handleExit(); break; }
+                    case "help", "mode", "init", "resume" -> {
+                        commands.execute(cmdCtx, line);
+                        continue;
+                    }
+                }
+                // /stats, /compact, /remember, /skills, /rules 等 → 发给 AgentLoop
             }
             //非命令则正常发消息到 MessageBus
             sendMessage(line);
@@ -236,22 +247,6 @@ public class CliChannel {
                 return scanner.nextLine().trim();
             });
         }
-    }
-
-    /**
-     * 处理 / 命令，返回 true 表示退出循环。
-     *
-     * clear/exit/help/mode/init/resume 在 CLI 本地处理，
-     * 其余命令（/stats, /compact, /remember, /skills, /rules 等）透传到 AgentLoop 的 CommandState。
-     */
-    private boolean handleCommand(String cmd) {
-        String cmdName = cmd.length() > 1 ? cmd.substring(1).trim().split("\\s+")[0].toLowerCase() : "";
-        return switch (cmdName) {
-            case "clear"            -> handleClear();
-            case "exit", "q", "quit" -> handleExit();
-            case "help", "mode", "init", "resume" -> { commands.execute(cmdCtx, cmd); yield false; }
-            default                 -> false;  // 透传到 AgentLoop CommandState
-        };
     }
 
     /** /clear — 直接调 SessionManager，不经过 MessageBus（避免等待永不来的 _stream_end） */

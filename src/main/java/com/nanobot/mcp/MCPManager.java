@@ -58,14 +58,22 @@ public class MCPManager {
         }
         
         Config.ToolsConfig toolsConfig = config.getTools();
-        if (toolsConfig == null) {
-            log.debug("No tools config found, skipping MCP initialization");
-            return;
+        Map<String, Config.MCPServerConfig> servers = null;
+
+        if (toolsConfig != null) {
+            servers = toolsConfig.getMcpServers();
         }
-        
-        Map<String, Config.MCPServerConfig> servers = toolsConfig.getMcpServers();
+        // 兜底：检查顶层 mcpServers（兼容旧配置格式）
+        if ((servers == null || servers.isEmpty()) && config.getMcpServers() != null) {
+            servers = config.getMcpServers();
+            log.info("MCP: using top-level mcpServers ({} entries)", servers.size());
+        }
+
+        log.info("MCP config: tools={}, servers={}",
+                toolsConfig != null ? toolsConfig.getClass().getSimpleName() : "null",
+                servers != null ? servers.keySet() : "null");
         if (servers == null || servers.isEmpty()) {
-            log.debug("No MCP servers configured");
+            log.info("No MCP servers configured");
             return;
         }
         
@@ -138,11 +146,12 @@ public class MCPManager {
      */
     private MCPClient createClient(String serverName, Config.MCPServerConfig config) {
         String type = config.getType();
-        
         if ("stdio".equalsIgnoreCase(type)) {
             return new StdioMCPClient(serverName, config);
-        } else if ("sse".equalsIgnoreCase(type) || "streamableHttp".equalsIgnoreCase(type)) {
-            return new HttpMCPClient(serverName, config);
+        } else if ("streamableHttp".equalsIgnoreCase(type) || "http".equalsIgnoreCase(type)) {
+            return new StreamableHttpMCPClient(serverName, config);
+        } else if ("sse".equalsIgnoreCase(type)) {
+            return new SseMCPClient(serverName, config);
         } else {
             log.error("Unknown MCP transport type: {}", type);
             return null;

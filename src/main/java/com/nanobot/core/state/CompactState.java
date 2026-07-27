@@ -21,10 +21,10 @@ public class CompactState implements AgentState {
 
     @Override
     public TurnState execute(TurnContext ctx) {
-        if (consolidator == null) return TurnState.BUILD;
+        if (consolidator == null) return TurnState.COMMAND;
 
         List<Map<String, Object>> messages = ctx.getMessages();
-        if (!consolidator.needsConsolidation(messages)) return TurnState.BUILD;
+        if (!consolidator.needsConsolidation(messages)) return TurnState.COMMAND;
 
         logger.info("Compacting history: {} messages, ~{} tokens",
                 messages.size(), consolidator.getCurrentUsage(messages));
@@ -36,6 +36,6 @@ public class CompactState implements AgentState {
         } catch (Exception e) {
             logger.warn("Compaction failed, continuing with original: {}", e.getMessage());
         }
-        return TurnState.BUILD;
+        return TurnState.COMMAND;
     }
 }

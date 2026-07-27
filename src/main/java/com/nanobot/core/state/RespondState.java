@@ -37,8 +37,6 @@ public class RespondState implements AgentState {
 
         try {
             messageBus.publishOutbound(response);
-            logger.info("Response sent for sessionId: {}, requestId: {}, content length: {}",
-                    ctx.getMessage().getSessionId(), requestId, content.length());
         } catch (Exception e) {
             logger.error("Failed to send response: {}", e.getMessage(), e);
         }

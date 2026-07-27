@@ -497,11 +497,17 @@ public class Config {
          */
         private java.util.Map<String, String> headers = new java.util.HashMap<>();
 
+        /** Streamable HTTP / SSE：端点 URL（如 "http://localhost:8080/mcp"） */
+        private String endpoint = "";
+
+        /** stdio：子进程工作目录（默认使用 workspace） */
+        private String workspace = "";
+
         /**
          * 工具调用超时时间（秒）
          */
         @JsonProperty("tool_timeout")
-        private int toolTimeout = 30;
+        private int toolTimeout = 60;  // npx 首次下载可能需要较长时间
 
         /**
          * 启用的工具列表，"*" 表示启用所有工具

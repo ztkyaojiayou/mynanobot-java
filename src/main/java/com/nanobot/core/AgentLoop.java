@@ -215,7 +215,7 @@ public class AgentLoop {
         this.identityManager = identityManager;
         this.hookManager = hookManager;
 
-        this.runner = new AgentRunner(provider, registry);
+        this.runner = new AgentRunner(provider, registry, messageBus);
         if (hookManager != null) {
             this.runner.setHookManager(hookManager);
         }
@@ -561,10 +561,25 @@ public class AgentLoop {
             content = "(无响应)";
         }
 
-        OutboundMessage response = OutboundMessage.builder().channel(message.getChannel()).sessionId(message.getSessionId()).content(content).build();
+        String requestId = null;
+        if (context != null && context.getMessage().getMetadata() != null) {
+            var o = context.getMessage().getMetadata().get("requestId");
+            if (o != null) requestId = o.toString();
+        }
+
+        OutboundMessage response = OutboundMessage.builder()
+                .channel(message.getChannel())
+                .sessionId(message.getSessionId())
+                .content(content)
+                .requestId(requestId)
+                .metadata(new java.util.HashMap<>(java.util.Map.of("_stream_delta", true, "_stream_end", true)))
+                .build();
 
         try {
+            // sync /api/chat 轮询匹配
             messageBus.publishOutbound(response);
+            // 流式通道（SSE/CLI/WS）也推送一份
+            messageBus.publishToOutboundQueue(response);
         } catch (Exception e) {
             logger.error("Failed to send response: {}", e.getMessage(), e);
         }
