@@ -66,17 +66,20 @@ public final class MarkdownRenderer {
                 continue;
             }
 
-            // 标题
-            if (line.startsWith("### ")) {
-                sb.append(B).append(PURPLE).append(line.substring(4)).append(R).append("\n");
+            // 标题（兼容"### heading"和"###heading"两种写法）
+            if (line.startsWith("###") && !line.startsWith("####")) {
+                String text = stripHeadingMarker(line, 3);
+                sb.append(B).append(PURPLE).append(text).append(R).append("\n");
                 continue;
             }
-            if (line.startsWith("## ")) {
-                sb.append(B).append(CYAN).append(line.substring(3)).append(R).append("\n");
+            if (line.startsWith("##") && !line.startsWith("###")) {
+                String text = stripHeadingMarker(line, 2);
+                sb.append(B).append(CYAN).append(text).append(R).append("\n");
                 continue;
             }
-            if (line.startsWith("# ")) {
-                sb.append(B).append(GREEN).append(line.substring(2)).append(R).append("\n");
+            if (line.startsWith("#") && !line.startsWith("##")) {
+                String text = stripHeadingMarker(line, 1);
+                sb.append(B).append(GREEN).append(text).append(R).append("\n");
                 continue;
             }
 
@@ -109,6 +112,16 @@ public final class MarkdownRenderer {
     public static String renderStreaming(String delta) {
         if (delta == null) return "";
         String s = delta;
+
+        // 流式标题（"### " 通常在单个 delta 中完整到达）
+        if (s.startsWith("###") && !s.startsWith("####")) {
+            s = B + PURPLE + s + R;
+        } else if (s.startsWith("##") && !s.startsWith("###")) {
+            s = B + CYAN + s + R;
+        } else if (s.startsWith("#") && !s.startsWith("##")) {
+            s = B + GREEN + s + R;
+        }
+
         s = BOLD_PATTERN.matcher(s).replaceAll(B + "$1" + R);
         s = ITALIC_PATTERN.matcher(s).replaceAll(I + "$1" + R);
         s = CODE_PATTERN.matcher(s).replaceAll(GRAY + DARK + "$1" + R);
@@ -118,5 +131,11 @@ public final class MarkdownRenderer {
     private static String fixWidth(String s, int w) {
         if (s.length() > w) return s.substring(0, w - 1) + "…";
         return s + " ".repeat(Math.max(0, w - s.length()));
+    }
+
+    /** 去掉行首的 # 标记符和紧随的空格（兼容"### heading"和"###heading"） */
+    private static String stripHeadingMarker(String line, int hashCount) {
+        String text = line.substring(hashCount);
+        return text.startsWith(" ") ? text.substring(1) : text;
     }
 }
