@@ -13,6 +13,8 @@ import java.net.http.HttpResponse;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import javax.net.ssl.SSLContext;
@@ -23,22 +25,22 @@ import javax.net.ssl.X509ExtendedTrustManager;
 /**
  * 网页搜索工具
  * ===============
- * 
+ *
  * 支持多种搜索引擎：
  * 1. 百度搜索 API（Baidu Search）
  * 2. Brave Search API（推荐，免费且不需要信用卡）
  * 3. Bing Search API
- * 
+ *
  * **使用示例**：
  * ```java
  * WebSearchTool searchTool = new WebSearchTool();
  * searchTool.execute(Map.of("query", "Java 21 新特性"));
  * ```
- * 
+ *
  * **参数**：
  * - query: 搜索查询词（必填）
  * - limit: 返回结果数量（可选，默认 5）
- * 
+ *
  * **配置**：
  * 在 config.yaml 中配置搜索 API：
  * ```yaml
@@ -47,47 +49,47 @@ import javax.net.ssl.X509ExtendedTrustManager;
  *     provider: "baidu"  # baidu, brave 或 bing
  *     apiKey: "your-api-key"
  * ```
- * 
+ *
  * **获取 API Key**：
  * - 百度搜索: https://ai.baidu.com/tech/search
  * - Brave Search: https://brave.com/search/api/
  * - Bing Search: https://azure.microsoft.com/zh-cn/products/cognitive-services/bing-search-api
  */
 public class WebSearchTool implements Tool {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(WebSearchTool.class);
-    
+
     // 百度搜索 API
     private static final String BAIDU_API_URL = "https://qianfan.baidubce.com/v2/ai_search/chat/completions";
-    
+
     // 百度搜索公开接口（国内可访问，无需 API Key）
     private static final String BAIDU_WEB_URL = "https://www.baidu.com/s";
-    
+
     // Brave Search API
     private static final String BRAVE_API_URL = "https://api.search.brave.com/res/v1/web/search";
-    
+
     // Bing Search API
     private static final String BING_API_URL = "https://api.bing.microsoft.com/v7.0/search";
     private static final String DUCKDUCKGO_URL = "https://lite.duckduckgo.com/lite/";
-    
+
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
-    
+
     // 搜索引擎配置
     private String provider = "baidu"; // baidu, baidu_web, brave 或 bing
     private String apiKey;
-    
+
     public WebSearchTool() {
         this(null, null);
     }
-    
+
     /**
      * 使用指定的 provider 和 apiKey 创建 WebSearchTool
      */
     public WebSearchTool(String provider, String apiKey) {
         this.objectMapper = new ObjectMapper();
         this.httpClient = createInsecureHttpClient();
-        
+
         // 优先级：构造函数参数 > 环境变量 > 默认值
         if (provider != null && !provider.isBlank()) {
             this.provider = provider;
@@ -97,7 +99,7 @@ public class WebSearchTool implements Tool {
                 this.provider = "baidu";
             }
         }
-        
+
         if (apiKey != null && !apiKey.isBlank()) {
             this.apiKey = apiKey;
         } else {
@@ -112,13 +114,13 @@ public class WebSearchTool implements Tool {
                 }
             }
         }
-        
+
         if (this.apiKey == null || this.apiKey.isBlank()) {
             logger.warn("SEARCH_API_KEY not configured, web search will be disabled");
         }
         logger.info("WebSearchTool initialized with {} provider", this.provider);
     }
-    
+
     /**
      * 创建一个不验证 SSL 证书的 HttpClient（仅用于开发/测试环境）
      */
@@ -142,10 +144,10 @@ public class WebSearchTool implements Tool {
                     public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
                 }
             };
-            
+
             SSLContext sslContext = SSLContext.getInstance("TLS");
             sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
-            
+
             return HttpClient.newBuilder()
                 .sslContext(sslContext)
                 .build();
@@ -154,33 +156,33 @@ public class WebSearchTool implements Tool {
             return HttpClient.newHttpClient();
         }
     }
-    
+
     /**
      * 设置搜索引擎提供商
      */
     public void setProvider(String provider) {
         this.provider = provider;
     }
-    
+
     /**
      * 设置 API Key
      */
     public void setApiKey(String apiKey) {
         this.apiKey = apiKey;
     }
-    
+
     @Override
     public String getName() {
         return "web_search";
     }
-    
+
     @Override
     public String getDescription() {
         return "Search the web via Baidu. Returns titles, URLs, and snippets. "
              + "Use for recent events, documentation, or current information. "
              + "Combine with web_fetch to read full pages from the results.";
     }
-    
+
     @Override
     public JsonNode getParameters() {
         com.fasterxml.jackson.databind.node.ObjectNode properties = objectMapper.createObjectNode();
@@ -188,154 +190,210 @@ public class WebSearchTool implements Tool {
         queryNode.put("type", "string");
         queryNode.put("description", "搜索查询词");
         properties.set("query", queryNode);
-        
+
         com.fasterxml.jackson.databind.node.ObjectNode limitNode = objectMapper.createObjectNode();
         limitNode.put("type", "integer");
         limitNode.put("description", "返回结果数量，默认 5");
         properties.set("limit", limitNode);
-        
+
         com.fasterxml.jackson.databind.node.ObjectNode root = objectMapper.createObjectNode();
         root.put("type", "object");
         root.set("properties", properties);
         root.set("required", objectMapper.createArrayNode().add("query"));
-        
+
         return root;
     }
-    
+
     @Override
     public boolean isReadOnly() {
         return true;
     }
-    
+
     @Override
     public boolean isExclusive() {
         return false;
     }
-    
+
+    /**
+     * 执行搜索 — 构建 provider 专属请求 → HTTP 发送 → 路由到解析器.
+     *
+     * <h3>执行流程（3 步）</h3>
+     * <ol>
+     *   <li>{@link #buildSearchRequest} — 根据 provider 构建 HTTP 请求</li>
+     *   <li>发送 HTTP 请求并检查状态码</li>
+     *   <li>{@link #routeParseResult} — 路由到对应 provider 的解析器</li>
+     * </ol>
+     */
     @Override
     public CompletableFuture<Object> execute(Map<String, Object> params) {
         String query = (String) params.get("query");
         int limit = params.containsKey("limit") ? ((Number) params.get("limit")).intValue() : 5;
-        
+
         if (query == null || query.isBlank()) {
             return CompletableFuture.completedFuture("错误：搜索查询词不能为空");
         }
-        
+
         logger.info("Performing web search with {}: {}", provider, query);
-        
+
         return CompletableFuture.supplyAsync(() -> {
             try {
                 String encodedQuery = java.net.URLEncoder.encode(query, "UTF-8");
-                String url;
-                HttpRequest request;
-                
-                if ("bing".equalsIgnoreCase(provider)) {
-                    // 使用 Bing Search API
-                    if (apiKey == null || apiKey.isBlank()) {
-                        return "Bing 搜索需要配置 API Key\n获取方式: https://azure.microsoft.com/zh-cn/products/cognitive-services/bing-search-api";
-                    }
-                    url = BING_API_URL + "?q=" + encodedQuery + "&count=" + limit;
-                    request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .header("Ocp-Apim-Subscription-Key", apiKey)
-                        .header("Accept", "application/json")
-                        .timeout(java.time.Duration.ofSeconds(60))
-                        .GET()
-                        .build();
-                } else if ("baidu".equalsIgnoreCase(provider)) {
-                    // 百度千帆 AI 搜索（OpenAI 兼容协议，Bearer 鉴权）
-                    if (apiKey == null || apiKey.isBlank()) {
-                        return "百度 AI 搜索需要配置 API Key\n获取方式: https://console.bce.baidu.com/qianfan";
-                    }
-                    url = BAIDU_API_URL;
-                    Map<String, Object> body = new java.util.LinkedHashMap<>();
-                    body.put("messages", java.util.List.of(Map.of("role", "user", "content", query)));
-                    body.put("model", "ernie-4.5-turbo-32k");
-                    body.put("stream", false);
-                    body.put("enable_deep_search", true);
-                    String jsonBody = objectMapper.writeValueAsString(body);
-                    request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .header("Content-Type", "application/json")
-                        .header("Authorization", "Bearer " + apiKey)
-                        .timeout(java.time.Duration.ofSeconds(60))
-                        .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
-                        .build();
-                } else if ("duckduckgo".equalsIgnoreCase(provider)) {
-                    // DuckDuckGo 免费公开接口（全球可用）
-                    url = DUCKDUCKGO_URL + "?q=" + encodedQuery;
-                    request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                        .timeout(java.time.Duration.ofSeconds(60))
-                        .GET()
-                        .build();
-                } else if ("baidu_web".equalsIgnoreCase(provider)) {
-                    // 使用百度搜索公开接口（国内可访问，无需 API Key）
-                    url = BAIDU_WEB_URL + "?wd=" + encodedQuery + "&pn=0";
-                    request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                        .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-                        .header("Accept-Encoding", "gzip, deflate")
-                        .timeout(java.time.Duration.ofSeconds(60))
-                        .GET()
-                        .build();
-                } else {
-                    // 使用 Brave Search API（默认）
-                    if (apiKey == null || apiKey.isBlank()) {
-                        return "Brave 搜索需要配置 API Key\n获取方式: https://brave.com/search/api/ （免费）\n或者使用 baidu_web 模式（无需 API Key）";
-                    }
-                    url = BRAVE_API_URL + "?q=" + encodedQuery + "&count=" + limit;
-                    request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .header("Accept", "application/json")
-                        .header("X-Subscription-Token", apiKey)
-                        .timeout(java.time.Duration.ofSeconds(60))
-                        .GET()
-                        .build();
-                }
-                
-                logger.debug("Fetching URL: {}", url);
-                
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                
+
+                // ① 构建 provider 专属请求
+                BuildResult built = buildSearchRequest(encodedQuery, query, limit);
+                if (built.isError()) return built.errorMessage();
+
+                // ② 发送 HTTP 请求
+                logger.debug("Fetching URL: {}", built.url());
+                HttpResponse<String> response = httpClient.send(
+                        built.request(), HttpResponse.BodyHandlers.ofString());
                 logger.debug("Response status: {}", response.statusCode());
-                
+
+                // ③ 路由到对应解析器
                 if (response.statusCode() == 200) {
-                    if ("bing".equalsIgnoreCase(provider)) {
-                        return parseBingResults(response.body(), limit, query);
-                    } else if ("baidu".equalsIgnoreCase(provider)) {
-                        return parseBaiduResults(response.body(), limit, query);
-                    } else if ("baidu_web".equalsIgnoreCase(provider)) {
-                        return parseBaiduWebResults(response.body(), limit, query);
-                    } else if ("duckduckgo".equalsIgnoreCase(provider)) {
-                        return parseDuckDuckGoResults(response.body(), limit, query);
-                    } else {
-                        return parseBraveResults(response.body(), limit, query);
-                    }
+                    return routeParseResult(provider, response.body(), limit, query);
                 } else {
-                    logger.error("{} API error: {} - {}", provider.toUpperCase(), response.statusCode(), response.body());
+                    logger.error("{} API error: {} - {}",
+                            provider.toUpperCase(), response.statusCode(), response.body());
                     return "搜索失败：API 返回错误 - " + response.statusCode();
                 }
-                
-            } catch (java.net.ConnectException e) {
-                logger.error("Web search failed - connection refused: {}", e.getMessage());
-                return "网络连接失败：无法连接到搜索服务，请检查网络设置";
-            } catch (java.net.SocketTimeoutException e) {
-                logger.error("Web search failed - timeout");
-                return "搜索超时：请求搜索服务超时，请稍后重试";
-            } catch (java.io.IOException e) {
-                logger.error("Web search failed - IO error: {}", e.getMessage());
-                return "搜索失败：网络IO错误 - " + e.getMessage();
             } catch (Exception e) {
-                logger.error("Web search failed", e);
-                return "搜索失败：" + e.getMessage();
+                return formatSearchError(e);
             }
         });
     }
-    
+
+    // ── execute 子步骤 ──
+
+    /**
+     * ① 根据 provider 构建 HTTP 请求.
+     * 支持的 provider: bing / baidu / duckduckgo / baidu_web / brave(默认)
+     */
+    private BuildResult buildSearchRequest(String encodedQuery, String query, int limit) {
+        return switch (provider.toLowerCase()) {
+            case "bing"        -> buildBingRequest(encodedQuery, limit);
+            case "baidu"       -> buildBaiduApiRequest(query);
+            case "duckduckgo"  -> buildDuckDuckGoRequest(encodedQuery);
+            case "baidu_web"   -> buildBaiduWebRequest(encodedQuery);
+            default            -> buildBraveRequest(encodedQuery, limit);
+        };
+    }
+
+    /** Bing Search API — Ocp-Apim-Subscription-Key 鉴权 */
+    private BuildResult buildBingRequest(String encodedQuery, int limit) {
+        if (apiKey == null || apiKey.isBlank()) {
+            return BuildResult.err("Bing 搜索需要配置 API Key\n获取方式: https://azure.microsoft.com/zh-cn/products/cognitive-services/bing-search-api");
+        }
+        String url = BING_API_URL + "?q=" + encodedQuery + "&count=" + limit;
+        return BuildResult.ok(url, HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Ocp-Apim-Subscription-Key", apiKey)
+                .header("Accept", "application/json")
+                .timeout(java.time.Duration.ofSeconds(60))
+                .GET()
+                .build());
+    }
+
+    /** 百度千帆 AI 搜索 — Bearer 鉴权，OpenAI 兼容协议 */
+    private BuildResult buildBaiduApiRequest(String query) {
+        if (apiKey == null || apiKey.isBlank()) {
+            return BuildResult.err("百度 AI 搜索需要配置 API Key\n获取方式: https://console.bce.baidu.com/qianfan");
+        }
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("messages", List.of(Map.of("role", "user", "content", query)));
+            body.put("model", "ernie-4.5-turbo-32k");
+            body.put("stream", false);
+            body.put("enable_deep_search", true);
+            String jsonBody = objectMapper.writeValueAsString(body);
+            return BuildResult.ok(BAIDU_API_URL, HttpRequest.newBuilder()
+                    .uri(URI.create(BAIDU_API_URL))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .timeout(java.time.Duration.ofSeconds(60))
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                    .build());
+        } catch (Exception e) {
+            return BuildResult.err("构建百度搜索请求失败: " + e.getMessage());
+        }
+    }
+
+    /** DuckDuckGo Lite — 免费公开接口，无需 API Key */
+    private BuildResult buildDuckDuckGoRequest(String encodedQuery) {
+        String url = DUCKDUCKGO_URL + "?q=" + encodedQuery;
+        return BuildResult.ok(url, HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .timeout(java.time.Duration.ofSeconds(60))
+                .GET()
+                .build());
+    }
+
+    /** 百度搜索公开网页 — 无需 API Key，HTML 抓取 */
+    private BuildResult buildBaiduWebRequest(String encodedQuery) {
+        String url = BAIDU_WEB_URL + "?wd=" + encodedQuery + "&pn=0";
+        return BuildResult.ok(url, HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+                .header("Accept-Encoding", "gzip, deflate")
+                .timeout(java.time.Duration.ofSeconds(60))
+                .GET()
+                .build());
+    }
+
+    /** Brave Search API — X-Subscription-Token 鉴权 */
+    private BuildResult buildBraveRequest(String encodedQuery, int limit) {
+        if (apiKey == null || apiKey.isBlank()) {
+            return BuildResult.err("Brave 搜索需要配置 API Key\n获取方式: https://brave.com/search/api/ （免费）\n或者使用 baidu_web 模式（无需 API Key）");
+        }
+        String url = BRAVE_API_URL + "?q=" + encodedQuery + "&count=" + limit;
+        return BuildResult.ok(url, HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Accept", "application/json")
+                .header("X-Subscription-Token", apiKey)
+                .timeout(java.time.Duration.ofSeconds(60))
+                .GET()
+                .build());
+    }
+
+    /** ② 路由到对应 provider 的解析器 */
+    private String routeParseResult(String provider, String body, int limit, String query) throws Exception {
+        return switch (provider.toLowerCase()) {
+            case "bing"        -> parseBingResults(body, limit, query);
+            case "baidu"       -> parseBaiduResults(body, limit, query);
+            case "baidu_web"   -> parseBaiduWebResults(body, limit, query);
+            case "duckduckgo"  -> parseDuckDuckGoResults(body, limit, query);
+            default            -> parseBraveResults(body, limit, query);
+        };
+    }
+
+    /** ③ 格式化搜索异常为用户友好的错误消息 */
+    private static String formatSearchError(Exception e) {
+        if (e instanceof java.net.ConnectException) {
+            logger.error("Web search failed - connection refused: {}", e.getMessage());
+            return "网络连接失败：无法连接到搜索服务，请检查网络设置";
+        }
+        if (e instanceof java.net.SocketTimeoutException) {
+            logger.error("Web search failed - timeout");
+            return "搜索超时：请求搜索服务超时，请稍后重试";
+        }
+        if (e instanceof java.io.IOException) {
+            logger.error("Web search failed - IO error: {}", e.getMessage());
+            return "搜索失败：网络IO错误 - " + e.getMessage();
+        }
+        logger.error("Web search failed", e);
+        return "搜索失败：" + e.getMessage();
+    }
+
+    /** 构建请求的结果包装：成功时包含 url+request，失败时包含 errorMessage */
+    private record BuildResult(String url, HttpRequest request, String errorMessage) {
+        static BuildResult ok(String url, HttpRequest req) { return new BuildResult(url, req, null); }
+        static BuildResult err(String msg) { return new BuildResult(null, null, msg); }
+        boolean isError() { return errorMessage != null; }
+    }
+
     /**
      * 解析 Bing API 搜索结果
      */
@@ -343,23 +401,23 @@ public class WebSearchTool implements Tool {
         try {
             JsonNode root = objectMapper.readTree(responseBody);
             JsonNode webPages = root.get("webPages");
-            
+
             if (webPages == null || !webPages.has("value")) {
                 return "未找到相关搜索结果";
             }
-            
+
             StringBuilder result = new StringBuilder();
             result.append("搜索结果（").append(query).append("）：\n\n");
-            
+
             JsonNode results = webPages.get("value");
             int count = 0;
             for (JsonNode item : results) {
                 if (count >= limit) break;
-                
+
                 String title = item.has("name") ? item.get("name").asText() : "无标题";
                 String url = item.has("url") ? item.get("url").asText() : "";
                 String snippet = item.has("snippet") ? item.get("snippet").asText() : "";
-                
+
                 result.append((count + 1)).append(". ").append(title).append("\n");
                 if (!url.isBlank()) {
                     result.append("   链接: ").append(url).append("\n");
@@ -368,18 +426,18 @@ public class WebSearchTool implements Tool {
                     result.append("   摘要: ").append(snippet).append("\n");
                 }
                 result.append("\n");
-                
+
                 count++;
             }
-            
+
             return result.toString();
-            
+
         } catch (Exception e) {
             logger.error("Failed to parse Bing results", e);
             return "解析搜索结果失败：" + e.getMessage();
         }
     }
-    
+
     /**
      * 解析 Brave Search API 搜索结果
      */
@@ -387,23 +445,23 @@ public class WebSearchTool implements Tool {
         try {
             JsonNode root = objectMapper.readTree(responseBody);
             JsonNode web = root.get("web");
-            
+
             if (web == null || !web.has("results")) {
                 return "未找到相关搜索结果";
             }
-            
+
             StringBuilder result = new StringBuilder();
             result.append("搜索结果（").append(query).append("）：\n\n");
-            
+
             JsonNode results = web.get("results");
             int count = 0;
             for (JsonNode item : results) {
                 if (count >= limit) break;
-                
+
                 String title = item.has("title") ? item.get("title").asText() : "无标题";
                 String url = item.has("url") ? item.get("url").asText() : "";
                 String description = item.has("description") ? item.get("description").asText() : "";
-                
+
                 result.append((count + 1)).append(". ").append(title).append("\n");
                 if (!url.isBlank()) {
                     result.append("   链接: ").append(url).append("\n");
@@ -412,18 +470,18 @@ public class WebSearchTool implements Tool {
                     result.append("   摘要: ").append(description).append("\n");
                 }
                 result.append("\n");
-                
+
                 count++;
             }
-            
+
             return result.toString();
-            
+
         } catch (Exception e) {
             logger.error("Failed to parse Brave results", e);
             return "解析搜索结果失败：" + e.getMessage();
         }
     }
-    
+
     /**
      * 解析百度搜索网页结果（HTML格式） — 使用 Jsoup 通用解析，不依赖特定 class 名。
      */
@@ -527,7 +585,7 @@ public class WebSearchTool implements Tool {
                    .trim();
         return text;
     }
-    
+
     /**
      * 解析百度搜索 API 搜索结果
      */
