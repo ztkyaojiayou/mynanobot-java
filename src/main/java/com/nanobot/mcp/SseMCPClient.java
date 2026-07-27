@@ -85,13 +85,16 @@ public class SseMCPClient implements MCPClient {
                 log.info("SSE listener connected to {}", baseUrl);
 
                 // 读 SSE 事件
-                String eventData = null;
+                String eventData = null; int eventCount = 0;
                 while ((line = in.readLine()) != null && !closed) {
                     if (line.startsWith("data:")) {
                         String d = line.substring(5);
                         if (d.startsWith(" ")) d = d.substring(1);
                         eventData = d;
                     } else if (line.isEmpty() && eventData != null) {
+                        eventCount++;
+                        if (eventCount <= 3) log.debug("SSE event #{}: {}", eventCount,
+                                eventData.length() > 100 ? eventData.substring(0, 100) + "..." : eventData);
                         if (eventData.startsWith("{")) {
                             try {
                                 JsonRpcMessage.Response rpcResp = mapper.readValue(eventData, JsonRpcMessage.Response.class);
@@ -130,7 +133,8 @@ public class SseMCPClient implements MCPClient {
         try {
             HttpRequest req = HttpRequest.newBuilder().uri(URI.create(config.getUrl() + "/messages"))
                     .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build();
-            httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> postResp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            log.debug("SSE POST {} -> status={}", request.method(), postResp.statusCode());
             return future.get(config.getToolTimeout(), TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             pendingRequests.remove(request.id());
