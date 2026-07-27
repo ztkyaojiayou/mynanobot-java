@@ -306,12 +306,14 @@ public class AgentLoop {
             });
 
     /**
-     * 运行主循环，项目启动时就拉起了！
-     * 整个服务就一个循环，不同会话都是这一个循环处理，相当于是一个用户请求的消费者！
-     * 它主要用于源源不断得从mq中拉取请求（我们的请求都是发到mq），和大模型交互，返回结果到mq
-     * <p>
-     * 关键设计：processMessage() 提交到线程池异步执行，主循环只负责消费消息。
-     * 这样即使某条消息的 LLM 调用卡住，也不会阻塞后续消息的处理。
+     * 运行主循环 — 消费入站队列，异步分发到工作线程.
+     *
+     * <h3>循环体（3 步）</h3>
+     * <ol>
+     *   <li>{@link #dispatchMessage} — 消费入站消息 + 提交到工作线程池</li>
+     *   <li>{@link #emitHeartbeat} — 定时输出心跳日志（含队列堆积告警）</li>
+     *   <li>异常处理 — InterruptedException 退出 / 其他异常记录日志</li>
+     * </ol>
      */
     private void runLoop() {
         logger.info("AgentLoop main loop started (async mode)");
@@ -320,41 +322,14 @@ public class AgentLoop {
         int processedCount = 0;
         while (running.get()) {
             try {
-                // 尝试获取消息（带超时）--即消费用户发来的请求/消息
+                // ① 消费消息 + 异步分发
                 InboundMessage message = messageBus.consumeInbound(1, TimeUnit.SECONDS);
-
                 if (message != null) {
-                    processedCount++;
-                    final int msgNum = processedCount;
-                    logger.info("📨 [MSG-IN] #{}: channel={}, sessionId={}, content='{}' (len={})",
-                            msgNum,
-                            message.getChannel(),
-                            message.getSessionId(),
-                            message.getContent() != null ? message.getContent().substring(0, Math.min(80, message.getContent().length())) : "null",
-                            message.getContent() != null ? message.getContent().length() : 0);
-
-                    // 异步处理，不阻塞主循环
-                    final InboundMessage msg = message;
-                    messageExecutor.submit(() -> {
-                        try {
-                            processMessage(msg);
-                        } catch (Exception e) {
-                            logger.error("Async message processing failed: {}", e.getMessage(), e);
-                        }
-                    });
+                    processedCount = dispatchMessage(message, processedCount);
                 }
 
-                // 每30秒心跳，证明 loop 还活着
-                long now = System.currentTimeMillis();
-                if (now - lastHeartbeat > 30_000) {
-                    int inboundSize = messageBus.getInboundSize();
-                    int outboundSize = messageBus.getOutboundQueueSize();
-                    logger.info("💓 AgentLoop heartbeat: processed={}, inbound={}/100, outbound={}/1000, subscribers={}",
-                            processedCount, inboundSize, outboundSize, messageBus.getSubscriberCount());
-                    if (inboundSize > 50) logger.warn("⚠️ 入站队列堆积: {}/100", inboundSize);
-                    if (outboundSize > 500) logger.warn("⚠️ 出站队列堆积: {}/1000", outboundSize);
-                    lastHeartbeat = now;
-                }
+                // ② 定时心跳
+                lastHeartbeat = emitHeartbeat(lastHeartbeat, processedCount);
 
             } catch (InterruptedException e) {
                 logger.info("AgentLoop interrupted");
@@ -368,73 +343,137 @@ public class AgentLoop {
         logger.info("AgentLoop main loop ended");
     }
 
+    // ── runLoop 子步骤 ──
+
+    /** ① 记录入站消息并提交到工作线程池异步处理，返回新的 processedCount */
+    private int dispatchMessage(InboundMessage message, int processedCount) {
+        processedCount++;
+        final int msgNum = processedCount;
+        logger.info("📨 [MSG-IN] #{}: channel={}, sessionId={}, content='{}' (len={})",
+                msgNum,
+                message.getChannel(),
+                message.getSessionId(),
+                message.getContent() != null ? message.getContent().substring(0, Math.min(80, message.getContent().length())) : "null",
+                message.getContent() != null ? message.getContent().length() : 0);
+
+        final InboundMessage msg = message;
+        messageExecutor.submit(() -> {
+            try {
+                processMessage(msg);
+            } catch (Exception e) {
+                logger.error("Async message processing failed: {}", e.getMessage(), e);
+            }
+        });
+        return processedCount;
+    }
+
+    /** ② 每30秒输出心跳日志，含队列堆积告警；返回新的 lastHeartbeat 时间戳 */
+    private long emitHeartbeat(long lastHeartbeat, int processedCount) {
+        long now = System.currentTimeMillis();
+        if (now - lastHeartbeat <= 30_000) return lastHeartbeat;
+
+        int inboundSize = messageBus.getInboundSize();
+        int outboundSize = messageBus.getOutboundQueueSize();
+        logger.info("💓 AgentLoop heartbeat: processed={}, inbound={}/100, outbound={}/1000, subscribers={}",
+                processedCount, inboundSize, outboundSize, messageBus.getSubscriberCount());
+        if (inboundSize > 50) logger.warn("⚠️ 入站队列堆积: {}/100", inboundSize);
+        if (outboundSize > 500) logger.warn("⚠️ 出站队列堆积: {}/1000", outboundSize);
+        return now;
+    }
+
     /**
-     * 处理单条消息
+     * 处理单条消息 — Hook 门控 → 状态机 → 响应 → Hook 收尾.
      *
-     * <h3>Hook 嵌入点</h3>
+     * <h3>处理流程（4 步）</h3>
      * <ol>
-     *   <li><b>TURN_START</b>（可拦截）：消息进入后、状态机处理前.
-     *       reject 的 Hook 匹配则直接返回拒绝信息，不走 LLM.</li>
-     *   <li><b>TURN_START PROMPT</b>（非拦截）：收集匹配的 PROMPT 钩子文本，
-     *       注入到 TurnContext 的 metadata 中，由 BuildState 拼接进 System Prompt.</li>
-     *   <li><b>TURN_END</b>：状态机完成后.</li>
-     *   <li><b>ON_ERROR</b>：任何异常时.</li>
+     *   <li>{@link #runPreProcessingHooks} — TURN_START 拦截检查</li>
+     *   <li>{@link #createTurnContext} — 构建 TurnContext（含 plan mode 工具定义）</li>
+     *   <li>{@link #processStates} — 状态机执行</li>
+     *   <li>{@link #runPostProcessingHooks} — TURN_END / ON_ERROR</li>
      * </ol>
      */
     private void processMessage(InboundMessage message) {
         String sessionId = message.getSessionId();
         logger.info("Processing message for session: {}", sessionId);
 
-        // ── Hook: TURN_START（可拦截）──
-        if (hookManager != null) {
-            HookContext startCtx = HookContext.message(HookEvent.TURN_START,
-                    sessionId, message.getContent());
-            if (hookManager.runTurnStartHooks(startCtx)) {
-                logger.info("Turn blocked by hook for session: {}", sessionId);
-                sendResponse(message, "[HOOK BLOCKED] 消息被拦截，未进入处理", null);
-                // TURN_END 仍触发
-                hookManager.runHooks(HookContext.of(HookEvent.TURN_END, sessionId));
-                return;
-            }
-            // 收集 PROMPT 钩子的上下文注入文本
-            // TODO: 将 hookPrompts 注入到 BuildState 的 System Prompt 构建中
-            // String hookPrompts = hookManager.collectPrompts(startCtx);
-            hookManager.collectPrompts(startCtx);
-        }
+        // ① Hook 门控：TURN_START 拦截 + prompt 收集
+        if (runPreProcessingHooks(message)) return;
 
         long startTime = System.currentTimeMillis();
 
         try {
-            // 创建上下文
-            Config.AgentDefaults defaults = config.getAgents().getDefaults();
+            // ② 构建 TurnContext
+            TurnContext context = createTurnContext(message);
 
-            TurnContext context = TurnContext.create(message, defaults.getModel(), defaults.getMaxTokens(), defaults.getTemperature(), defaults.getMaxToolIterations(),
-                    planMode ? registry.getDefinitions(true) : registry.getDefinitions(),
-                    defaults.getMaxTurns(), defaults.getMaxCost());
-
-            // 状态机处理--其实就是和大模型交互的一套标准流程，
-            // 相当于是一套模板代码，一种状态就是一个步骤。
+            // ③ 状态机处理
             String result = processStates(context);
 
-            // 发送响应到出站队列，同步聊天接口在轮询拉取该消息
+            // ④ 发送响应 + TURN_END Hook
             sendResponse(message, result, context);
 
             long duration = System.currentTimeMillis() - startTime;
             logger.info("Message processed in {}ms, tokens: {}", duration, context.getTotalTokens());
-
-            // ── Hook: TURN_END ──
-            if (hookManager != null) {
-                hookManager.runHooks(HookContext.of(HookEvent.TURN_END, sessionId));
-            }
+            runPostProcessingHooks(sessionId);
 
         } catch (Exception e) {
-            logger.error("Failed to process message: {}", e.getMessage(), e);
-            // ── Hook: ON_ERROR ──
-            if (hookManager != null) {
-                hookManager.runHooks(HookContext.error(sessionId, e.getMessage()));
-            }
-            sendResponse(message, "发生错误：" + e.getMessage(), null);
+            handleProcessingError(message, sessionId, e);
         }
+    }
+
+    // ── processMessage 子步骤 ──
+
+    /**
+     * ① 执行 TURN_START Hook（拦截检查 + prompt 收集）.
+     *
+     * @return true 表示消息被拦截，调用方应直接返回
+     */
+    private boolean runPreProcessingHooks(InboundMessage message) {
+        if (hookManager == null) return false;
+
+        String sessionId = message.getSessionId();
+        HookContext startCtx = HookContext.message(HookEvent.TURN_START,
+                sessionId, message.getContent());
+
+        // 拦截检查
+        if (hookManager.runTurnStartHooks(startCtx)) {
+            logger.info("Turn blocked by hook for session: {}", sessionId);
+            sendResponse(message, "[HOOK BLOCKED] 消息被拦截，未进入处理", null);
+            hookManager.runHooks(HookContext.of(HookEvent.TURN_END, sessionId));
+            return true;
+        }
+
+        // 收集 PROMPT 钩子文本（由 BuildState 注入 System Prompt）
+        hookManager.collectPrompts(startCtx);
+        return false;
+    }
+
+    /** ② 从消息 + 全局配置 + planMode 构建 TurnContext */
+    private TurnContext createTurnContext(InboundMessage message) {
+        Config.AgentDefaults defaults = config.getAgents().getDefaults();
+        return TurnContext.create(message,
+                defaults.getModel(),
+                defaults.getMaxTokens(),
+                defaults.getTemperature(),
+                defaults.getMaxToolIterations(),
+                planMode ? registry.getDefinitions(true) : registry.getDefinitions(),
+                defaults.getMaxTurns(),
+                defaults.getMaxCost());
+    }
+
+    /** ③ 触发 TURN_END Hook（fire-and-forget） */
+    private void runPostProcessingHooks(String sessionId) {
+        if (hookManager != null) {
+            hookManager.runHooks(HookContext.of(HookEvent.TURN_END, sessionId));
+        }
+    }
+
+    /** ④ 处理消息异常：ON_ERROR Hook + 错误响应 */
+    private void handleProcessingError(InboundMessage message, String sessionId, Exception e) {
+        logger.error("Failed to process message: {}", e.getMessage(), e);
+        if (hookManager != null) {
+            hookManager.runHooks(HookContext.error(sessionId, e.getMessage()));
+        }
+        sendResponse(message, "发生错误：" + e.getMessage(), null);
     }
 
     // ==================== 状态处理 ====================
