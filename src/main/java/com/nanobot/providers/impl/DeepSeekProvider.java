@@ -8,10 +8,14 @@ import com.nanobot.providers.LLMResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -23,28 +27,28 @@ import java.util.function.Consumer;
 /**
  * DeepSeek 提供商实现
  * ====================
- * 
+ *
  * 支持 DeepSeek 系列模型：
  * - deepseek-chat
  * - deepseek-coder
  * - deepseek-r1-chat
- * 
+ *
  * API 文档：https://platform.deepseek.com/api-docs
  */
 public class DeepSeekProvider implements LLMProvider {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(DeepSeekProvider.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    
+
     private final String apiKey;
     private final String model;
     private final String apiBase;
     private final HttpClient httpClient;
-    
+
     public DeepSeekProvider(String apiKey, String model) {
         this(apiKey, model, "https://api.deepseek.com");
     }
-    
+
     public DeepSeekProvider(String apiKey, String model, String apiBase) {
         this.apiKey = apiKey;
         this.model = model;
@@ -54,38 +58,38 @@ public class DeepSeekProvider implements LLMProvider {
             .build();
         logger.info("DeepSeekProvider initialized for model: {}", model);
     }
-    
+
     @Override
     public String getName() {
         return "deepseek";
     }
-    
+
     @Override
     public String getDefaultModel() {
         return model;
     }
-    
+
     @Override
     public int getMaxTokens() {
         return 8192;
     }
-    
+
     @Override
     public boolean supportsTools() {
         return true;
     }
-    
+
     @Override
     public boolean supportsStreaming() {
         return true;
     }
-    
+
     @Override
     public CompletableFuture<LLMResponse> chat(List<Message> messages, List<JsonNode> tools) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 String requestBody = buildRequestBody(messages, tools);
-                
+
                 HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(apiBase + "/chat/completions"))
                     .header("Authorization", "Bearer " + apiKey)
@@ -93,29 +97,40 @@ public class DeepSeekProvider implements LLMProvider {
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                     .timeout(Duration.ofSeconds(300))
                     .build();
-                
-                HttpResponse<String> response = httpClient.send(request, 
+
+                HttpResponse<String> response = httpClient.send(request,
                     HttpResponse.BodyHandlers.ofString());
-                
+
                 if (response.statusCode() == 200) {
                     return parseResponse(response.body());
                 } else {
                     logger.error("DeepSeek API error: {} - {}", response.statusCode(), response.body());
                     return LLMResponse.error("API request failed: " + response.statusCode(), "api_error");
                 }
-                
+
             } catch (Exception e) {
                 logger.error("DeepSeek API request failed", e);
                 return LLMResponse.error("Failed to call DeepSeek API: " + e.getMessage(), "network_error");
             }
         });
     }
-    
+
+    /**
+     * 发送聊天请求（流式）.
+     *
+     * <h3>执行流程（3 步）</h3>
+     * <ol>
+     *   <li>构建流式请求并发送</li>
+     *   <li>{@link #parseSseStream} — 解析 SSE 流，累积 content + tool_call 碎片</li>
+     *   <li>从累加器构建最终 LLMResponse（tool_calls 或 text）</li>
+     * </ol>
+     */
     @Override
     public CompletableFuture<LLMResponse> chatStream(List<Message> messages, List<JsonNode> tools,
                                                      Consumer<String> onDelta) {
         return CompletableFuture.supplyAsync(() -> {
             try {
+                // ① 构建流式请求并发送
                 String requestBody = buildRequestBody(messages, tools, true);
 
                 HttpRequest request = HttpRequest.newBuilder()
@@ -126,74 +141,26 @@ public class DeepSeekProvider implements LLMProvider {
                     .timeout(Duration.ofSeconds(300))
                     .build();
 
-                StringBuilder fullContent = new StringBuilder();
-                List<LLMResponse.ToolCallRequest> toolCalls = new ArrayList<>();
-                boolean toolCallMode = false;
-
-                // 发送请求并获取响应流
-                HttpResponse<java.io.InputStream> response = httpClient.send(request,
+                HttpResponse<InputStream> response = httpClient.send(request,
                     HttpResponse.BodyHandlers.ofInputStream());
 
-                // 检查响应状态
                 if (response.statusCode() != 200) {
-                    String body = new String(response.body().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                    String body = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
                     return LLMResponse.error("HTTP error: " + response.statusCode() + " - " + body, "http_error");
                 }
 
-                // DeepSeek 逐字符流式返回 arguments，需跨 delta 拼接
-                Map<Integer, ToolCallAccumulator> accumulators = new HashMap<>();
+                // ② 解析 SSE 流（DeepSeek 逐字符流式返回 arguments，需跨 delta 拼接）
+                StreamAccumulator acc = parseSseStream(response.body(), onDelta);
 
-                // 逐行解析 SSE 响应
-                try (java.io.BufferedReader reader = new java.io.BufferedReader(
-                        new java.io.InputStreamReader(response.body(), java.nio.charset.StandardCharsets.UTF_8))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        if (line.isEmpty()) {
-                            continue;
-                        }
-
-                        if (!line.startsWith("data: ")) {
-                            continue;
-                        }
-
-                        String json = line.substring(6);
-                        if ("[DONE]".equals(json)) {
-                            continue;
-                        }
-
-                        JsonNode chunk = objectMapper.readTree(json);
-                        JsonNode choices = chunk.get("choices");
-                        if (choices != null && choices.isArray() && choices.size() > 0) {
-                            JsonNode choice = choices.get(0);
-                            JsonNode delta = choice.get("delta");
-
-                            if (delta != null) {
-                                if (delta.has("tool_calls")) {
-                                    toolCallMode = true;
-                                    parseToolCallsFromDelta(delta.get("tool_calls"), accumulators);
-                                }
-                                if (delta.has("content")) {
-                                    String content = delta.get("content").asText();
-                                    fullContent.append(content);
-                                    if (onDelta != null) {
-                                        onDelta.accept(content);
-                                    }
-                                }
-                            }
-                        }
+                // ③ 构建最终响应
+                if (acc.toolCallMode) {
+                    List<LLMResponse.ToolCallRequest> toolCalls = buildToolCalls(acc.accumulators);
+                    if (!toolCalls.isEmpty()) {
+                        return LLMResponse.toolCalls(toolCalls, model);
                     }
                 }
 
-                // 从累加器构建最终的工具调用列表（拼接完整的 arguments JSON）
-                if (toolCallMode) {
-                    toolCalls = buildToolCalls(accumulators);
-                }
-
-                if (toolCallMode && !toolCalls.isEmpty()) {
-                    return LLMResponse.toolCalls(toolCalls, model);
-                }
-
-                return LLMResponse.success(fullContent.toString(), "stop", null);
+                return LLMResponse.success(acc.content.toString(), "stop", null);
 
             } catch (Exception e) {
                 logger.error("DeepSeek streaming request failed", e);
@@ -201,7 +168,51 @@ public class DeepSeekProvider implements LLMProvider {
             }
         });
     }
-    
+
+    // ── chatStream 子步骤 ──
+
+    /** ② 解析 SSE 流，返回累积的 content + tool_call 碎片 */
+    private StreamAccumulator parseSseStream(InputStream body, Consumer<String> onDelta) throws Exception {
+        StreamAccumulator acc = new StreamAccumulator();
+
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(body, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.isEmpty() || !line.startsWith("data: ")) continue;
+
+                String json = line.substring(6);
+                if ("[DONE]".equals(json)) continue;
+
+                JsonNode chunk = objectMapper.readTree(json);
+                JsonNode choices = chunk.get("choices");
+                if (choices != null && choices.isArray() && choices.size() > 0) {
+                    JsonNode delta = choices.get(0).get("delta");
+                    if (delta != null) {
+                        if (delta.has("tool_calls")) {
+                            acc.toolCallMode = true;
+                            parseToolCallsFromDelta(delta.get("tool_calls"), acc.accumulators);
+                        }
+                        if (delta.has("content")) {
+                            String content = delta.get("content").asText();
+                            acc.content.append(content);
+                            if (onDelta != null) onDelta.accept(content);
+                        }
+                    }
+                }
+            }
+        }
+
+        return acc;
+    }
+
+    /** SSE 流解析的中间累积状态 */
+    private static class StreamAccumulator {
+        final StringBuilder content = new StringBuilder();
+        final Map<Integer, ToolCallAccumulator> accumulators = new HashMap<>();
+        boolean toolCallMode = false;
+    }
+
     private String buildRequestBody(List<Message> messages, List<JsonNode> tools) {
         return buildRequestBody(messages, tools, false);
     }
@@ -325,36 +336,35 @@ public class DeepSeekProvider implements LLMProvider {
                 });
         return result;
     }
-    
+
     private LLMResponse parseResponse(String responseBody) {
         try {
             JsonNode root = objectMapper.readTree(responseBody);
             JsonNode choices = root.get("choices");
-            
+
             if (choices != null && choices.isArray() && choices.size() > 0) {
                 JsonNode choice = choices.get(0);
                 JsonNode message = choice.get("message");
                 String finishReason = choice.has("finish_reason") ? choice.get("finish_reason").asText() : null;
-                
+
                 if (message != null) {
                     String content = message.has("content") ? message.get("content").asText() : null;
                     JsonNode toolCalls = message.get("tool_calls");
-                    
+
                     List<LLMResponse.ToolCallRequest> toolCallRequests = new ArrayList<>();
                     if (toolCalls != null && toolCalls.isArray()) {
                         for (JsonNode tc : toolCalls) {
                             String id = tc.has("id") ? tc.get("id").asText() : null;
                             JsonNode function = tc.get("function");
-                            
+
                             if (function != null) {
                                 String name = function.has("name") ? function.get("name").asText() : null;
                                 JsonNode args = function.get("arguments");
-                                
+
                                 if (name != null) {
                                     Map<String, Object> arguments = new HashMap<>();
                                     if (args != null) {
                                         if (args.isTextual()) {
-                                            // 如果 arguments 是字符串格式，需要先解析
                                             try {
                                                 String argsStr = args.asText();
                                                 arguments = objectMapper.readValue(argsStr, new TypeReference<Map<String, Object>>() {});
@@ -365,24 +375,24 @@ public class DeepSeekProvider implements LLMProvider {
                                             arguments = objectMapper.convertValue(args, new TypeReference<Map<String, Object>>() {});
                                         }
                                     }
-                                    
+
                                     toolCallRequests.add(new LLMResponse.ToolCallRequest(id, name, arguments));
                                 }
                             }
                         }
                     }
-                    
+
                     if (!toolCallRequests.isEmpty()) {
                         return LLMResponse.toolCalls(toolCallRequests, model);
                     }
-                    
+
                     return LLMResponse.success(content, finishReason, null);
                 }
             }
         } catch (Exception e) {
             logger.error("Failed to parse response", e);
         }
-        
+
         return LLMResponse.error("Failed to parse response", "api_error");
     }
 }
