@@ -2608,43 +2608,138 @@ public interface Command {
 
 ### 5.13 MCP (Model Context Protocol) 系统
 
-文件：`mcp/MCPManager.java` + `mcp/MCPClient.java` + `mcp/StdioMCPClient.java` + `mcp/HttpMCPClient.java`
+文件：`mcp/` 目录，8 个文件。
 
-#### 5.13.1 MCP 架构
+**MCP 是 Anthropic 提出的标准化 AI-工具通信协议**，允许 Agent 动态连接外部工具服务器。项目完整实现了 MCP 2024-11-05 规范。
+
+#### 5.13.1 架构概览
 
 ```
 MCPManager
-  │  管理所有 MCP 客户端的生命周期
+  │  管理所有 MCP 客户端的生命周期、工具发现和注册
   │
-  ├── StdioMCPClient (子进程 stdio 通信)
-  │     ├── 启动子进程 (ProcessBuilder)
-  │     ├── 发送 JSON-RPC 请求 → stdin
-  │     └── 读取 JSON-RPC 响应 ← stdout
-  │
-  └── HttpMCPClient (HTTP/SSE 通信)
-        ├── HTTP POST 发送 JSON-RPC 请求
-        └── SSE 流式接收响应/通知
+  ├── StdioMCPClient         → 子进程 stdin/stdout，JSON-RPC 2.0
+  ├── StreamableHttpMCPClient → 单 POST 端点（2025 推荐）
+  └── SseMCPClient            → GET /sse + POST /messages 双端点（旧版兼容）
+
+MCPToolWrapper (implements Tool)
+  │  将 MCP 工具透明包装为 Tool 接口
+  │  → ToolRegistry 统一管理
+  │  → PermissionManager 安全管道自动覆盖
+
+JsonRpcMessage (JSON-RPC 2.0 消息层)
+  │  Request/Response record 类
+  │  标准方法名：initialize / tools/list / tools/call / prompts/list / ping
+  │  标准错误码：-32700 (parse) / -32600 (invalid) / -32601 (not found) / -32603 (internal)
 ```
 
-#### 5.13.2 客户端实现层次（Template Method 模式）
+#### 5.13.2 三种传输方式对比
+
+| 传输 | 类 | 端点模型 | 适用场景 |
+|------|-----|---------|---------|
+| **stdio** | `StdioMCPClient` | 子进程 stdin/stdout | 本地 MCP server（最常用） |
+| **Streamable HTTP** | `StreamableHttpMCPClient` | 单 `POST /mcp`，Server 自选 JSON 或 SSE 响应 | 远程 server（2025 规范推荐） |
+| **SSE** | `SseMCPClient` | `GET /sse` (建 SSE 流) + `POST /messages` (发请求) | 旧版 MCP server（2024-11-05 之前） |
+
+#### 5.13.3 JSON-RPC 2.0 消息格式
+
+所有传输统一使用标准 JSON-RPC 2.0：
+
+```json
+// 请求：initialize（握手）
+{"jsonrpc":"2.0","id":"1","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{"tools":true},"clientInfo":{"name":"nanobot-java","version":"2.0.0"}}}
+
+// 请求：列出工具
+{"jsonrpc":"2.0","id":"2","method":"tools/list","params":{}}
+
+// 请求：调用工具
+{"jsonrpc":"2.0","id":"3","method":"tools/call","params":{"name":"read_file","arguments":{"path":"/tmp/test.txt"}}}
+
+// 响应：成功
+{"jsonrpc":"2.0","id":"3","result":{"content":[{"type":"text","text":"文件内容..."}]}}
+
+// 响应：错误
+{"jsonrpc":"2.0","id":"3","error":{"code":-32601,"message":"Unknown tool: xxx"}}
+
+// 通知：无 id，不期待响应
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+```
+
+#### 5.13.4 初始化握手流程
 
 ```
-MCPClient (接口)
-  └── BaseMCPClient (抽象模板)
-        ├── StdioMCPClient (标准输入输出)
-        └── HttpMCPClient (HTTP/SSE)
+Client                              MCP Server
+  │                                      │
+  ├─ initialize ─────────────────────────▶│  ① 协商协议版本 + 能力
+  │◀───────────── {protocolVersion, caps} ├─
+  │                                      │
+  ├─ notifications/initialized ──────────▶│  ② 通知：客户端就绪
+  │                                      │
+  ├─ tools/list ────────────────────────▶│  ③ 获取工具列表
+  │◀───────────── {tools: [...]}         ├─
+  │                                      │
+  ├─ tools/call ────────────────────────▶│  ④ 调用工具
+  │◀───────────── {content: [...]}       ├─
 ```
 
-#### 5.13.3 支持的传输方式
+#### 5.13.5 并发模型
 
-| 传输方式 | 实现类 | 适用场景 |
-|---------|--------|---------|
-| **Stdio** | `StdioMCPClient` | 本地 MCP 服务器（如 git-mcp） |
-| **HTTP + SSE** | `HttpMCPClient` | 远程/集中式 MCP 服务器 |
+**StdioMCPClient**：
+```
+pendingRequests (CHM<String, CompletableFuture<Response>>)
+  │  callTool: put(id, future) → sendMessage(request) → future.get(timeout)
+  │  responseListener (daemon 线程): readLine → parse(id) → pendingRequests.remove(id).complete(resp)
+  │  超时防护: executorService.schedule() → remove(id) → completeExceptionally
+```
 
-#### 5.13.4 MCP 工具命名规则
+**SseMCPClient**：同构设计，但 stdin/stdout 换成 raw Socket（避免 Java HttpClient 长连接阻塞问题）。
 
-MCP 工具注册到 ToolRegistry 时自动加前缀：`mcp_{serverName}_{toolName}`（如 `mcp_git_commit`、`mcp_filesystem_read`）。
+**StreamableHttpMCPClient**：无 daemon 线程——HTTP 请求-响应模式，每次 `send()` 阻塞等 HTTP response。
+
+#### 5.13.6 工具发现与注册
+
+```java
+// MCPManager.addServer()
+MCPClient client = createClient(serverName, config);  // 工厂创建
+client.connect();                                      // 握手
+List<MCPToolInfo> tools = client.listTools().get();   // 获取工具列表
+for (MCPToolInfo info : tools) {
+    MCPToolWrapper wrapper = new MCPToolWrapper(client, info);  // 包装
+    toolRegistry.register(wrapper);                              // 注册（mcp_{server}_{tool}）
+}
+```
+
+工具按名称智能判断只读性：`echo`/`list`/`get`/`search` → `readOnly=true`，`write`/`delete`/`exec` → 需要权限确认。
+
+#### 5.13.7 开发过程踩坑记录
+
+**坑 1：自定义协议 → JSON-RPC 2.0 标准化**
+
+初版使用自定义消息格式（`{type: "invoke", tool_name: "xxx"}`），无法对接任何标准 MCP Server。全面重写 `JsonRpcMessage` 为 JSON-RPC 2.0 record 类，新增 `initialize` 握手流程。改动集中在消息层，并发模型（CHM+Future）完全复用。
+
+**坑 2：ConfigLoader YAML 蛇形命名不解析**
+
+MCP 配置用 `mcp_servers`（蛇形），Jackson 用 getter 名匹配属性（驼峰）。解决：设置 `MapperFeature.FIELD` 优先，绕过 getter 命名。
+
+**坑 3：Java HttpClient 长连接阻塞**
+
+`HttpClient.send()` 对 SSE 长连接（`Connection: keep-alive`）永不返回。SSE 客户端改用 raw Socket 发 `GET /sse HTTP/1.1\r\nConnection: close\r\n...` + `BufferedReader.readLine()` 逐行读。
+
+**坑 4：SingleThreadExecutor 死锁**
+
+SSE 客户端 `startSseListener()` 和 `listTools()` 共用 `SingleThreadExecutor`。SSE 监听线程占着唯一线程，`listTools()` 排不上队。改 2 线程池解决。
+
+**坑 5：Streamable HTTP endpoint 空字符串陷阱**
+
+`config.getEndpoint()` 默认 `""`（空串非 null），`!= null` 判断漏过。改用 `isBlank()` 检查。
+
+**坑 6：ConfigLoader load(Path) 不合并默认值**
+
+`config.yaml` 只有部分字段时，其余字段用 Java 默认值（比如 model 变成 `anthropic/claude-sonnet-4`）。解决方案：`load(Path)` 之后调用 `loadClasspathDefaults()` 补全缺失值。
+
+#### 5.13.8 MCP 工具命名规则
+
+注册到 ToolRegistry 时自动加前缀：`mcp_{serverName}_{toolName}`（如 `mcp_git_commit`、`mcp_filesystem_read`），支持 RuleEngine 中 `mcp_.*` 正则批量管控。
 
 ---
 
