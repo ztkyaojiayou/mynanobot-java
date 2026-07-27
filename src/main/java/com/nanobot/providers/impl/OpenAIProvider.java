@@ -407,64 +407,57 @@ public class OpenAIProvider implements LLMProvider {
     // ==================== 响应解析 ====================
 
     /**
-     * 解析响应
+     * 解析响应 — 提取 choice 数据 → 构建 LLMResponse.
      */
     private LLMResponse parseResponse(HttpResponse<String> response) {
         int statusCode = response.statusCode();
         String body = response.body();
-
-        if (statusCode != 200) {
-            return parseError(body, statusCode);
-        }
+        if (statusCode != 200) return parseError(body, statusCode);
 
         try {
             JsonNode json = objectMapper.readTree(body);
 
-            // 获取内容
-            String content = null;
-            List<LLMResponse.ToolCallRequest> toolCalls = new ArrayList<>();
-            String finishReason = null;
+            // ① 提取 choices[0] 中的 content + tool_calls + finish_reason
+            ParsedChoice choice = extractChoiceData(json);
+
+            // ② 提取 usage
             Map<String, Integer> usage = new HashMap<>();
+            if (json.has("usage")) parseUsage(json.get("usage"), usage);
 
-            JsonNode choices = json.get("choices");
-            if (choices != null && choices.isArray() && !choices.isEmpty()) {
-                JsonNode choice = choices.get(0);
-
-                // 内容
-                JsonNode message = choice.get("message");
-                if (message != null) {
-                    if (message.has("content")) {
-                        content = message.get("content").asText();
-                    }
-
-                    // 工具调用
-                    if (message.has("tool_calls")) {
-                        parseToolCalls(message.get("tool_calls"), toolCalls);
-                    }
-                }
-
-                // finish_reason
-                if (choice.has("finish_reason")) {
-                    finishReason = choice.get("finish_reason").asText();
-                }
+            // ③ 构建响应
+            if (!choice.toolCalls().isEmpty()) {
+                return LLMResponse.toolCalls(choice.toolCalls(), model);
             }
-
-            // usage
-            if (json.has("usage")) {
-                parseUsage(json.get("usage"), usage);
-            }
-
-            // 构建响应
-            if (!toolCalls.isEmpty()) {
-                return LLMResponse.toolCalls(toolCalls, model);
-            } else {
-                return LLMResponse.success(content, finishReason, usage);
-            }
+            return LLMResponse.success(choice.content(), choice.finishReason(), usage);
 
         } catch (Exception e) {
             return LLMResponse.error("Failed to parse response: " + e.getMessage(), "parse_error");
         }
     }
+
+    /** ① 从 JSON 根节点提取 choices[0].message 中的 content/tool_calls/finish_reason */
+    private ParsedChoice extractChoiceData(JsonNode json) {
+        String content = null;
+        List<LLMResponse.ToolCallRequest> toolCalls = new ArrayList<>();
+        String finishReason = null;
+
+        JsonNode choices = json.get("choices");
+        if (choices != null && choices.isArray() && !choices.isEmpty()) {
+            JsonNode choice = choices.get(0);
+
+            JsonNode message = choice.get("message");
+            if (message != null) {
+                if (message.has("content")) content = message.get("content").asText();
+                if (message.has("tool_calls")) parseToolCalls(message.get("tool_calls"), toolCalls);
+            }
+            if (choice.has("finish_reason")) finishReason = choice.get("finish_reason").asText();
+        }
+
+        return new ParsedChoice(content, toolCalls, finishReason);
+    }
+
+    /** 解析后的 choice 数据容器 */
+    private record ParsedChoice(String content, List<LLMResponse.ToolCallRequest> toolCalls, String finishReason) {}
 
     /**
      * 解析工具调用

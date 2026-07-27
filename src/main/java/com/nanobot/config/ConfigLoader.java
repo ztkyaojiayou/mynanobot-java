@@ -478,41 +478,41 @@ public class ConfigLoader {
      * 
      * @param path 输出路径
      */
-    public static void generateExampleConfig(Path path) {
-        String example = """
+    /** 示例配置模板（YAML 格式） */
+    private static final String EXAMPLE_CONFIG_YAML = """
             # Nanobot-Java 配置文件
             # =====================
             #
             # 本文件是 Nanobot-Java 的配置文件模板
             # 复制到 ~/.nanobot/config.yaml 并修改相应值
-            
+
             # Agent 配置
             agents:
               defaults:
                 # 工作空间目录
                 workspace: "~/.nanobot"
-                
+
                 # 默认模型（支持格式：provider/model）
                 model: "anthropic/claude-sonnet-4-20250514"
-                
+
                 # 提供商（设为 "auto" 自动检测）
                 provider: "auto"
-                
+
                 # 最大输出 token 数
                 maxTokens: 8192
-                
+
                 # 上下文窗口大小
                 contextWindowTokens: 200000
-                
+
                 # 温度参数（0.0 - 2.0）
                 temperature: 0.7
-                
+
                 # 最大工具迭代次数
                 maxToolIterations: 100
-                
+
                 # 时区
                 timezone: "UTC"
-            
+
             # LLM 提供商配置
             providers:
               anthropic:
@@ -520,33 +520,33 @@ public class ConfigLoader {
                 apiKey: "sk-ant-xxxxx"
                 # 可选：自定义 API 端点
                 # apiBase: "https://api.anthropic.com"
-              
+
               openai:
                 apiKey: ""
                 apiBase: ""
-              
+
               openrouter:
                 apiKey: ""
                 apiBase: "https://openrouter.ai/api/v1"
-            
+
             # 工具配置
             tools:
               # 是否限制工具只能访问工作空间
               restrictToWorkspace: false
-              
+
               exec:
                 # 是否启用命令执行
                 enable: true
                 # 执行超时（秒）
                 timeout: 60
-              
+
               web:
                 enable: true
                 search:
                   provider: "duckduckgo"
                   maxResults: 5
                   timeout: 30
-            
+
             # 内存配置
             memory:
               dream:
@@ -555,9 +555,10 @@ public class ConfigLoader {
                 # 每批最大条目数
                 maxBatchSize: 20
             """;
-        
+
+    public static void generateExampleConfig(Path path) {
         try {
-            Files.writeString(path, example);
+            Files.writeString(path, EXAMPLE_CONFIG_YAML);
             logger.info("Generated example configuration at: {}", path);
         } catch (IOException e) {
             logger.error("Failed to generate example configuration", e);

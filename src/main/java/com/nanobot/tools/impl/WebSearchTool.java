@@ -587,62 +587,84 @@ public class WebSearchTool implements Tool {
     }
 
     /**
-     * 解析百度搜索 API 搜索结果
+     * 解析百度搜索 API 搜索结果 — 错误检查 → references 格式化 → AI 总结.
      */
     private String parseBaiduResults(String responseBody, int limit, String query) throws Exception {
         try {
             JsonNode root = objectMapper.readTree(responseBody);
 
-            // 错误检查（OpenAI 兼容格式）
-            if (root.has("error")) {
-                String err = root.get("error").has("message") ? root.get("error").get("message").asText() : root.get("error").asText();
-                logger.error("Baidu API error: {}", err);
-                throw new Exception("API错误: " + err);
-            }
+            // ① 错误检查（OpenAI 兼容格式）
+            checkBaiduApiError(root);
 
-            // 提取 references（结构化搜索结果）
+            // ② 提取 references（结构化搜索结果）
             JsonNode refs = root.get("references");
             if (refs == null || !refs.isArray() || refs.size() == 0) {
-                // 无 references 时尝试返回 AI 回答
-                JsonNode choices = root.get("choices");
-                if (choices != null && choices.size() > 0) {
-                    JsonNode msg = choices.get(0).get("message");
-                    if (msg != null && msg.has("content")) {
-                        return "搜索结果（" + query + "）：\n\n" + msg.get("content").asText();
-                    }
-                }
-                return "未找到相关搜索结果";
+                return fallbackToAISummary(root, query);
             }
 
-            StringBuilder result = new StringBuilder();
-            result.append("搜索结果（").append(query).append("）：\n\n");
-            int count = 0;
-            for (JsonNode ref : refs) {
-                if (count >= limit) break;
-                String title = ref.has("title") ? ref.get("title").asText().trim() : "";
-                String url = ref.has("url") ? ref.get("url").asText().trim() : "";
-                String snippet = ref.has("snippet") ? ref.get("snippet").asText().trim() : "";
-                if (title.isEmpty()) continue;
+            // ③ 格式化 references + 追加 AI 总结
+            StringBuilder result = formatBaiduReferences(refs, limit, query);
+            appendBaiduAISummary(result, root);
 
-                result.append(++count).append(". ").append(title).append("\n");
-                if (!url.isEmpty()) result.append("   链接: ").append(url).append("\n");
-                if (!snippet.isEmpty()) result.append("   摘要: ").append(snippet).append("\n");
-                result.append("\n");
-            }
-
-            // 追加 AI 总结
-            JsonNode choices = root.get("choices");
-            if (choices != null && choices.size() > 0) {
-                JsonNode msg = choices.get(0).get("message");
-                if (msg != null && msg.has("content")) {
-                    result.append("AI 总结: ").append(msg.get("content").asText()).append("\n");
-                }
-            }
-
-            return count > 0 ? result.toString() : "未找到相关搜索结果";
+            return result.toString();
         } catch (Exception e) {
             logger.error("Failed to parse Baidu results", e);
             throw e;
+        }
+    }
+
+    // ── parseBaiduResults 子步骤 ──
+
+    /** ① 检查 API 响应中的 error 字段 */
+    private static void checkBaiduApiError(JsonNode root) throws Exception {
+        if (root.has("error")) {
+            String err = root.get("error").has("message")
+                    ? root.get("error").get("message").asText()
+                    : root.get("error").asText();
+            throw new Exception("API错误: " + err);
+        }
+    }
+
+    /** ② 无 references 时的 fallback：返回 choices[0].message.content */
+    private static String fallbackToAISummary(JsonNode root, String query) {
+        JsonNode choices = root.get("choices");
+        if (choices != null && choices.size() > 0) {
+            JsonNode msg = choices.get(0).get("message");
+            if (msg != null && msg.has("content")) {
+                return "搜索结果（" + query + "）：\n\n" + msg.get("content").asText();
+            }
+        }
+        return "未找到相关搜索结果";
+    }
+
+    /** ③ 格式化 references 数组为编号列表 */
+    private static StringBuilder formatBaiduReferences(JsonNode refs, int limit, String query) {
+        StringBuilder result = new StringBuilder();
+        result.append("搜索结果（").append(query).append("）：\n\n");
+        int count = 0;
+        for (JsonNode ref : refs) {
+            if (count >= limit) break;
+            String title = ref.has("title") ? ref.get("title").asText().trim() : "";
+            String url = ref.has("url") ? ref.get("url").asText().trim() : "";
+            String snippet = ref.has("snippet") ? ref.get("snippet").asText().trim() : "";
+            if (title.isEmpty()) continue;
+
+            result.append(++count).append(". ").append(title).append("\n");
+            if (!url.isEmpty()) result.append("   链接: ").append(url).append("\n");
+            if (!snippet.isEmpty()) result.append("   摘要: ").append(snippet).append("\n");
+            result.append("\n");
+        }
+        return result;
+    }
+
+    /** ④ 追加 choices[0].message.content 作为 AI 总结 */
+    private static void appendBaiduAISummary(StringBuilder result, JsonNode root) {
+        JsonNode choices = root.get("choices");
+        if (choices != null && choices.size() > 0) {
+            JsonNode msg = choices.get(0).get("message");
+            if (msg != null && msg.has("content")) {
+                result.append("AI 总结: ").append(msg.get("content").asText()).append("\n");
+            }
         }
     }
 }

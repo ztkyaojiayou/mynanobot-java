@@ -540,7 +540,7 @@ public class CliChannel {
     }
 
     /**
-     * 发送用户消息到 MessageBus
+     * 发送用户消息到 MessageBus — @引用解析 → 发送 → 等待流式完成.
      */
     private void sendMessage(String content) {
         String requestId = java.util.UUID.randomUUID().toString();
@@ -550,7 +550,25 @@ public class CliChannel {
         // ── @ 文件引用解析 ──
         content = resolveFileRefs(content);
 
-        // 后台监听线程：流式输出期间按 Esc 中断当前回复
+        // ① 启动后台 Esc/Enter 中断监听线程
+        startCancelMonitor();
+
+        try {
+            messageBus.publishInbound(InboundMessage.builder().sessionId(sessionId).senderId(sessionId).content(content).channel("cli").metadata(java.util.Map.of("requestId", requestId, "streamMode", true)).build());
+
+            // ② 等待流式完成（最多等5分钟，或按 Esc/Enter 取消）
+            waitForStreamCompletion();
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            currentRequestId = null;
+        } finally {
+            currentRequestId = null;
+        }
+    }
+
+    /** ① 启动后台监听线程：流式输出期间按 Esc 中断当前回复 */
+    private void startCancelMonitor() {
         Thread cancelMonitor = new Thread(() -> {
             try {
                 if (terminal != null) {
@@ -580,27 +598,20 @@ public class CliChannel {
         }, "CancelMonitor");
         cancelMonitor.setDaemon(true);
         cancelMonitor.start();
+    }
 
-        try {
-            messageBus.publishInbound(InboundMessage.builder().sessionId(sessionId).senderId(sessionId).content(content).channel("cli").metadata(java.util.Map.of("requestId", requestId, "streamMode", true)).build());
-
-            // 等待流式完成（最多等5分钟，或按 Esc 取消）
-            Thread.sleep(200);
-            int waited = 0;
-            while (currentRequestId != null && waited < 300_000) {
-                Thread.sleep(100);
-                waited += 100;
-            }
-            if (cancelled) {
-                System.out.println("\n[已中断]");
-            } else if (currentRequestId != null) {
-                System.out.println("\n[超时]");
-                currentRequestId = null;
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            currentRequestId = null;
-        } finally {
+    /** ② 等待流式完成（最多等5分钟），超时或被 Esc 中断则输出提示 */
+    private void waitForStreamCompletion() throws InterruptedException {
+        Thread.sleep(200);
+        int waited = 0;
+        while (currentRequestId != null && waited < 300_000) {
+            Thread.sleep(100);
+            waited += 100;
+        }
+        if (cancelled) {
+            System.out.println("\n[已中断]");
+        } else if (currentRequestId != null) {
+            System.out.println("\n[超时]");
             currentRequestId = null;
         }
     }

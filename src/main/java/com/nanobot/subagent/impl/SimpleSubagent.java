@@ -174,54 +174,33 @@ public class SimpleSubagent implements Subagent {
         return Map.copyOf(capabilities);
     }
     
+    /**
+     * 执行子 Agent 任务 — 构建消息 → 判断工具 → 调用 LLM → 更新统计.
+     */
     @Override
     public CompletableFuture<String> execute(String task, Map<String, Object> context) {
         return CompletableFuture.supplyAsync(() -> {
             logger.info("Subagent {} executing task: {}", id, task);
-            
+
             long startTime = System.currentTimeMillis();
             stats.lastExecutionTime = Instant.now();
-            
+
             try {
                 status = SubagentStatus.EXECUTING;
-                
-                // 构建消息
-                List<LLMProvider.Message> messages = new ArrayList<>();
-                
-                // 添加系统提示词
-                if (systemPrompt != null && !systemPrompt.isEmpty()) {
-                    messages.add(LLMProvider.Message.ofSystem(systemPrompt));
-                } else {
-                    messages.add(LLMProvider.Message.ofSystem(
-                        "你是一个专业的 AI 助手，请直接回答问题。"));
-                }
-                
-                // 添加用户消息
-                messages.add(LLMProvider.Message.ofUser(task));
-                
-                // 检查是否需要工具调用
-                boolean useTools = toolCallsEnabled;
-                Object useSearchObj = context != null ? context.get("useSearch") : null;
-                if (useSearchObj instanceof Boolean) {
-                    useTools = (Boolean) useSearchObj;
-                }
-                
-                // 调用 LLM
-                String result;
-                if (useTools && toolRegistry != null && !toolRegistry.getDefinitions().isEmpty()) {
-                    result = executeWithTools(messages, context);
-                } else {
-                    result = provider.chat(messages, Collections.emptyList()).join().getContent();
-                }
-                
+
+                // ① 构建消息（系统提示词 + 用户任务）
+                List<LLMProvider.Message> messages = buildMessages(task);
+
+                // ② 调用 LLM（工具模式或纯文本模式）
+                String result = callLLMForTask(messages, context);
+
                 stats.successCount++;
                 stats.totalDurationMs += System.currentTimeMillis() - startTime;
-                
-                logger.info("Subagent {} completed task in {}ms", id, 
-                          System.currentTimeMillis() - startTime);
-                
+                logger.info("Subagent {} completed task in {}ms", id,
+                        System.currentTimeMillis() - startTime);
+
                 return result;
-                
+
             } catch (Exception e) {
                 stats.failureCount++;
                 logger.error("Subagent {} failed to execute task: {}", id, e.getMessage(), e);
@@ -230,6 +209,33 @@ public class SimpleSubagent implements Subagent {
                 status = SubagentStatus.RUNNING;
             }
         }, executor);
+    }
+
+    /** ① 构建消息列表：系统提示词 + 用户任务 */
+    private List<LLMProvider.Message> buildMessages(String task) {
+        List<LLMProvider.Message> messages = new ArrayList<>();
+        if (systemPrompt != null && !systemPrompt.isEmpty()) {
+            messages.add(LLMProvider.Message.ofSystem(systemPrompt));
+        } else {
+            messages.add(LLMProvider.Message.ofSystem("你是一个专业的 AI 助手，请直接回答问题。"));
+        }
+        messages.add(LLMProvider.Message.ofUser(task));
+        return messages;
+    }
+
+    /** ② 根据是否启用工具调用，选择工具模式或纯文本模式 */
+    private String callLLMForTask(List<LLMProvider.Message> messages, Map<String, Object> context) {
+        boolean useTools = shouldUseTools(context);
+        if (useTools && toolRegistry != null && !toolRegistry.getDefinitions().isEmpty()) {
+            return executeWithTools(messages, context);
+        }
+        return provider.chat(messages, Collections.emptyList()).join().getContent();
+    }
+
+    /** 判断是否应使用工具（全局开关 + context 覆盖） */
+    private boolean shouldUseTools(Map<String, Object> context) {
+        Object useSearchObj = context != null ? context.get("useSearch") : null;
+        return useSearchObj instanceof Boolean b ? b : toolCallsEnabled;
     }
     
     @Override
