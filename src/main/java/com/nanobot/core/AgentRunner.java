@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -22,80 +23,80 @@ import java.util.stream.Collectors;
 /**
  * Agent Runner - LLM 调用循环核心
  * =================================
- * 
+ * <p>
  * 本类是 Agent 的核心执行引擎，负责：
  * 1. 管理 LLM 调用循环
  * 2. 处理工具调用
  * 3. 管理消息上下文
- * 
+ * <p>
  * **工作流程**：
- * 
+ * <p>
  * ```
  * ┌─────────────┐
  * │   接收消息   │
  * └──────┬──────┘
- *        ▼
+ * ▼
  * ┌─────────────┐
  * │  调用 LLM   │
  * └──────┬──────┘
- *        ▼
- *    ┌───────┐
- *    │ 需要   │──YES──▶ 执行工具
- *    │ 工具？ │           │
- *    └───────┘           │
- *     NO │               ▼
- *        │         ┌─────────────┐
- *        ▼         │  收集结果   │
- *    ┌────────┐    └──────┬──────┘
- *    │ 返回   │           │
- *    │ 响应   │◀──────────┘
- *    └────────┘
+ * ▼
+ * ┌───────┐
+ * │ 需要   │──YES──▶ 执行工具
+ * │ 工具？ │           │
+ * └───────┘           │
+ * NO │               ▼
+ * │         ┌─────────────┐
+ * ▼         │  收集结果   │
+ * ┌────────┐    └──────┬──────┘
+ * │ 返回   │           │
+ * │ 响应   │◀──────────┘
+ * └────────┘
  * ```
- * 
+ * <p>
  * **设计思想**：
- * 
+ * <p>
  * 1. **循环执行**：
- *    - 支持多轮工具调用
- *    - 每轮调用后检查是否需要继续
- *    - 有最大迭代次数保护
- * 
+ * - 支持多轮工具调用
+ * - 每轮调用后检查是否需要继续
+ * - 有最大迭代次数保护
+ * <p>
  * 2. **上下文治理**：
- *    - 工具结果清理
- *    - 历史截断
- *    - Token 预算管理
- * 
+ * - 工具结果清理
+ * - 历史截断
+ * - Token 预算管理
+ * <p>
  * 3. **工具执行**：
- *    - 支持并行执行
- *    - 支持独占执行
- *    - 完善的错误处理
- * 
+ * - 支持并行执行
+ * - 支持独占执行
+ * - 完善的错误处理
+ * <p>
  * **使用示例**：
- * 
+ * <p>
  * ```java
  * // 1. 创建 Runner
  * AgentRunner runner = new AgentRunner(provider, registry);
- * 
+ * <p>
  * // 2. 准备上下文
  * List<Message> messages = List.of(
- *     Message.ofSystem("You are a helpful assistant."),
- *     Message.ofUser("Read the file /tmp/test.txt")
+ * Message.ofSystem("You are a helpful assistant."),
+ * Message.ofUser("Read the file /tmp/test.txt")
  * );
- * 
+ * <p>
  * // 3. 执行
  * String result = runner.run(context, messages, null).join();
- * 
+ * <p>
  * // 4. 打印结果
  * System.out.println(result);
  * ```
  */
 public class AgentRunner {
-    
+
     // ==================== 日志 ====================
-    
+
     private static final Logger logger = LoggerFactory.getLogger(AgentRunner.class);
-    
+
     // ==================== 依赖 ====================
-    
+
     private final LLMProvider provider;
     private final ToolRegistry registry;
     private final ObjectMapper objectMapper;
@@ -105,70 +106,93 @@ public class AgentRunner {
      * 可为 null（未配置 hook 时）.
      */
     private HookManager hookManager;
-    
+
     // ==================== 配置 ====================
-    
-    /** 最大工具结果字符数 */
+
+    /**
+     * 最大工具结果字符数
+     */
     private int maxToolResultChars = 16_000;
-    
-    /** 工具提示最大长度 */
+
+    /**
+     * 工具提示最大长度
+     */
     private int toolHintMaxLength = 40;
-    
-    /** 工具执行超时时间（秒） */
+
+    /**
+     * 工具执行超时时间（秒）
+     */
     private int toolTimeoutSeconds = 90;
-    
-    /** 工具执行最大重试次数 */
+
+    /**
+     * 工具执行最大重试次数
+     */
     private int maxToolRetries = 3;
-    
-    /** 重试间隔时间（毫秒） */
+
+    /**
+     * 重试间隔时间（毫秒）
+     */
     private int retryDelayMs = 1000;
-    
-    /** 工具执行线程池 */
+
+    /**
+     * 工具执行线程池
+     */
     private final ExecutorService toolExecutor;
-    
+
     // ==================== 构造函数 ====================
-    
+
     public AgentRunner(LLMProvider provider, ToolRegistry registry) {
         this.provider = Objects.requireNonNull(provider, "provider cannot be null");
         this.registry = Objects.requireNonNull(registry, "registry cannot be null");
         this.objectMapper = new ObjectMapper();
         this.toolExecutor = Executors.newFixedThreadPool(
-            Runtime.getRuntime().availableProcessors(),
-            r -> {
-                Thread t = new Thread(r, "ToolExecutor");
-                t.setDaemon(true);
-                return t;
-            }
+                Runtime.getRuntime().availableProcessors(),
+                r -> {
+                    Thread t = new Thread(r, "ToolExecutor");
+                    t.setDaemon(true);
+                    return t;
+                }
         );
     }
 
-    /** 注入 Hook 管理器（在 AgentLoop 初始化时调用） */
+    /**
+     * 注入 Hook 管理器（在 AgentLoop 初始化时调用）
+     */
     public void setHookManager(HookManager hookManager) {
         this.hookManager = hookManager;
     }
-    
+
     // ==================== 核心方法 ====================
-    
+
     /**
      * 运行 Agent
-     * 
+     * <p>
      * 执行 LLM 调用循环，直到返回最终响应或达到最大迭代。
-     * 
-     * @param context 会话上下文
+     *
+     * @param context  会话上下文
      * @param messages 消息列表（会被修改）
-     * @param onDelta 流式输出回调
+     * @param onDelta  流式输出回调
      * @return 最终响应内容
      */
     public CompletableFuture<String> run(
             TurnContext context,
             List<Map<String, Object>> messages,
             Consumer<String> onDelta) {
-        
+
         return runInternal(context, messages, onDelta, 0, 0);
     }
-    
+
     /**
-     * 内部递归执行
+     * 内部递归执行 — 核心 LLM 调用循环.
+     *
+     * <h3>执行流程（5 个步骤）</h3>
+     * <ol>
+     *   <li>{@link #checkGuardConditions} — 守护条件检查（失败降级/轮次限制/费用/取消）</li>
+     *   <li>{@link #prepareMessages} — 消息预处理（清理孤立工具结果 + 修复不完整 tool_calls）</li>
+     *   <li>{@link #logLLMPrompt} — 提示词日志输出</li>
+     *   <li>{@link #callLLM} — 调用 LLM（流式或非流式）</li>
+     *   <li>{@link #processLLMResponse} — 响应分发（错误 / 工具调用 / 最终文本）</li>
+     * </ol>
      */
     private CompletableFuture<String> runInternal(
             TurnContext context,
@@ -177,201 +201,272 @@ public class AgentRunner {
             int iteration,
             int consecutiveToolFailures) {
 
-        // 降级兜底：连续工具失败3次，强制 LLM 不使用工具直接回答
+        // ── ① 守护条件检查 ──
+        var earlyReturn = checkGuardConditions(context, messages, onDelta, iteration, consecutiveToolFailures);
+        if (earlyReturn.isPresent()) {
+            return earlyReturn.get();
+        }
+
+        // ── ② 消息预处理 ──
+        List<Map<String, Object>> prepared = prepareMessages(messages);
+        List<LLMProvider.Message> llmMessages = convertToLLMMessages(prepared);
+
+        // ── ③ 日志输出 ──
+        logLLMPrompt(context, llmMessages, iteration);
+
+        // ── ④ 调用 LLM ──
+        CompletableFuture<LLMResponse> llmFuture = callLLM(context, onDelta, llmMessages);
+
+        // ── ⑤ 处理响应 + 递归 ──
+        final List<Map<String, Object>> workingMessages = new ArrayList<>(prepared);
+        return llmFuture
+                .thenCompose(response -> processLLMResponse(
+                        context, response, workingMessages, onDelta, iteration, consecutiveToolFailures))
+                .exceptionally(error -> {
+                    logger.error("Exception in AgentRunner for session {}: {}",
+                            context.getSessionKey(), error.getMessage(), error);
+                    return "发生异常：" + error.getMessage();
+                });
+    }
+
+    // ==================== runInternal 子步骤 ====================
+
+    /**
+     * ① 守护条件检查 — 满足任一条件则提前返回，不调用 LLM.
+     * <ol>
+     *   <li>连续工具失败 ≥3 → 降级为无工具 LLM 调用</li>
+     *   <li>达到 maxTurns 或 maxIterations</li>
+     *   <li>超出 maxCost 费用预算</li>
+     *   <li>用户取消（cancelled）</li>
+     * </ol>
+     *
+     * @return 需要提前返回时包含 CompletableFuture，否则 {@code Optional.empty()}
+     */
+    private Optional<CompletableFuture<String>> checkGuardConditions(
+            TurnContext context,
+            List<Map<String, Object>> messages,
+            Consumer<String> onDelta,
+            int iteration,
+            int consecutiveToolFailures) {
+
+        // 降级兜底：连续工具失败 3 次 → 强制 LLM 无工具直接回答
         if (consecutiveToolFailures >= 3) {
             logger.warn("{} consecutive tool failures, forcing fallback (no tools) for session: {}",
                     consecutiveToolFailures, context.getSessionKey());
-            return callLLMWithoutTools(context, messages, onDelta);
+            return Optional.of(callLLMWithoutTools(context, messages, onDelta));
         }
 
         // 检查 maxTurns（优先）或 maxToolIterations
         int maxTurns = context.getMaxTurns();
         if (maxTurns > 0 && iteration >= maxTurns) {
             logger.warn("Max turns ({}) reached: {}", maxTurns, context.getSessionKey());
-            return CompletableFuture.completedFuture(
-                "已到达最大轮次限制（" + maxTurns + "）。请简化请求或增加限制。");
+            return Optional.of(CompletableFuture.completedFuture(
+                    "已到达最大轮次限制（" + maxTurns + "）。请简化请求或增加限制。"));
         }
         if (maxTurns <= 0 && iteration >= context.getMaxIterations()) {
             logger.warn("Max iterations reached: {}", context.getSessionKey());
-            return CompletableFuture.completedFuture(
-                "抱歉，已达到最大处理次数限制。请重新开始或简化您的请求。");
+            return Optional.of(CompletableFuture.completedFuture(
+                    "抱歉，已达到最大处理次数限制。请重新开始或简化您的请求。"));
         }
 
         // 检查 maxCost（费用预算）
         double maxCost = context.getMaxCost();
         if (maxCost > 0 && context.getCumulativeCost() >= maxCost) {
             logger.warn("Max cost (${}) exceeded: ${}", maxCost, context.getCumulativeCost());
-            return CompletableFuture.completedFuture(
-                "已超出费用预算（$" + String.format("%.4f", maxCost) + "）。当前累计: $" + String.format("%.4f", context.getCumulativeCost()));
+            return Optional.of(CompletableFuture.completedFuture(
+                    "已超出费用预算（$" + String.format("%.4f", maxCost)
+                            + "）。当前累计: $" + String.format("%.4f", context.getCumulativeCost())));
         }
 
         // 检查取消
         if (context.isCancelled()) {
-            return CompletableFuture.completedFuture("处理已取消。");
+            return Optional.of(CompletableFuture.completedFuture("处理已取消。"));
         }
 
-        // 清理孤立工具结果 + 不完整 tool_calls（DeepSeek 要求 tool_call 必须有对应结果）
-        List<Map<String, Object>> finalMessages = dropOrphanToolResults(messages);
-        finalMessages = sanitizeToolCallHistory(finalMessages);
-        
-        // 调用 LLM
-        List<LLMProvider.Message> llmMessages = convertToLLMMessages(finalMessages);
-        
-        // 输出完整的 LLM 提示词（DEBUG 级别）
+        return Optional.empty();
+    }
+
+    /**
+     * ② 消息预处理 — 清理孤立工具结果 + 修复不完整 tool_calls.
+     * <p>
+     * 这两个步骤确保传给 LLM 的消息历史格式正确，
+     * 避免 DeepSeek 等严格后端因 tool_call/tool 不配对而报错.
+     */
+    private List<Map<String, Object>> prepareMessages(List<Map<String, Object>> messages) {
+        List<Map<String, Object>> cleaned = dropOrphanToolResults(messages);
+        return sanitizeToolCallHistory(cleaned);
+    }
+
+    /**
+     * ③ 输出 LLM 提示词日志（DEBUG/INFO 级别）.
+     */
+    private void logLLMPrompt(TurnContext context, List<LLMProvider.Message> llmMessages, int iteration) {
         logger.debug("===== LLM 调用开始 (迭代 {}) =====", iteration);
         logger.debug("会话ID: {}", context.getSessionKey());
         logger.debug("消息数量: {}", llmMessages.size());
         for (int i = 0; i < llmMessages.size(); i++) {
             LLMProvider.Message msg = llmMessages.get(i);
-            logger.debug("[{}] role={}, content_length={}", 
-                        i, msg.getRole(), 
-                        msg.getContent() != null ? msg.getContent().length() : 0);
+            logger.debug("[{}] role={}, content_length={}",
+                    i, msg.getRole(),
+                    msg.getContent() != null ? msg.getContent().length() : 0);
         }
-        
+
         // 输出完整的系统提示词（INFO 级别，方便调试）
         Optional<LLMProvider.Message> systemMsg = llmMessages.stream()
-            .filter(m -> "system".equals(m.getRole()))
-            .findFirst();
+                .filter(m -> "system".equals(m.getRole()))
+                .findFirst();
         if (systemMsg.isPresent()) {
             String systemContent = systemMsg.get().getContent();
-            // 限制长度，避免日志过长
             if (systemContent.length() > 2000) {
                 systemContent = systemContent.substring(0, 2000) + "...(截断)";
             }
             logger.info("LLM 系统提示词:\n{}", systemContent);
         }
-        
+
         logger.debug("===== LLM 提示词结束 =====");
-        
-        // 决定是否使用流式
-        final boolean finalUseStreaming = onDelta != null && provider.supportsStreaming();
-        
+    }
+
+    /**
+     * ④ 调用 LLM（流式或非流式）.
+     */
+    private CompletableFuture<LLMResponse> callLLM(
+            TurnContext context, Consumer<String> onDelta, List<LLMProvider.Message> llmMessages) {
         CompletableFuture<LLMResponse> llmFuture;
+        final boolean finalUseStreaming = onDelta != null && provider.supportsStreaming();
         if (finalUseStreaming) {
             llmFuture = provider.chatStream(llmMessages, context.getToolDefinitions(), onDelta);
         } else {
             llmFuture = provider.chat(llmMessages, context.getToolDefinitions());
         }
-        
-        final List<Map<String, Object>> workingMessages = new java.util.ArrayList<>(finalMessages);
-        
-        return llmFuture.thenCompose(response -> {
-            // 更新统计
-            context.addUsage(response.getPromptTokens(), response.getCompletionTokens());
-            
-            // 输出 LLM 原始响应（DEBUG 级别）
-            logger.debug("===== LLM 响应开始 =====");
-            logger.debug("会话ID: {}", context.getSessionKey());
-            logger.debug("PromptTokens: {}, CompletionTokens: {}", 
-                        response.getPromptTokens(), response.getCompletionTokens());
-            
-            if (response.isError()) {
-                logger.debug("响应类型: ERROR");
-                logger.debug("错误信息: {}", response.getError());
-            } else {
-                logger.debug("响应类型: {}", response.shouldExecuteTools() ? "工具调用" : "直接响应");
-                String content = response.getContent();
-                logger.debug("响应内容长度: {}", content != null ? content.length() : 0);
-                
-                // 输出完整响应内容（INFO 级别，方便调试）
-                if (content != null && !content.isBlank()) {
-                    // 限制长度，避免日志过长
-                    if (content.length() > 2000) {
-                        content = content.substring(0, 2000) + "...(截断)";
-                    }
-                    logger.info("LLM 原始响应:\n{}", content);
-                }
-                
-                // 输出工具调用信息
-                if (response.shouldExecuteTools() && response.getToolCalls() != null) {
-                    logger.info("LLM 工具调用: {}", 
-                              response.getToolCalls().stream()
-                                  .map(t -> t.getName() + "(" + t.getArguments() + ")")
-                                  .collect(Collectors.joining(", ")));
-                }
-            }
-            logger.debug("===== LLM 响应结束 =====");
-            
-            // 检查错误
-            if (response.isError()) {
-                logger.error("LLM error for session {}: {}", 
-                           context.getSessionKey(), response.getError());
-                context.setError(response.getError());
-                return CompletableFuture.completedFuture(
-                    "发生错误：" + response.getError()
-                );
-            }
-            
-            // 检查工具调用
-            if (response.shouldExecuteTools()) {
-                List<LLMResponse.ToolCallRequest> toolCalls = response.getToolCalls();
-                boolean webSearchDisabled = false;
-                
-                // 检查是否禁用了联网搜索（仅禁用 web，本地工具始终可用）
-                Boolean useSearch = (Boolean) context.getMessage().getMetadata().get("useSearch");
-                if (useSearch != null && !useSearch) {
-                    webSearchDisabled = true;
-                    // 仅过滤 web_search / web_fetch，保留 get_current_time / 文件 / shell 等本地工具
-                    List<LLMResponse.ToolCallRequest> filteredCalls = toolCalls.stream()
-                        .filter(tc -> !"web_search".equals(tc.getName())
-                                   && !"web_fetch".equals(tc.getName()))
-                        .collect(Collectors.toList());
+        return llmFuture;
+    }
 
-                    int removed = toolCalls.size() - filteredCalls.size();
-                    if (removed > 0) {
-                        logger.info("Web search disabled, removed {} web tool call(s)", removed);
-                    }
-                    toolCalls = filteredCalls;
+    // ── ⑤ 响应处理（分发器 + 三条路径）──
+
+    /**
+     * ⑤ 处理 LLM 响应 — 分发到三条路径之一.
+     * <ul>
+     *   <li>错误 → {@link #handleErrorResponse}</li>
+     *   <li>工具调用 → {@link #handleToolCallResponse}</li>
+     *   <li>最终文本 → {@link #handleFinalResponse}</li>
+     * </ul>
+     */
+    private CompletableFuture<String> processLLMResponse(
+            TurnContext context,
+            LLMResponse response,
+            List<Map<String, Object>> workingMessages,
+            Consumer<String> onDelta,
+            int iteration,
+            int consecutiveToolFailures) {
+
+        context.addUsage(response.getPromptTokens(), response.getCompletionTokens());
+        logLLMResponse(context, response);
+
+        if (response.isError()) {
+            return handleErrorResponse(context, response.getError());
+        }
+
+        if (response.shouldExecuteTools()) {
+            return handleToolCallResponse(
+                    context, response, workingMessages, onDelta, iteration, consecutiveToolFailures);
+        }
+
+        return handleFinalResponse(response.getContent(), workingMessages);
+    }
+
+    /**
+     * 输出 LLM 响应日志（DEBUG/INFO 级别）.
+     */
+    private void logLLMResponse(TurnContext context, LLMResponse response) {
+        logger.debug("===== LLM 响应开始 =====");
+        logger.debug("会话ID: {}", context.getSessionKey());
+        logger.debug("PromptTokens: {}, CompletionTokens: {}",
+                response.getPromptTokens(), response.getCompletionTokens());
+
+        if (response.isError()) {
+            logger.debug("响应类型: ERROR");
+            logger.debug("错误信息: {}", response.getError());
+        } else {
+            logger.debug("响应类型: {}", response.shouldExecuteTools() ? "工具调用" : "直接响应");
+            String content = response.getContent();
+            logger.debug("响应内容长度: {}", content != null ? content.length() : 0);
+
+            if (content != null && !content.isBlank()) {
+                if (content.length() > 2000) {
+                    content = content.substring(0, 2000) + "...(截断)";
                 }
-                
-                logger.info("LLM requested {} tool calls (after filtering): {}", 
-                          toolCalls.size(),
-                          toolCalls.stream()
-                              .map(LLMResponse.ToolCallRequest::getName)
-                              .collect(Collectors.joining(", ")));
-                
-                // 如果没有工具调用了且禁用了联网搜索，重新调用LLM（不提供工具定义）让它直接回答
-                if (toolCalls.isEmpty() && webSearchDisabled) {
-                    logger.info("Web search disabled and no tool calls allowed, calling LLM without tools");
-                    List<LLMProvider.Message> messagesWithoutTools = convertToLLMMessages(workingMessages);
-                    CompletableFuture<LLMResponse> directResponseFuture;
-                    if (onDelta != null && provider.supportsStreaming()) {
-                        directResponseFuture = provider.chatStream(messagesWithoutTools, Collections.emptyList(), onDelta);
-                    } else {
-                        directResponseFuture = provider.chat(messagesWithoutTools, Collections.emptyList());
-                    }
-                    
-                    return directResponseFuture.thenCompose(directResponse -> {
-                        context.addUsage(directResponse.getPromptTokens(), directResponse.getCompletionTokens());
-                        String content = directResponse.getContent();
-                        if (content == null || content.isBlank()) {
-                            content = "(无内容)";
-                        }
-                        workingMessages.add(Map.of("role", "assistant", "content", content));
-                        return CompletableFuture.completedFuture(content);
-                    }).exceptionally(error -> {
-                        logger.error("Exception when calling LLM without tools: {}", error.getMessage(), error);
-                        return "发生异常：" + error.getMessage();
-                    });
-                }
-                
-                // 如果没有工具调用但不是因为禁用联网搜索，直接返回响应
-                if (toolCalls.isEmpty()) {
-                    String content = response.getContent();
-                    if (content == null || content.isBlank()) {
-                        content = "(无内容)";
-                    }
-                    workingMessages.add(Map.of("role", "assistant", "content", content));
-                    return CompletableFuture.completedFuture(content);
-                }
-                
-                // 添加助手消息（带工具调用）
-            Map<String, Object> assistantMsg = createAssistantMessage(response.getContent(), toolCalls);
-            workingMessages.add(assistantMsg);
-            
-            // 执行工具，跟踪连续失败次数用于降级兜底
-            final int tcCount = toolCalls.size();
-            return executeTools(context, workingMessages, toolCalls)
+                logger.info("LLM 原始响应:\n{}", content);
+            }
+
+            if (response.shouldExecuteTools() && response.getToolCalls() != null) {
+                logger.info("LLM 工具调用: {}",
+                        response.getToolCalls().stream()
+                                .map(t -> t.getName() + "(" + t.getArguments() + ")")
+                                .collect(Collectors.joining(", ")));
+            }
+        }
+        logger.debug("===== LLM 响应结束 =====");
+    }
+
+    /**
+     * ⑤-a 处理工具调用响应 — 过滤 web 工具 → 执行 → 递归.
+     *
+     * <h3>子路径</h3>
+     * <ol>
+     *   <li>联网被禁 + 无其他工具 → 重试不带工具的 LLM 调用</li>
+     *   <li>无工具调用 → 作为最终文本返回</li>
+     *   <li>有工具调用 → 执行工具 → 递归 {@link #runInternal}</li>
+     * </ol>
+     */
+    private CompletableFuture<String> handleToolCallResponse(
+            TurnContext context,
+            LLMResponse response,
+            List<Map<String, Object>> workingMessages,
+            Consumer<String> onDelta,
+            int iteration,
+            int consecutiveToolFailures) {
+
+        List<LLMResponse.ToolCallRequest> toolCalls = response.getToolCalls();
+        boolean webSearchDisabled = false;
+
+        // 检查是否禁用了联网搜索（仅禁用 web，本地工具始终可用）
+        Boolean useSearch = (Boolean) context.getMessage().getMetadata().get("useSearch");
+        if (useSearch != null && !useSearch) {
+            webSearchDisabled = true;
+            List<LLMResponse.ToolCallRequest> filteredCalls = toolCalls.stream()
+                    .filter(tc -> !"web_search".equals(tc.getName())
+                            && !"web_fetch".equals(tc.getName()))
+                    .collect(Collectors.toList());
+
+            int removed = toolCalls.size() - filteredCalls.size();
+            if (removed > 0) {
+                logger.info("Web search disabled, removed {} web tool call(s)", removed);
+            }
+            toolCalls = filteredCalls;
+        }
+
+        logger.info("LLM requested {} tool calls (after filtering): {}",
+                toolCalls.size(),
+                toolCalls.stream()
+                        .map(LLMResponse.ToolCallRequest::getName)
+                        .collect(Collectors.joining(", ")));
+
+        // 路径1: 无工具调用 + 联网被禁 → 重试不带工具的 LLM
+        if (toolCalls.isEmpty() && webSearchDisabled) {
+            logger.info("Web search disabled and no tool calls allowed, calling LLM without tools");
+            return retryLLMWithoutWebTools(context, workingMessages, onDelta);
+        }
+
+        // 路径2: 无工具调用 → 直接返回文本
+        if (toolCalls.isEmpty()) {
+            return handleFinalResponse(response.getContent(), workingMessages);
+        }
+
+        // 路径3: 有工具调用 → 添加助手消息 + 执行工具 + 递归
+        workingMessages.add(createAssistantMessage(response.getContent(), toolCalls));
+
+        final int tcCount = toolCalls.size();
+        return executeTools(context, workingMessages, toolCalls)
                 .thenCompose(v -> {
                     boolean allFailed = checkAllToolsFailed(workingMessages, tcCount);
                     int newFailures = allFailed ? consecutiveToolFailures + 1 : 0;
@@ -380,28 +475,61 @@ public class AgentRunner {
                     }
                     return runInternal(context, workingMessages, onDelta, iteration + 1, newFailures);
                 });
-            }
+    }
 
-            // 最终响应
+    /**
+     * ⑤-b 处理 LLM 错误响应.
+     */
+    private CompletableFuture<String> handleErrorResponse(TurnContext context, String error) {
+        logger.error("LLM error for session {}: {}", context.getSessionKey(), error);
+        context.setError(error);
+        return CompletableFuture.completedFuture("发生错误：" + error);
+    }
+
+    /**
+     * ⑤-c 处理最终文本响应 — 添加到 workingMessages 并返回.
+     */
+    private CompletableFuture<String> handleFinalResponse(
+            String content, List<Map<String, Object>> workingMessages) {
+        if (content == null || content.isBlank()) {
+            content = "(无内容)";
+        }
+        workingMessages.add(Map.of("role", "assistant", "content", content));
+        return CompletableFuture.completedFuture(content);
+    }
+
+    /**
+     * 联网搜索被禁用后的回退 — 不带工具定义重新调用 LLM 并记录助手消息.
+     */
+    private CompletableFuture<String> retryLLMWithoutWebTools(
+            TurnContext context,
+            List<Map<String, Object>> workingMessages,
+            Consumer<String> onDelta) {
+
+        List<LLMProvider.Message> llmMsgs = convertToLLMMessages(workingMessages);
+        CompletableFuture<LLMResponse> future;
+        if (onDelta != null && provider.supportsStreaming()) {
+            future = provider.chatStream(llmMsgs, Collections.emptyList(), onDelta);
+        } else {
+            future = provider.chat(llmMsgs, Collections.emptyList());
+        }
+
+        return future.thenCompose(response -> {
+            context.addUsage(response.getPromptTokens(), response.getCompletionTokens());
             String content = response.getContent();
             if (content == null || content.isBlank()) {
                 content = "(无内容)";
             }
-            
-            // 添加助手消息
             workingMessages.add(Map.of("role", "assistant", "content", content));
-            
             return CompletableFuture.completedFuture(content);
-            
         }).exceptionally(error -> {
-            logger.error("Exception in AgentRunner for session {}: {}", 
-                        context.getSessionKey(), error.getMessage(), error);
+            logger.error("Exception when calling LLM without tools: {}", error.getMessage(), error);
             return "发生异常：" + error.getMessage();
         });
     }
-    
+
     // ==================== 工具执行 ====================
-    
+
     /**
      * 执行工具调用 — 只读工具并行，写工具保持顺序.
      *
@@ -411,7 +539,7 @@ public class AgentRunner {
      *       reject Hook 匹配 → 跳过该工具，结果设为 "[HOOK BLOCKED]".</li>
      *   <li><b>POST_TOOL_USE</b>：每个工具执行后触发（含耗时统计）.</li>
      * </ol>
-     *
+     * <p>
      * 所有工具通过 runAsync 提交到线程池并发执行，allOf 等待全部完成。
      * 结果按原始 tool_calls 顺序追加到 messages，保证 LLM 看到的顺序正确。
      */
@@ -474,9 +602,9 @@ public class AgentRunner {
         return CompletableFuture.allOf(futures).thenRun(() -> {
             for (int i = 0; i < toolCalls.size(); i++) {
                 messages.add(Map.of(
-                    "role", "tool",
-                    "tool_call_id", toolCalls.get(i).getId(),
-                    "content", results[i] != null ? results[i] : "Error: no result"
+                        "role", "tool",
+                        "tool_call_id", toolCalls.get(i).getId(),
+                        "content", results[i] != null ? results[i] : "Error: no result"
                 ));
             }
         }).exceptionally(error -> {
@@ -488,33 +616,33 @@ public class AgentRunner {
             return null;
         });
     }
-    
+
     /**
      * 执行工具调用（带重试机制）
-     * 
+     *
      * @param toolName 工具名称
-     * @param params 工具参数
-     * @param callId 工具调用ID
+     * @param params   工具参数
+     * @param callId   工具调用ID
      * @return 工具执行结果
      */
     private Object executeToolWithRetry(String toolName, Map<String, Object> params, String callId) {
         int attempts = 0;
         Exception lastException = null;
-        
+
         while (attempts < maxToolRetries) {
             attempts++;
-            
+
             try {
-                logger.debug("Executing tool: {} (attempt {}/{}) with params: {}", 
-                           toolName, attempts, maxToolRetries, params);
-                
+                logger.debug("Executing tool: {} (attempt {}/{}) with params: {}",
+                        toolName, attempts, maxToolRetries, params);
+
                 // 执行工具并设置超时
                 CompletableFuture<Object> toolFuture = registry.executeAsync(toolName, params);
                 Object result = toolFuture.get(toolTimeoutSeconds, java.util.concurrent.TimeUnit.SECONDS);
-                
+
                 logger.info("Tool {} executed successfully (attempt {})", toolName, attempts);
                 return result;
-                
+
             } catch (java.util.concurrent.TimeoutException e) {
                 lastException = e;
                 logger.warn("Tool {} timeout on attempt {}: {}", toolName, attempts, e.getMessage());
@@ -522,7 +650,7 @@ public class AgentRunner {
                 // 检查底层异常是否是网络相关的
                 Throwable cause = e.getCause();
                 lastException = e;
-                
+
                 if (cause instanceof java.net.ConnectException) {
                     logger.warn("Tool {} connection error on attempt {}: {}", toolName, attempts, cause.getMessage());
                 } else if (cause instanceof java.io.IOException) {
@@ -541,7 +669,7 @@ public class AgentRunner {
                 logger.error("Tool {} failed on attempt {}: {}", toolName, attempts, e.getMessage());
                 return "Error: " + e.getMessage();
             }
-            
+
             // 如果还有重试机会，等待一段时间后重试
             if (attempts < maxToolRetries) {
                 try {
@@ -553,10 +681,10 @@ public class AgentRunner {
                 }
             }
         }
-        
+
         // 所有重试都失败了，返回友好的错误信息
         logger.error("Tool {} failed after {} attempts", toolName, maxToolRetries);
-        
+
         // 根据失败原因返回不同的错误信息
         String errorMsg;
         if (lastException instanceof java.net.ConnectException) {
@@ -566,10 +694,10 @@ public class AgentRunner {
         } else {
             errorMsg = "工具调用失败（已重试 " + maxToolRetries + " 次）。我将基于我的知识库为您回答。";
         }
-        
+
         return errorMsg;
     }
-    
+
     // ==================== 降级兜底 ====================
 
     private boolean checkAllToolsFailed(List<Map<String, Object>> messages, int tcCount) {
@@ -604,10 +732,10 @@ public class AgentRunner {
     }
 
     // ==================== 消息处理 ====================
-    
+
     /**
      * 清理孤立的工具结果
-     * 
+     * <p>
      * 当 LLM 没有请求工具调用但之前有工具调用结果时，
      * 需要清理这些孤立的结果。
      */
@@ -615,26 +743,26 @@ public class AgentRunner {
         if (messages.isEmpty()) {
             return messages;
         }
-        
+
         // 检查最后一条消息是否是工具结果
         // 如果是，保留最近的连续工具结果块（必须紧跟在带 tool_calls 的助手消息之后）
         List<Map<String, Object>> result = new ArrayList<>(messages);
-        
+
         // 从后往前查找孤立的工具结果
         int lastIndex = messages.size() - 1;
         String lastRole = (String) messages.get(lastIndex).get("role");
-        
+
         // 只有最后一条消息是 tool 角色时才需要检查
         if (!"tool".equals(lastRole)) {
             return result;
         }
-        
+
         // 查找前面的助手消息是否有 tool_calls
         boolean hasValidPredecessor = false;
         for (int i = lastIndex - 1; i >= 0; i--) {
             Map<String, Object> msg = messages.get(i);
             String role = (String) msg.get("role");
-            
+
             if ("assistant".equals(role)) {
                 if (msg.containsKey("tool_calls")) {
                     // 找到带 tool_calls 的助手消息，工具结果是有效的
@@ -649,7 +777,7 @@ public class AgentRunner {
                 break;
             }
         }
-        
+
         // 如果工具结果没有有效的前置助手消息（带 tool_calls），则移除它们
         if (!hasValidPredecessor) {
             // 移除末尾所有连续的 tool 消息
@@ -662,7 +790,7 @@ public class AgentRunner {
                 }
             }
         }
-        
+
         return result;
     }
 
@@ -698,54 +826,54 @@ public class AgentRunner {
     private Map<String, Object> createAssistantMessage(
             String content,
             List<LLMResponse.ToolCallRequest> toolCalls) {
-        
+
         Map<String, Object> message = new HashMap<>();
         message.put("role", "assistant");
-        
+
         if (toolCalls != null && !toolCalls.isEmpty()) {
             // DeepSeek 要求：带工具调用的助手消息需要设置 content 为空字符串
             message.put("content", "");
             List<Map<String, Object>> tcList = toolCalls.stream()
-                .map(tc -> {
-                    Map<String, Object> tcMap = new HashMap<>();
-                    tcMap.put("id", tc.getId());
-                    tcMap.put("type", "function");
-                    Map<String, Object> func = new HashMap<>();
-                    func.put("name", tc.getName());
-                    // DeepSeek 要求 arguments 必须是字符串格式（JSON 字符串）
-                    Object args = tc.getArguments();
-                    if (args instanceof String) {
-                        func.put("arguments", args);
-                    } else {
-                        try {
-                            String argsJson = objectMapper.writeValueAsString(args);
-                            func.put("arguments", argsJson);
-                        } catch (Exception e) {
-                            func.put("arguments", "{}");
+                    .map(tc -> {
+                        Map<String, Object> tcMap = new HashMap<>();
+                        tcMap.put("id", tc.getId());
+                        tcMap.put("type", "function");
+                        Map<String, Object> func = new HashMap<>();
+                        func.put("name", tc.getName());
+                        // DeepSeek 要求 arguments 必须是字符串格式（JSON 字符串）
+                        Object args = tc.getArguments();
+                        if (args instanceof String) {
+                            func.put("arguments", args);
+                        } else {
+                            try {
+                                String argsJson = objectMapper.writeValueAsString(args);
+                                func.put("arguments", argsJson);
+                            } catch (Exception e) {
+                                func.put("arguments", "{}");
+                            }
                         }
-                    }
-                    tcMap.put("function", func);
-                    return tcMap;
-                })
-                .toList();
+                        tcMap.put("function", func);
+                        return tcMap;
+                    })
+                    .toList();
             message.put("tool_calls", tcList);
         } else {
             // 没有工具调用时设置 content
             message.put("content", content != null ? content : "");
         }
-        
+
         return message;
     }
-    
+
     /**
      * 转换消息格式
      */
     private List<LLMProvider.Message> convertToLLMMessages(List<Map<String, Object>> messages) {
         return messages.stream()
-            .map(this::convertMessage)
-            .collect(Collectors.toList());
+                .map(this::convertMessage)
+                .collect(Collectors.toList());
     }
-    
+
     /**
      * 转换单条消息
      */
@@ -753,44 +881,45 @@ public class AgentRunner {
         String role = (String) msg.get("role");
         Object contentObj = msg.get("content");
         String content = contentObj != null ? contentObj.toString() : "";
-        
+
         // 处理工具调用
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> toolCalls = (List<Map<String, Object>>) msg.get("tool_calls");
-        
+
         if (toolCalls != null && !toolCalls.isEmpty()) {
             List<LLMProvider.Message.ToolCallInfo> tcList = toolCalls.stream()
-                .map(tc -> {
-                    String id = (String) tc.get("id");
-                    String name = (String) ((Map<String, Object>) tc.get("function")).get("name");
-                    Object argsObj = ((Map<String, Object>) tc.get("function")).get("arguments");
-                    // arguments 可能是字符串（JSON）或 Map
-                    Map<String, Object> args;
-                    if (argsObj instanceof String) {
-                        // 如果是字符串格式，需要解析
-                        try {
-                            args = objectMapper.readValue((String) argsObj, new TypeReference<Map<String, Object>>() {});
-                        } catch (Exception e) {
-                            logger.warn("Failed to parse arguments string: {}", argsObj);
-                            args = new HashMap<>();
+                    .map(tc -> {
+                        String id = (String) tc.get("id");
+                        String name = (String) ((Map<String, Object>) tc.get("function")).get("name");
+                        Object argsObj = ((Map<String, Object>) tc.get("function")).get("arguments");
+                        // arguments 可能是字符串（JSON）或 Map
+                        Map<String, Object> args;
+                        if (argsObj instanceof String) {
+                            // 如果是字符串格式，需要解析
+                            try {
+                                args = objectMapper.readValue((String) argsObj, new TypeReference<Map<String, Object>>() {
+                                });
+                            } catch (Exception e) {
+                                logger.warn("Failed to parse arguments string: {}", argsObj);
+                                args = new HashMap<>();
+                            }
+                        } else {
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> argsMap = (Map<String, Object>) argsObj;
+                            args = argsMap != null ? argsMap : new HashMap<>();
                         }
-                    } else {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> argsMap = (Map<String, Object>) argsObj;
-                        args = argsMap != null ? argsMap : new HashMap<>();
-                    }
-                    return new LLMProvider.Message.ToolCallInfo(id, name, args);
-                })
-                .collect(Collectors.toList());
+                        return new LLMProvider.Message.ToolCallInfo(id, name, args);
+                    })
+                    .collect(Collectors.toList());
             return LLMProvider.Message.ofAssistant(content, tcList);
         }
-        
+
         // 处理工具结果
         if ("tool".equals(role)) {
             String toolCallId = (String) msg.get("tool_call_id");
             return LLMProvider.Message.ofTool(content, toolCallId);
         }
-        
+
         // 普通消息
         return switch (role) {
             case "system" -> LLMProvider.Message.ofSystem(content);
@@ -799,19 +928,19 @@ public class AgentRunner {
             default -> LLMProvider.Message.ofUser(content);
         };
     }
-    
+
     // ==================== 配置方法 ====================
-    
+
     public void setMaxToolResultChars(int max) {
         this.maxToolResultChars = max;
     }
-    
+
     public void setToolHintMaxLength(int max) {
         this.toolHintMaxLength = max;
     }
-    
+
     // ==================== 生命周期 ====================
-    
+
     public void shutdown() {
         toolExecutor.shutdown();
         logger.info("AgentRunner shutdown");
