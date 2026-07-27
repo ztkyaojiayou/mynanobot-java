@@ -831,13 +831,14 @@
         let h = escHtml(text);
 
         // ── 预处理：LLM 有时把"###标题"紧接在上文后面没有换行 ──
-        // "text###Heading" → "text\n###Heading"，确保标题在行首被正则匹配
+        // "text###Heading" → "text\n###Heading"，确保标题标记在行首被正则匹配
         h = h.replace(/(\S)(#{1,3})(?=\S)/g, '$1\n$2');
 
-        // 块级元素（兼容"### heading"和"###heading"两种写法）
-        h = h.replace(/^###\s*(.*)$/gm, (_, t) => t.trim() ? '<h3>' + t.trim() + '</h3>' : '');
-        h = h.replace(/^##\s*(.*)$/gm, (_, t) => t.trim() ? '<h2>' + t.trim() + '</h2>' : '');
-        h = h.replace(/^#\s*(.*)$/gm, (_, t) => t.trim() ? '<h1>' + t.trim() + '</h1>' : '');
+        // 块级元素
+        // 用 (?<!\S) 替代 ^ — 匹配行首或文本开头，对 emoji 等多字节字符更稳健
+        h = h.replace(/(?<!\S)###\s*([^\n]+)/gm, (_, t) => t.trim() ? '<h3>' + t.trim() + '</h3>' : '');
+        h = h.replace(/(?<!\S)##\s*([^\n]+)/gm, (_, t) => t.trim() ? '<h2>' + t.trim() + '</h2>' : '');
+        h = h.replace(/(?<!\S)#\s*([^\n]+)/gm, (_, t) => t.trim() ? '<h1>' + t.trim() + '</h1>' : '');
         h = h.replace(/^---+/gm, '<hr>');
         h = h.replace(/^>\s?(.+)$/gm, '<blockquote>$1</blockquote>');
 
