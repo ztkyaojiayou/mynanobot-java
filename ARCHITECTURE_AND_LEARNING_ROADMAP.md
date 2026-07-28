@@ -1263,6 +1263,8 @@ public interface LLMProvider {
 
 #### 4.4.3 Hook — ECA 声明式钩子
 
+> 📖 **详见 [5.24 Hook 系统](#524-hook-系统--eca-声明式生命周期钩子-)** 完整深入解析（接线代码、HookManager 运行时、DSL 引擎、加载优先级、与安全/可观测性协作）。
+
 **设计演进**：v1 采用接口回调模式（`AgentHook` 接口，7 个生命周期方法，~900行代码，7个类），方法名=事件，条件/动作硬编码在实现类内。v2 重构为 ECA（Event-Condition-Action）声明式模式——一条 Hook 就是一条规则，"什么时候→什么情况下→做什么"，YAML 可配，~400行代码，9个文件。
 
 **核心模型（4 个 record 类）**：
@@ -3353,6 +3355,419 @@ LLM 迭代次: 5
 1. **零侵入收集**：所有统计数据通过 ECA Hook 系统旁路收集（POST_TOOL_USE 事件自动记录工具耗时，TURN_START/TURN_END 记录轮次计数），不修改核心 LLM 调用逻辑
 2. **工具级耗时追踪**：`ConcurrentHashMap<String, ToolTiming>` 按工具名隔离，`synchronized` 保护 `calls`/`totalMs`/`maxMs` 联合原子更新
 3. **分层可观测性**：终端即时反馈（统计行）→ 诊断命令（`/stats`）→ HTTP API（`/actuator/health`）→ 外部监控接入，四层递进
+
+### 5.24 Hook 系统 — ECA 声明式生命周期钩子 ★
+
+文件：`hook/` 目录，8 个文件。
+
+**Hook 系统是横跨整个 Agent 生命周期的可编程拦截器**，允许在关键节点注入自定义逻辑——从会话启停、每轮对话前后、工具执行前后，到每个流式 token 和异常处理。
+
+#### 5.24.1 设计演进：接口回调 → ECA 声明式
+
+**v1（旧）— 接口回调模式**：
+
+```java
+// 旧设计：7 个生命周期方法，条件/动作硬编码在实现类内
+public interface AgentHook {
+    default String finalizeContent(String content, AgentHookContext ctx) { return content; }
+    default void onToolStart(String toolName, Map<String, Object> args) {}
+    default void onToolEnd(String toolName, Object result, long durationMs) {}
+    // ... 4 个未接线的方法
+}
+```
+
+| 问题 | 影响 |
+|------|------|
+| 方法名 = 事件，不可扩展 | 新增事件要改接口 |
+| 条件焊死在 `if/else` 里 | 改规则 = 改代码 + 重新编译 |
+| 7 个方法只接了 1 个 | MetricsHook 虽被加载但从未收集到数据 |
+| 无拦截能力 | 无法拒绝危险工具调用 |
+
+**v2（新）— ECA 声明式模式**：
+
+```
+一条 Hook = 一条规则 = "什么时候 → 什么情况下 → 做什么（要不要拦）"
+```
+
+```yaml
+# 改规则不再需要改 Java 代码，改 YAML + 重启即可
+hooks:
+  list:
+    - id: "block-rm"
+      event: PRE_TOOL_USE
+      condition: "tool==bash && args.cmd=~rm.*"
+      action: { type: COMMAND, command: "echo '已拦截'" }
+      reject: true
+```
+
+| 维度 | 旧 AgentHook | 新 ECA Hook |
+|------|-------------|------------|
+| 架构模式 | 接口回调 (CoR) | 声明式 ECA |
+| 事件定义 | 方法名（7个） | 枚举（9个） |
+| 条件表达 | 硬编码 if/else | DSL 条件表达式 |
+| 动作类型 | 焊死在实现类 | COMMAND / PROMPT / SCRIPT |
+| 拦截能力 | ❌ | ✅ `reject` 字段 |
+| 配置方式 | Java 代码 | YAML + 文件系统 |
+| 可观测性 | 外部 MetricsHook | 内置计数器 + `/stats` 集成 |
+| 代码量 | ~900 行（7 类） | ~600 行（9 文件，含完整统计） |
+
+#### 5.24.2 ECA 核心模型（4 个 record 类）
+
+```
+Hook(id, event, condition, action, reject)
+  │       │         │          │        │
+  │       │         │          │        └── 是否拦截（PRE_TOOL_USE / TURN_START 有效）
+  │       │         │          └── HookAction(type, command, message, scriptPath)
+  │       │         └── 条件 DSL: "tool==bash" | "tool=~mcp__.*" | ""(无条件)
+  │       └── HookEvent 枚举（9 个事件）
+  └── 唯一标识
+```
+
+```java
+// ① 规则定义
+public record Hook(
+    String id,           // 唯一标识，如 "block-dangerous-bash"
+    HookEvent event,     // 触发事件
+    String condition,    // DSL 条件，"" = 无条件
+    HookAction action,   // 匹配后执行的动作
+    boolean reject       // true = 拦截（仅 PRE_TOOL_USE / TURN_START 有效）
+) {}
+
+// ② 动作定义
+public record HookAction(
+    ActionType type,        // COMMAND / PROMPT / SCRIPT
+    String command,         // COMMAND 类型的 shell 命令
+    String message,         // PROMPT 类型的注入文本
+    String scriptPath       // SCRIPT 类型的脚本路径
+) {}
+
+// ③ 运行时上下文（不可变快照）
+public record HookContext(
+    HookEvent event,              // 当前事件
+    String toolName,              // 工具名（PRE/POST_TOOL_USE 时填充）
+    Map<String, Object> toolArgs, // 工具参数
+    String sessionId,             // 会话标识
+    String message,               // 用户消息 or 流式 delta or 错误信息
+    String error                  // ON_ERROR 时的异常信息
+) {
+    static HookContext of(HookEvent e, String sid);
+    static HookContext tool(HookEvent e, String name, Map args, String sid);
+    static HookContext error(String sid, String errMsg);
+}
+
+// ④ 执行结果
+public record HookResult(
+    String hookId,    // 匹配的 Hook ID
+    String output,    // COMMAND stdout / PROMPT message
+    boolean success,  // 是否执行成功
+    boolean reject    // 是否触发了拦截
+) {}
+```
+
+#### 5.24.3 9 个生命周期事件 + 接线位置
+
+```
+SESSION_START  ─── NanobotRunner.run()
+    │
+    ▼
+  ┌─────────────────────────────────────────────────────┐
+  │              一轮对话 (Turn)                         │
+  │                                                     │
+  │  TURN_START ─── AgentLoop.processMessage() 开头      │
+  │       │  ← 可拦截（reject=true 时直接返回拒绝消息）   │
+  │       ▼                                             │
+  │  ┌──────────┐    ┌──────────────┐    ┌──────────┐  │
+  │  │ RESTORE  │───▶│   COMPACT    │───▶│ COMMAND  │  │
+  │  └──────────┘    └──────────────┘    └──────────┘  │
+  │                                              │      │
+  │  ┌──────────┐    ┌──────────────┐    ┌──────▼───┐  │
+  │  │ RESPOND  │◀───│    SAVE      │◀───│   RUN    │  │
+  │  └──────────┘    └──────────────┘    └────┬─────┘  │
+  │                                           │        │
+  │         ON_STREAM ─── RunState.buildOnDelta()       │
+  │              │  ← 每个流式 token 触发（高频！）       │
+  │              ▼                                      │
+  │       STREAM_END ─── RunState.sendStreamEnd()       │
+  │                                                     │
+  │  ┌─────────────────────────────────────────────┐    │
+  │  │         AgentRunner.runInternal() 内部       │    │
+  │  │                                             │    │
+  │  │  for each tool_call:                        │    │
+  │  │    PRE_TOOL_USE  ─── 执行前（可拦截）        │    │
+  │  │         │                                   │    │
+  │  │         ▼                                   │    │
+  │  │    tool.execute()                           │    │
+  │  │         │                                   │    │
+  │  │         ▼                                   │    │
+  │  │    POST_TOOL_USE ─── 执行后                 │    │
+  │  └─────────────────────────────────────────────┘    │
+  │                                                     │
+  │  TURN_END ─── AgentLoop.processMessage() 末尾        │
+  │                                                     │
+  │  ON_ERROR ─── AgentLoop/AgentRunner 的 catch 块      │
+  └─────────────────────────────────────────────────────┘
+
+SESSION_END ─── JVM shutdown hook
+```
+
+| 分类 | 事件 | 可拦截 | 触发位置 | 拦截效果 |
+|------|------|--------|----------|----------|
+| 会话级 | `SESSION_START` | 否 | `NanobotRunner.run()` | — |
+| 会话级 | `SESSION_END` | 否 | JVM shutdown hook | — |
+| 轮次级 | `TURN_START` | **是** | `AgentLoop.processMessage()` 开头 | 直接返回拒绝消息，不走状态机 |
+| 轮次级 | `TURN_END` | 否 | `AgentLoop.processMessage()` 末尾 | — |
+| 工具级 | `PRE_TOOL_USE` | **是** | `AgentRunner.executeTools()` 执行前 | 跳过该工具，返回 `[HOOK BLOCKED]` |
+| 工具级 | `POST_TOOL_USE` | 否 | `AgentRunner.executeTools()` 执行后 | — |
+| 流式级 | `ON_STREAM` | 否 | `RunState.buildOnDelta()` | — |
+| 流式级 | `STREAM_END` | 否 | `RunState.sendStreamEnd()` | — |
+| 异常级 | `ON_ERROR` | 否 | `AgentLoop/AgentRunner` catch 块 | — |
+
+**关键接线代码**：
+
+```java
+// AgentLoop.processMessage() — TURN_START（可拦截）
+HookContext startCtx = HookContext.message(HookEvent.TURN_START, sessionKey, msg.getContent());
+if (hookManager != null && hookManager.runTurnStartHooks(startCtx)) {
+    sendResponse(msg, "[HOOK BLOCKED] 消息被拦截", null);
+    return;  // 整轮跳过
+}
+
+// AgentRunner.executeTools() — PRE_TOOL_USE（可拦截）+ POST_TOOL_USE
+for (ToolCall call : toolCalls) {
+    HookContext preCtx = HookContext.tool(HookEvent.PRE_TOOL_USE, call.getName(), call.getArgs(), sessionId);
+    if (hookManager != null && hookManager.runPreToolHooks(preCtx)) {
+        results[idx] = "[HOOK BLOCKED]";
+        continue;  // 跳过该工具
+    }
+    Object result = tool.execute(call.getArgs());
+    hookManager.runHooks(HookContext.tool(HookEvent.POST_TOOL_USE, call.getName(), call.getArgs(), sessionId));
+}
+
+// RunState.buildOnDelta() — ON_STREAM（高频）
+public Consumer<String> buildOnDelta(String sessionId) {
+    return delta -> {
+        hookManager.runHooks(HookContext.message(HookEvent.ON_STREAM, sessionId, delta));
+        // ... SSE 推送 ...
+    };
+}
+```
+
+#### 5.24.4 条件 DSL
+
+条件表达式在 `HookManager.evaluateCondition()` 中解析，每次匹配是 O(1) 的简单字符串比较。
+
+| 语法 | 含义 | 示例 |
+|------|------|------|
+| `""` | 无条件匹配 | 始终触发 |
+| `tool==name` | 工具名精确匹配 | `tool==bash` |
+| `tool=~regex` | 工具名正则匹配 | `tool=~mcp__.*` |
+| `args.key==val` | 工具参数值精确匹配 | `args.cmd==rm` |
+| `args.key=~regex` | 工具参数值正则匹配 | `args.cmd=~rm\\s+-rf.*` |
+| `A && B` | AND 组合 | `tool==bash && args.cmd=~rm.*` |
+
+**DSL 解析实现**（位于 `HookManager`）：
+
+```java
+boolean evaluateCondition(String condition, HookContext ctx) {
+    if (condition == null || condition.isBlank()) return true;  // 空 = 无条件匹配
+    for (String part : condition.split("&&")) {
+        part = part.trim();
+        if (part.startsWith("tool==")) {
+            if (!ctx.toolName().equals(part.substring(6).trim())) return false;
+        } else if (part.startsWith("tool=~")) {
+            if (!Pattern.matches(part.substring(6).trim(), ctx.toolName())) return false;
+        } else if (part.startsWith("args.")) {
+            // 解析 args.xxx==yyy 或 args.xxx=~yyy
+            String rest = part.substring(5);
+            if (rest.contains("=~")) { /* 正则匹配 */ }
+            else if (rest.contains("==")) { /* 精确匹配 */ }
+        }
+    }
+    return true;  // 所有子条件都通过
+}
+```
+
+限制：只支持 `&&`，不支持 `||` 和括号嵌套（设计选择：保持 DSL 简单，复杂逻辑用多个 Hook 或用 SCRIPT 动作实现）。
+
+#### 5.24.5 三种动作类型
+
+| 类型 | 实现 | 耗时 | 适用场景 |
+|------|------|------|---------|
+| `COMMAND` | `Runtime.exec()` 同步执行 | 高（shell 进程，10s 超时） | 外部通知、审计日志 |
+| `PROMPT` | 纯内存，注入到 LLM 上下文 | **零** | 注入上下文标记、轮次提示 |
+| `SCRIPT` | 执行脚本文件（`ProcessBuilder`） | 高（脚本进程，10s 超时） | 复杂审计/后处理逻辑 |
+
+**动作执行代码**：
+
+```java
+// HookManager 内部
+private HookResult executeAction(HookAction action, HookContext ctx) {
+    return switch (action.type()) {
+        case COMMAND -> {
+            Process p = Runtime.getRuntime().exec(action.command());
+            p.waitFor(10, TimeUnit.SECONDS);  // 10s 超时防护
+            String out = new String(p.getInputStream().readAllBytes());
+            yield HookResult.ok(ctx.hookId(), out);
+        }
+        case PROMPT -> {
+            // 零开销：只把 message 注入到上下文
+            yield HookResult.ok(ctx.hookId(), action.message());
+        }
+        case SCRIPT -> {
+            ProcessBuilder pb = new ProcessBuilder("bash", action.scriptPath());
+            Process p = pb.start();
+            p.waitFor(10, TimeUnit.SECONDS);
+            yield HookResult.ok(ctx.hookId(), new String(p.getInputStream().readAllBytes()));
+        }
+    };
+}
+```
+
+**COMMAND 环境变量**：执行前自动注入 `NANOBOT_EVENT`、`NANOBOT_TOOL`、`NANOBOT_SESSION` 等上下文变量，脚本可直接读取。
+
+#### 5.24.6 HookManager 运行时模型
+
+```java
+public class HookManager {
+    // ── 注册表 ──
+    private final List<Hook> hooks = new CopyOnWriteArrayList<>();  // 运行时只读遍历
+
+    // ── 内置统计 ──
+    private final ConcurrentHashMap<HookEvent, AtomicInteger> totalRuns;   // 按事件分组的触发次数
+    private final AtomicInteger totalRejects;                               // 累计拦截次数
+    private final ConcurrentHashMap<String, ToolTiming> toolTimings;       // 工具耗时（POST_TOOL_USE 自动记录）
+    private final ConcurrentLinkedQueue<HookResult> recentResults;         // 环形缓冲 20 条
+
+    // ── 公开 API ──
+    public List<HookResult> runHooks(HookContext ctx);         // 通用触发
+    public boolean runPreToolHooks(HookContext ctx);           // 工具前检查 → true=拦截
+    public int runTurnStartHooks(HookContext ctx);             // 轮次前注入 → 返回注入字符数
+    public void loadFromConfig(Config.HooksConfig config);     // 从 YAML 加载
+}
+```
+
+**匹配引擎**（每事件 O(n) 遍历，n 通常 < 20）：
+
+```java
+public List<HookResult> runHooks(HookContext ctx) {
+    List<HookResult> results = new ArrayList<>();
+    totalRuns.computeIfAbsent(ctx.event(), e -> new AtomicInteger()).incrementAndGet();
+
+    for (Hook hook : hooks) {
+        if (hook.event() != ctx.event()) continue;           // ① 事件不匹配 → 跳过
+        if (!evaluateCondition(hook.condition(), ctx)) continue;  // ② 条件不匹配 → 跳过
+
+        HookResult result = executeAction(hook.action(), ctx);    // ③ 执行动作
+        results.add(result);
+        recordResult(result);                                     // ④ 更新统计
+
+        if (hook.reject()) {
+            totalRejects.incrementAndGet();
+            break;  // ⑤ 拦截 → 终止遍历
+        }
+    }
+    return results;
+}
+```
+
+**线程模型**：所有 hook 在当前线程**同步执行**。理由：
+- `PRE_TOOL_USE` 的拦截判定必须同步返回结果
+- `COMMAND` 超时用 `Process.waitFor(10s)`，不会无限阻塞
+- 避免线程池复杂度，且 hook 数量少（< 20），遍历开销可忽略
+
+**PROMPT 的零开销设计**：`ON_STREAM` 事件在每个 token 到达时触发（高频），如果 ACTION 是 PROMPT 且 message 为空，直接返回空结果，不产生任何 I/O。
+
+#### 5.24.7 加载优先级（合并模式）
+
+```
+HookLoader.load(config) → 合并以下来源：
+  1. config.yaml 的 hooks.list 显式配置（最高优先级）
+  2. {workspace}/.nanobot/hooks/*.yaml（项目级，团队共享）
+  3. ~/.nanobot/hooks/*.yaml（用户级，个人偏好）
+  4. 以上都为空 → BuiltinHooks.defaults() 兜底（6 条内置 PROMPT Hook）
+```
+
+后加载的同 ID Hook 覆盖先加载的，项目级优先于用户级，显式配置优先于文件系统。
+
+#### 5.24.8 配置示例
+
+```yaml
+hooks:
+  enabled: true
+  list:
+    # ① 安全拦截：阻止危险 shell 命令
+    - id: "block-dangerous-bash"
+      event: PRE_TOOL_USE
+      condition: "tool==bash && args.cmd=~rm.*"
+      action:
+        type: COMMAND
+        command: "echo '[HOOK] 危险命令已拦截'"
+      reject: true
+
+    # ② 审计：文件写入后触发外部脚本
+    - id: "audit-file-writes"
+      event: POST_TOOL_USE
+      condition: "tool==write_file || tool==edit_file"
+      action:
+        type: SCRIPT
+        script_path: "${NANOBOT_DIR}/hooks/audit.sh"
+      reject: false
+
+    # ③ 注入上下文：每轮对话前追加工作区信息
+    - id: "inject-workspace-context"
+      event: TURN_START
+      condition: ""
+      action:
+        type: PROMPT
+        message: "[工作区上下文] 当前项目: nanobot-java, 分支: main"
+      reject: false
+
+    # ④ 高频观测：流式 token 纯统计（零开销）
+    - id: "count-stream-tokens"
+      event: ON_STREAM
+      condition: ""
+      action:
+        type: PROMPT        # PROMPT + 空 message = 仅统计
+        message: ""
+      reject: false
+```
+
+#### 5.24.9 与安全系统的协作
+
+```
+工具调用请求
+    │
+    ▼
+PermissionManager.requirePermission()    ← 5.11 安全系统
+    │  → APPROVE_CONTINUE / APPROVE_ONCE / DENY
+    │
+    ▼
+HookManager.runPreToolHooks()            ← 5.24 Hook 系统
+    │  → 条件匹配 + reject=true → [HOOK BLOCKED]
+    │
+    ▼
+Tool.execute()
+    │
+    ▼
+HookManager.runHooks(POST_TOOL_USE)      ← 自动记录工具耗时
+```
+
+两层防护互补：**PermissionManager** 管"用户是否同意"（交互式确认），**PRE_TOOL_USE Hook** 管"规则是否允许"（声明式自动判定）。
+
+#### 5.24.10 与可观测性的协作
+
+`/stats` 命令的数据源主要来自 HookManager 的内置统计：
+
+```
+/stats 输出
+  ├── 会话统计 → AgentLoop 自身维护
+  ├── 各事件触发次数 → HookManager.totalRuns
+  ├── 累计拦截次数 → HookManager.totalRejects
+  ├── 工具耗时排名 → HookManager.toolTimings（POST_TOOL_USE 自动记录）
+  └── 最近 Hook 结果 → HookManager.recentResults（环形缓冲 20 条）
+```
+
+**零侵入设计**：核心 LLM 调用逻辑完全不知道统计的存在——所有数据通过 Hook 事件旁路收集，符合 AOP（面向切面编程）思想。
 
 ---
 
