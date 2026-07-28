@@ -1263,19 +1263,32 @@ public interface LLMProvider {
 
 #### 4.4.3 Hook — ECA 声明式钩子
 
-**设计演进**：v1 采用接口回调模式（`AgentHook` 接口，7 个生命周期方法），方法名=事件，条件/动作硬编码在实现类内。v2 重构为 ECA（Event-Condition-Action）声明式模式——一条 Hook 就是一条规则，"什么时候→什么情况下→做什么"，YAML 可配。
+**设计演进**：v1 采用接口回调模式（`AgentHook` 接口，7 个生命周期方法，~900行代码，7个类），方法名=事件，条件/动作硬编码在实现类内。v2 重构为 ECA（Event-Condition-Action）声明式模式——一条 Hook 就是一条规则，"什么时候→什么情况下→做什么"，YAML 可配，~400行代码，9个文件。
 
-**核心模型**：
+**核心模型（4 个 record 类）**：
 
 ```java
-// 一条 Hook = 什么时候 + 什么情况下 + 做什么 + 要不要拦
-public record Hook(
-    String id,           // 唯一标识
-    HookEvent event,     // 事件: 9 种生命周期事件
-    String condition,    // 条件 DSL: "tool==bash && args.cmd=~rm.*"
-    HookAction action,   // 动作: COMMAND / PROMPT / SCRIPT
-    boolean reject       // 是否拦截 (仅 TURN_START / PRE_TOOL_USE 有效)
-) {}
+// ① 规则定义：什么时候 + 什么情况下 + 做什么 + 要不要拦
+public record Hook(String id, HookEvent event, String condition, HookAction action, boolean reject) {}
+
+// ② 动作：COMMAND（shell）/ PROMPT（注入LLM）/ SCRIPT（脚本文件）
+public record HookAction(ActionType type, String command, String message, String scriptPath) {}
+
+// ③ 运行时上下文：事件触发时的信息快照（不可变）
+public record HookContext(HookEvent event, String toolName, Map<String,Object> toolArgs,
+                          String sessionId, String message, Throwable error) {
+    // 工厂方法
+    static HookContext of(HookEvent e, String sid);                   // 简单事件
+    static HookContext message(HookEvent e, String sid, String msg);  // 消息事件
+    static HookContext tool(HookEvent e, String name, Map a, String sid); // 工具事件
+    static HookContext error(String sid, Throwable err);              // 错误事件
+}
+
+// ④ 执行结果：记录匹配后的执行情况
+public record HookResult(String hookId, String output, boolean success, boolean reject) {
+    static HookResult ok(String id, String out);            // 成功
+    static HookResult blocked(String id, String reason);    // 拦截
+}
 ```
 
 **9 个生命周期事件**：
@@ -1298,11 +1311,77 @@ public record Hook(
 | `args.key==val` | 参数值匹配 | `args.cmd=~rm.*` |
 | `a && b` | AND 组合 | `tool==bash && args.cmd=~rm.*` |
 
-**三种动作类型**：`COMMAND`（执行 shell）、`PROMPT`（注入 LLM 上下文）、`SCRIPT`（执行脚本文件）
+**三种动作类型**：
 
-**加载优先级（合并模式）**：config.yaml → `.nanobot/hooks/*.yaml` → BuiltinHooks 兜底
+| 类型 | 耗时 | 适用场景 | 示例 |
+|------|------|---------|------|
+| `COMMAND` | 高（shell 进程） | 外部通知、审计日志 | `"curl -X POST webhook"` |
+| `PROMPT` | 零（纯内存） | 注入上下文、标记 | `"[TOOL] 工具执行完成"` |
+| `SCRIPT` | 高（脚本进程） | 复杂审计逻辑 | `"${NANOBOT_DIR}/hooks/audit.sh"` |
 
-**内部对比**：
+PROMPT 零开销，适合 ON_STREAM 等高频事件。COMMAND/SCRIPT 有 10s 超时防护。
+
+**HookManager 运行时模型**：
+
+```java
+public class HookManager {
+    // 注册表：CopyOnWriteArrayList（运行时只读遍历，O(n)，n 通常 < 20）
+    private final List<Hook> hooks = new ArrayList<>();
+
+    // 内置统计（供 /stats 查询）
+    private final ConcurrentHashMap<HookEvent, AtomicInteger> totalRuns;  // 各事件触发次数
+    private final AtomicInteger totalRejects;                             // 累计拦截次数
+    private final ConcurrentHashMap<String, ToolTiming> toolTimings;     // 工具耗时
+    private final ConcurrentLinkedQueue<HookResult> recentResults;       // 最近 20 条结果
+
+    // 公开 API
+    public List<HookResult> runHooks(HookContext ctx);                    // 通用触发
+    public boolean runPreToolHooks(HookContext ctx);                      // 工具前检查（返回 true=拦截）
+    public int runTurnStartHooks(HookContext ctx);                        // 轮次前注入（返回注入字符数）
+
+    // 匹配引擎（每事件 O(n) 遍历）
+    // for (Hook hook : hooks) {
+    //     if (event 不匹配) continue;
+    //     if (condition 不匹配) continue;
+    //     执行 action → 更新统计 → 收集 HookResult;
+    //     if (reject) break;
+    // }
+}
+```
+
+**加载优先级（合并模式）**：
+
+```
+HookLoader.load(config) → 合并以下来源的 Hook 列表:
+  1. config.yaml 的 hooks.list 显式配置
+  2. {workspace}/.nanobot/hooks/*.yaml（项目级）
+  3. ~/.nanobot/hooks/*.yaml（用户级）
+  4. 以上都为空 → BuiltinHooks.defaults() 兜底（6 条内置 PROMPT Hook）
+```
+
+**YAML 配置示例**：
+
+```yaml
+hooks:
+  list:
+    - id: "block-dangerous-bash"
+      event: PRE_TOOL_USE
+      condition: "tool==bash && args.cmd=~rm.*"
+      action: { type: COMMAND, command: "echo '[HOOK] 危险命令已拦截'" }
+      reject: true
+    - id: "audit-file-writes"
+      event: POST_TOOL_USE
+      condition: "tool==write_file || tool==edit_file"
+      action: { type: SCRIPT, script_path: "${NANOBOT_DIR}/hooks/audit.sh" }
+      reject: false
+    - id: "stream-observe"
+      event: ON_STREAM
+      condition: ""
+      action: { type: PROMPT, message: "[STREAM] token received" }
+      reject: false
+```
+
+**新旧对比**：
 
 | 维度 | 旧 AgentHook | 新 ECA Hook |
 |------|-------------|------------|
@@ -1312,7 +1391,8 @@ public record Hook(
 | 动作 | 焊死在实现类 | COMMAND/PROMPT/SCRIPT |
 | 拦截能力 | ❌ | ✅ reject 字段 |
 | 配置方式 | Java 代码 | YAML + 文件系统 |
-| 代码量 | ~900 行（7 类） | ~400 行（9 文件） |
+| 可观测性 | LoggingHook + MetricsHook | 内置计数器 + /stats 集成 |
+| 代码量 | ~900 行（7 类） | ~600 行（9 文件，含完整统计） |
 
 #### 4.4.4 AgentState 接口（State 模式）
 
