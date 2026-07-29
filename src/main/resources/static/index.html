@@ -385,7 +385,7 @@
         .icon-btn:hover { background: #e5e7eb; color: var(--text-primary); }
         .icon-btn.active { color: var(--brand); background: var(--brand-light); }
 
-        /* 操作按钮（流式/发送） */
+        /* 操作按钮（发送） */
         .action-btn {
             padding: 6px 14px;
             border: none;
@@ -396,17 +396,6 @@
             transition: all .15s;
             white-space: nowrap;
             flex-shrink: 0;
-        }
-        .btn-stream {
-            background: transparent;
-            color: var(--text-secondary);
-            border: 1px solid var(--border);
-        }
-        .btn-stream:hover { background: var(--hover-item); }
-        .btn-stream.active {
-            background: var(--brand-light);
-            color: var(--brand);
-            border-color: var(--brand);
         }
         .btn-send {
             background: var(--brand);
@@ -527,7 +516,6 @@
                     autocomplete="off"
                 ></textarea>
                 <button id="searchBtn" class="icon-btn" onclick="toggleSearch()" title="联网搜索">🔍</button>
-                <button id="streamBtn" class="action-btn btn-stream active" onclick="toggleStream()">⚡ 流式</button>
                 <button class="action-btn btn-send" onclick="sendMessage()">发送</button>
             </div>
         </div>
@@ -541,7 +529,7 @@
 
     const API = '/api/sessions';
     let sessionId = 'web-' + Date.now();
-    let useSearch = false, useStream = true, isNewSession = true;
+    let useSearch = false, isNewSession = true;
     let currentStreamingEl = null, currentStreamingContent = '';
 
     // ═══ 会话列表 ═══
@@ -646,13 +634,6 @@
         document.getElementById('searchBtn').classList.toggle('active', useSearch);
     }
 
-    function toggleStream() {
-        useStream = !useStream;
-        const btn = document.getElementById('streamBtn');
-        btn.classList.toggle('active', useStream);
-        btn.textContent = useStream ? '⚡ 流式' : '📤 普通';
-    }
-
     function addMsg(type, content) {
         const wrap = document.getElementById('messages');
         // 移除空态占位
@@ -683,82 +664,58 @@
 
         addMsg('user', content);
 
-        if (useStream) {
-            currentStreamingEl = null; currentStreamingContent = '';
-            try {
-                const res = await fetch('/api/chat/stream', {
-                    method: 'POST',
-                    headers: {'Content-Type':'application/json','Accept':'text/event-stream'},
-                    body: JSON.stringify({channel:'http',sessionId,content,useSearch,streamMode:true,requestId: Date.now()+'-'+Math.random().toString(36)})
-                });
-                const reader = res.body.getReader();
-                const decoder = new TextDecoder();
-                let buf = '';
-                let eventData = '';  // 累积多行 data:xxx 为一个完整事件
-                let eventType = '';  // 当前事件的 type（如 "clear"）
-                while (true) {
-                    const {done,value} = await reader.read();
-                    if (value) { buf += decoder.decode(value,{stream:!done}); }
-                    const lines = buf.split('\n');
-                    buf = !done && buf[buf.length-1]!=='\n' ? lines.pop() : '';
-                    for (const l of lines) {
-                        if (l.startsWith('event:')) {
-                            eventType = l.substring(6).trim();
-                        } else if (l.startsWith('data:')) {
-                            const d = l.substring(5).replace(/^ /,'');
-                            if (d==='[DONE]') { currentStreamingEl = null; break; }
-                            eventData += (eventData ? '\n' : '') + d;
-                        } else if (l === '' && (eventData || eventType)) {
-                            if (eventType === 'clear') {
-                                // /clear 命令——清空消息列表 + 显示提示
-                                document.getElementById('messages').innerHTML = '';
-                                addMsg('bot', eventData || '会话已清除。');
-                                eventType = ''; eventData = '';
-                                continue;
-                            }
-                            // 普通流式数据
-                            if (eventData) {
-                                if (!currentStreamingEl) { currentStreamingEl = createStreamEl(); currentStreamingContent = ''; }
-                                currentStreamingContent += eventData;
-                                currentStreamingEl.innerHTML = md2html(currentStreamingContent);
-                                const msgs = document.getElementById('messages');
-                                msgs.scrollTop = msgs.scrollHeight;
-                            }
+        currentStreamingEl = null; currentStreamingContent = '';
+        try {
+            const res = await fetch('/api/chat/stream', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json','Accept':'text/event-stream'},
+                body: JSON.stringify({channel:'http',sessionId,content,useSearch,streamMode:true,requestId: Date.now()+'-'+Math.random().toString(36)})
+            });
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+            let eventData = '';
+            let eventType = '';
+            while (true) {
+                const {done,value} = await reader.read();
+                if (value) { buf += decoder.decode(value,{stream:!done}); }
+                const lines = buf.split('\n');
+                buf = !done && buf[buf.length-1]!=='\n' ? lines.pop() : '';
+                for (const l of lines) {
+                    if (l.startsWith('event:')) {
+                        eventType = l.substring(6).trim();
+                    } else if (l.startsWith('data:')) {
+                        const d = l.substring(5).replace(/^ /,'');
+                        if (d==='[DONE]') { currentStreamingEl = null; break; }
+                        eventData += (eventData ? '\n' : '') + d;
+                    } else if (l === '' && (eventData || eventType)) {
+                        if (eventType === 'clear') {
+                            document.getElementById('messages').innerHTML = '';
+                            addMsg('bot', eventData || '会话已清除。');
                             eventType = ''; eventData = '';
+                            continue;
                         }
-                    }
-                    // 流结束或有积压数据 → 最后一次渲染
-                    if (done) {
                         if (eventData) {
                             if (!currentStreamingEl) { currentStreamingEl = createStreamEl(); currentStreamingContent = ''; }
                             currentStreamingContent += eventData;
                             currentStreamingEl.innerHTML = md2html(currentStreamingContent);
+                            const msgs = document.getElementById('messages');
+                            msgs.scrollTop = msgs.scrollHeight;
                         }
-                        currentStreamingEl = null; break;
+                        eventType = ''; eventData = '';
                     }
                 }
-            } catch(e) {
-                addMsg('bot', '连接失败: ' + e.message);
+                if (done) {
+                    if (eventData) {
+                        if (!currentStreamingEl) { currentStreamingEl = createStreamEl(); currentStreamingContent = ''; }
+                        currentStreamingContent += eventData;
+                        currentStreamingEl.innerHTML = md2html(currentStreamingContent);
+                    }
+                    currentStreamingEl = null; break;
+                }
             }
-        } else {
-            // 非流式：显示 typing 指示器
-            const typingDiv = document.createElement('div');
-            typingDiv.className = 'message bot-message';
-            typingDiv.innerHTML = '<div class="avatar">N</div><div class="content"><div class="message-content"><div class="typing-indicator"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div></div></div>';
-            document.getElementById('messages').appendChild(typingDiv);
-            try {
-                const res = await fetch('/api/chat?'+Date.now(), {
-                    method: 'POST',
-                    headers: {'Content-Type':'application/json','Cache-Control':'no-cache'},
-                    body: JSON.stringify({channel:'http',sessionId,content,useSearch,streamMode:false,timestamp:Date.now()})
-                });
-                typingDiv.remove();
-                const data = await res.json();
-                addMsg('bot', data.content || '无响应');
-            } catch(e) {
-                typingDiv.remove();
-                addMsg('bot', '请求失败');
-            }
+        } catch(e) {
+            addMsg('bot', '连接失败: ' + e.message);
         }
         if (isNewSession) { isNewSession = false; autoTitle(content); }
         loadSessions();
