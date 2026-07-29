@@ -111,9 +111,22 @@ public final class MarkdownRenderer {
     /** 纯文本输出（不渲染 Markdown） — 用于流式增量 */
     public static String renderStreaming(String delta) {
         if (delta == null) return "";
-        String s = delta;
+        if (delta.indexOf('\n') < 0) {
+            return renderStreamingLine(delta);
+        }
+        // 多行 delta：按行分别处理，只有行首的 # 才是标题标记
+        String[] lines = delta.split("\n", -1);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < lines.length; i++) {
+            if (i > 0) sb.append("\n");
+            sb.append(renderStreamingLine(lines[i]));
+        }
+        return sb.toString();
+    }
 
-        // 流式标题（"### " 通常在单个 delta 中完整到达）
+    /** 处理单行 delta（标题仅本行开头有效） */
+    private static String renderStreamingLine(String s) {
+        // 流式标题
         if (s.startsWith("###") && !s.startsWith("####")) {
             s = B + PURPLE + s + R;
         } else if (s.startsWith("##") && !s.startsWith("###")) {
