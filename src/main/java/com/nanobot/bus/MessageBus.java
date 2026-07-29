@@ -30,8 +30,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <h2>为什么用 Fan-Out Dispatcher 而不是单队列多消费者？</h2>
  * BlockingQueue.take() 是破坏性消费——消息只能被一个消费者取走。
- * 三个通道 (SSE/CLI/WS) 都需要接收流式数据，必须各自有独立的队列。
- * Dispatcher 线程从 outboundQueue 取一条消息 → 逐个 offer 到各 subscriberQueue。
+ * 多个通道 (SSE/CLI/WS) 都需要接收流式数据，必须各自有独立的队列。
+ * Dispatcher 线程从 outboundQueue 取一条消息 → 按 sessionId 精准路由到
+ * sessionSubscribers，同时扇出到 wildcardSubscribers（WS 多路复用等场景）。
  *
  * <h2>消息清理链路</h2>
  * <table>
@@ -61,7 +62,11 @@ public class MessageBus {
 
     // ── Outbound 扇出 pub-sub ──
     private final BlockingQueue<OutboundMessage> outboundQueue;
-    private final java.util.List<BlockingQueue<OutboundMessage>> subscriberQueues =
+    /** 精准路由：sessionId → 该 session 的订阅者队列列表 */
+    private final ConcurrentHashMap<String, java.util.List<BlockingQueue<OutboundMessage>>> sessionSubscribers =
+            new ConcurrentHashMap<>();
+    /** 通配订阅者：接收所有 session 的消息（WebSocket 多路复用等场景） */
+    private final java.util.List<BlockingQueue<OutboundMessage>> wildcardSubscribers =
             new java.util.concurrent.CopyOnWriteArrayList<>();
     private Thread dispatcherThread;
 
@@ -94,7 +99,9 @@ public class MessageBus {
 
     public void start() {
         running.set(true);
+        //启动扇出 dispatcher线程
         startDispatcher();
+        //启动清理过期响应线程
         startCleanup();
         logger.info("MessageBus started (dispatcher + cleanup ready)");
     }
@@ -129,17 +136,22 @@ public class MessageBus {
      *
      * <h2>数据流</h2>
      * <pre>
-     *   outboundQueue: [msg1, msg2, msg3, ...]    ← RunState 生产
+     *   outboundQueue: [msg1(sid=A), msg2(sid=B), ...]    ← RunState 生产
      *         │
      *         ▼ poll(1s)
-     *   ┌─ dispatcher ─┐
-     *   │ 取到一条 msg   │
-     *   │              │
-     *   │ offer(msg) ──├──→ subscriberQueue[SSE]  → consumer thread → emitter
-     *   │ offer(msg) ──├──→ subscriberQueue[CLI]  → consumer thread → stdout
-     *   │ offer(msg) ──└──→ subscriberQueue[WS]   → consumer thread → sendText
-     *   └──────────────┘
-     *        ↑ 同一份 msg 对象引用，不是深拷贝（即就一份数据，没有数据重复和内存浪费）
+     *   ┌─ dispatcher ───────────────────────┐
+     *   │ 取到一条 msg (sid=A)                 │
+     *   │                                    │
+     *   │ 精准路由:                            │
+     *   │   sessionSubscribers["A"]:         │
+     *   │     offer(msg) ──→ SSE-consumer    │  ← 只收 session A 的消息
+     *   │     offer(msg) ──→ CLI-consumer    │  ← 只收 session A 的消息
+     *   │                                    │
+     *   │ 通配扇出:                            │
+     *   │   wildcardSubscribers:             │
+     *   │     offer(msg) ──→ WS-consumer     │  ← 收所有 session 的消息
+     *   └────────────────────────────────────┘
+     *        ↑ 同一份 msg 对象引用，不是深拷贝
      * </pre>
      *
      * <h2>背压策略</h2>
@@ -154,7 +166,8 @@ public class MessageBus {
      */
     private void startDispatcher() {
         dispatcherThread = new Thread(() -> {
-            logger.info("Outbound dispatcher started, {} subscribers", subscriberQueues.size());
+            logger.info("Outbound dispatcher started, {} session(s), {} wildcard(s)",
+                    sessionSubscribers.size(), wildcardSubscribers.size());
             //非常重要的一点：这是一个死循环，持续从出站队列搬消息~
             while (running.get()) {
                 try {
@@ -162,13 +175,31 @@ public class MessageBus {
                     OutboundMessage msg = outboundQueue.poll(1, TimeUnit.SECONDS);
                     if (msg == null) continue;
 
-                    // ── 扇出：同一份 msg 引用投递到所有 subscriberQueue 而不是复制多份，因此没有数据重复和内存浪费！──
-                    for (BlockingQueue<OutboundMessage> sq : subscriberQueues) {
+                    // ── 精准路由：按 sessionId 投递到该 session 的订阅者 ──
+                    String sid = msg.getSessionId();
+                    if (sid != null) {
+                        java.util.List<BlockingQueue<OutboundMessage>> targets = sessionSubscribers.get(sid);
+                        if (targets != null) {
+                            for (BlockingQueue<OutboundMessage> sq : targets) {
+                                try {
+                                    if (!sq.offer(msg, 100, TimeUnit.MILLISECONDS)) {
+                                        logger.warn("Subscriber queue full (session), dropping: sid={}, rid={}",
+                                                sid, msg.getRequestId());
+                                    }
+                                } catch (InterruptedException e) {
+                                    Thread.currentThread().interrupt();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    // ── 通配扇出：投递到所有 wildcard 订阅者（WS 多路复用等） ──
+                    for (BlockingQueue<OutboundMessage> sq : wildcardSubscribers) {
                         try {
-                            // offer 而非 put：队列满时丢弃该订阅者，不阻塞
                             if (!sq.offer(msg, 100, TimeUnit.MILLISECONDS)) {
-                                logger.warn("Subscriber queue full, dropping: sid={}, rid={}",
-                                        msg.getSessionId(), msg.getRequestId());
+                                logger.warn("Subscriber queue full (wildcard), dropping: sid={}, rid={}",
+                                        sid, msg.getRequestId());
                             }
                         } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
@@ -239,36 +270,75 @@ public class MessageBus {
             logger.debug("MessageBus not running, dropping outbound message");
             return;
         }
-        if (subscriberQueues.isEmpty()) {
+        if (sessionSubscribers.isEmpty() && wildcardSubscribers.isEmpty()) {
             return;  // 无订阅者，丢弃——防止 outboundQueue 积压后阻塞 RunState
         }
         outboundQueue.put(message);
     }
 
     /**
-     * 订阅流式消息——返回独立的 subscriberQueue。
-     * 消费者线程 poll 自己的队列，不会和其他消费者竞争。
+     * 订阅流式消息（通配模式）——接收<b>所有</b> session 的消息。
+     * 适用于 WebSocket 等一个消费者处理多个 session 的场景。
+     * 消费者自行按 sessionId 过滤。
      *
      * @return 订阅者专属的阻塞队列（容量 500）
      */
     public BlockingQueue<OutboundMessage> subscribeToOutbound() {
         BlockingQueue<OutboundMessage> q = new ArrayBlockingQueue<>(SUBSCRIBER_QUEUE_CAPACITY);
-        subscriberQueues.add(q);
-        logger.info("Outbound subscriber added, total: {}", subscriberQueues.size());
+        wildcardSubscribers.add(q);
+        logger.info("Wildcard subscriber added, total: {}", wildcardSubscribers.size());
         return q;
     }
 
-    /** 取消订阅——消费者关闭时调用，防止内存泄漏 */
+    /**
+     * 订阅流式消息（精准路由）——仅接收指定 sessionId 的消息。
+     * Dispatcher 按 sessionId 直接投递，消费者<b>无需自行过滤</b>。
+     *
+     * @param sessionId 会话 ID
+     * @return 订阅者专属的阻塞队列（容量 500）
+     */
+    public BlockingQueue<OutboundMessage> subscribeToOutbound(String sessionId) {
+        BlockingQueue<OutboundMessage> q = new ArrayBlockingQueue<>(SUBSCRIBER_QUEUE_CAPACITY);
+        sessionSubscribers.computeIfAbsent(sessionId,
+                k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(q);
+        logger.info("Session subscriber added: sid={}, sessionSubCount={}",
+                sessionId, sessionSubscribers.get(sessionId).size());
+        return q;
+    }
+
+    /** 取消通配订阅 */
     public void unsubscribeFromOutbound(BlockingQueue<OutboundMessage> q) {
-        subscriberQueues.remove(q);
-        logger.info("Outbound subscriber removed, remaining: {}", subscriberQueues.size());
+        wildcardSubscribers.remove(q);
+        logger.info("Wildcard subscriber removed, remaining: {}", wildcardSubscribers.size());
+    }
+
+    /**
+     * 取消精准路由订阅。
+     * 当该 session 的所有队列都移除后，自动清理 map 条目防止内存泄漏。
+     */
+    public void unsubscribeFromOutbound(String sessionId, BlockingQueue<OutboundMessage> q) {
+        java.util.List<BlockingQueue<OutboundMessage>> queues = sessionSubscribers.get(sessionId);
+        if (queues != null) {
+            queues.remove(q);
+            if (queues.isEmpty()) {
+                sessionSubscribers.remove(sessionId);
+            }
+            logger.info("Session subscriber removed: sid={}, remaining={}",
+                    sessionId, queues.isEmpty() ? 0 : queues.size());
+        }
     }
 
     /** 诊断：outboundQueue 当前积压量 */
     public int getOutboundQueueSize() { return outboundQueue.size(); }
 
-    /** 诊断：当前订阅者数量 */
-    public int getSubscriberCount() { return subscriberQueues.size(); }
+    /** 诊断：当前订阅者总数（精准路由 + 通配） */
+    public int getSubscriberCount() {
+        int count = wildcardSubscribers.size();
+        for (var list : sessionSubscribers.values()) {
+            count += list.size();
+        }
+        return count;
+    }
 
     // ═══════════ 出站消息（会话响应匹配 — sync /api/chat 专用） ═══════════
 
@@ -283,6 +353,7 @@ public class MessageBus {
         }
         if (message.getSessionId() != null) {
             sessionResponses.computeIfAbsent(message.getSessionId(), k -> new java.util.LinkedList<>()).offer(message);
+            //记录该请求的响应时间
             sessionLastAccess.put(message.getSessionId(), System.currentTimeMillis());
         }
         logger.debug("Published outbound: sessionId={}", message.getSessionId());

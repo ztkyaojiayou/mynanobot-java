@@ -162,18 +162,18 @@ public class ChatController {
             return emitter;
         }
 
-        // ── 订阅 outbound 扇出队列，启动独立消费者线程 ──
-        BlockingQueue<OutboundMessage> subscriberQueue = messageBus.subscribeToOutbound();
+        // ── 订阅 outbound 扇出队列（精准路由：只要该 session 的消息）──
+        BlockingQueue<OutboundMessage> subscriberQueue = messageBus.subscribeToOutbound(sessionId);
         AtomicBoolean consumerRunning = new AtomicBoolean(true);
         final int[] dataCount = {0};
 
+        //监听者线程，相当于获取响应的消费者
         Thread consumerThread = new Thread(() -> {
             try {
                 while (consumerRunning.get()) {
                     OutboundMessage msg = subscriberQueue.poll(1, TimeUnit.SECONDS);
                     if (msg == null) continue;
-                    // 过滤：只处理匹配 sessionId+requestId 的消息
-                    if (!sessionId.equals(msg.getSessionId())) continue;
+                    // 过滤：只处理匹配 requestId 的消息（sessionId 已由 Dispatcher 精准路由）
                     if (!requestId.equals(msg.getRequestId())) continue;
 
                     try {
@@ -215,7 +215,7 @@ public class ChatController {
         Runnable cleanup = () -> {
             consumerRunning.set(false);
             consumerThread.interrupt();
-            messageBus.unsubscribeFromOutbound(subscriberQueue);
+            messageBus.unsubscribeFromOutbound(sessionId, subscriberQueue);
         };
         emitter.onTimeout(cleanup);
         emitter.onCompletion(cleanup);

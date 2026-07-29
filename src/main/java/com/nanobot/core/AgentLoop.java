@@ -110,7 +110,8 @@ public class AgentLoop {
     /**
      * State 模式处理器注册表
      */
-    private final java.util.Map<TurnState, com.nanobot.core.state.AgentState> stateHandlers = new java.util.EnumMap<>(TurnState.class);
+    private final java.util.Map<TurnState, com.nanobot.core.state.AgentState> stateHandlers =
+            new java.util.EnumMap<>(TurnState.class);
 
     // ==================== 组件 ====================
 
@@ -195,15 +196,19 @@ public class AgentLoop {
 
     // ==================== 构造函数 ====================
 
-    public AgentLoop(MessageBus messageBus, LLMProvider provider, ToolRegistry registry, SessionManager sessionManager, Config config) {
+    public AgentLoop(MessageBus messageBus, LLMProvider provider, ToolRegistry registry,
+                     SessionManager sessionManager, Config config) {
         this(messageBus, provider, registry, sessionManager, config, null, null, null, null);
     }
 
-    public AgentLoop(MessageBus messageBus, LLMProvider provider, ToolRegistry registry, SessionManager sessionManager, Config config, RuleManager ruleManager, SkillManager skillManager) {
+    public AgentLoop(MessageBus messageBus, LLMProvider provider, ToolRegistry registry,
+                     SessionManager sessionManager, Config config, RuleManager ruleManager, SkillManager skillManager) {
         this(messageBus, provider, registry, sessionManager, config, ruleManager, skillManager, null, null);
     }
 
-    public AgentLoop(MessageBus messageBus, LLMProvider provider, ToolRegistry registry, SessionManager sessionManager, Config config, RuleManager ruleManager, SkillManager skillManager, IdentityManager identityManager, HookManager hookManager) {
+    public AgentLoop(MessageBus messageBus, LLMProvider provider, ToolRegistry registry,
+                     SessionManager sessionManager, Config config, RuleManager ruleManager, SkillManager skillManager
+            , IdentityManager identityManager, HookManager hookManager) {
 
         this.messageBus = Objects.requireNonNull(messageBus, "messageBus cannot be null");
         this.provider = Objects.requireNonNull(provider, "provider cannot be null");
@@ -252,9 +257,11 @@ public class AgentLoop {
             return;
         }
 
+        //启动扇出dispatcher线程--是个新线程
         running.set(true);
         messageBus.start();
 
+        //启动loo线程--也是一个新线程
         executor = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "AgentLoop");
             t.setDaemon(true);
@@ -297,9 +304,10 @@ public class AgentLoop {
 
     /**
      * 消息处理线程池（避免 LLM 调用阻塞主循环）
+     * 专门用于处理用户请求的线程池，防止阻塞！！！
      */
     private final java.util.concurrent.ExecutorService messageExecutor =
-            java.util.concurrent.Executors.newFixedThreadPool(4, r -> {
+            java.util.concurrent.Executors.newFixedThreadPool(8, r -> {
                 Thread t = new Thread(r, "AgentLoop-worker");
                 t.setDaemon(true);
                 return t;
@@ -307,7 +315,8 @@ public class AgentLoop {
 
     /**
      * 运行主循环 — 消费入站队列，异步分发到工作线程.
-     *
+     * 即死循环消费用户请求（前端的用户请求会统一入这个队列）！！！
+     * 拉模型，和kafka消费者类似！
      * <h3>循环体（3 步）</h3>
      * <ol>
      *   <li>{@link #dispatchMessage} — 消费入站消息 + 提交到工作线程池</li>
@@ -317,14 +326,19 @@ public class AgentLoop {
      */
     private void runLoop() {
         logger.info("AgentLoop main loop started (async mode)");
-
+//上次心跳时间
         long lastHeartbeat = System.currentTimeMillis();
         int processedCount = 0;
+        //循环何时停止？
+        //1.主打设置running=false
+        //2.被中断--即其他线程给该线程发出InterruptedException信号时，当前线程的处理方式是退出。
         while (running.get()) {
             try {
                 // ① 消费消息 + 异步分发
+                //从入栈队列中取用户请求
                 InboundMessage message = messageBus.consumeInbound(1, TimeUnit.SECONDS);
                 if (message != null) {
+                    //发送到专门的消息处理线程池进行处理，而不时在主线程中同步处理，这样用户体验非常差！
                     processedCount = dispatchMessage(message, processedCount);
                 }
 
@@ -332,6 +346,7 @@ public class AgentLoop {
                 lastHeartbeat = emitHeartbeat(lastHeartbeat, processedCount);
 
             } catch (InterruptedException e) {
+                //收到外界的中断信号时直接退出循环线程！
                 logger.info("AgentLoop interrupted");
                 Thread.currentThread().interrupt();
                 break;
@@ -345,7 +360,9 @@ public class AgentLoop {
 
     // ── runLoop 子步骤 ──
 
-    /** ① 记录入站消息并提交到工作线程池异步处理，返回新的 processedCount */
+    /**
+     * ① 记录入站消息并提交到工作线程池异步处理，返回新的 processedCount
+     */
     private int dispatchMessage(InboundMessage message, int processedCount) {
         processedCount++;
         final int msgNum = processedCount;
@@ -353,12 +370,15 @@ public class AgentLoop {
                 msgNum,
                 message.getChannel(),
                 message.getSessionId(),
-                message.getContent() != null ? message.getContent().substring(0, Math.min(80, message.getContent().length())) : "null",
+                message.getContent() != null ? message.getContent().substring(0, Math.min(80,
+                        message.getContent().length())) : "null",
                 message.getContent() != null ? message.getContent().length() : 0);
 
         final InboundMessage msg = message;
+        //提交到专门消费请求的线程池处理，防止主线程阻塞！！！
         messageExecutor.submit(() -> {
             try {
+                //处理用户请求
                 processMessage(msg);
             } catch (Exception e) {
                 logger.error("Async message processing failed: {}", e.getMessage(), e);
@@ -367,7 +387,9 @@ public class AgentLoop {
         return processedCount;
     }
 
-    /** ② 每30秒输出心跳日志，含队列堆积告警；返回新的 lastHeartbeat 时间戳 */
+    /**
+     * ② 每30秒输出心跳日志，含队列堆积告警；返回新的 lastHeartbeat 时间戳
+     */
     private long emitHeartbeat(long lastHeartbeat, int processedCount) {
         long now = System.currentTimeMillis();
         if (now - lastHeartbeat <= 30_000) return lastHeartbeat;
@@ -383,7 +405,7 @@ public class AgentLoop {
 
     /**
      * 处理单条消息 — Hook 门控 → 状态机 → 响应 → Hook 收尾.
-     *
+     * 核心方法！！！
      * <h3>处理流程（4 步）</h3>
      * <ol>
      *   <li>{@link #runPreProcessingHooks} — TURN_START 拦截检查</li>
@@ -405,7 +427,7 @@ public class AgentLoop {
             // ② 构建 TurnContext
             TurnContext context = createTurnContext(message);
 
-            // ③ 状态机处理
+            // ③ 状态机处理--核心，就是一条消息被处理的整个流程，分成多个步骤处理，相当于模板模式！！！
             String result = processStates(context);
 
             // ④ 发送响应 + TURN_END Hook
@@ -447,7 +469,9 @@ public class AgentLoop {
         return false;
     }
 
-    /** ② 从消息 + 全局配置 + planMode 构建 TurnContext */
+    /**
+     * ② 从消息 + 全局配置 + planMode 构建 TurnContext
+     */
     private TurnContext createTurnContext(InboundMessage message) {
         Config.AgentDefaults defaults = config.getAgents().getDefaults();
         return TurnContext.create(message,
@@ -460,14 +484,18 @@ public class AgentLoop {
                 defaults.getMaxCost());
     }
 
-    /** ③ 触发 TURN_END Hook（fire-and-forget） */
+    /**
+     * ③ 触发 TURN_END Hook（fire-and-forget）
+     */
     private void runPostProcessingHooks(String sessionId) {
         if (hookManager != null) {
             hookManager.runHooks(HookContext.of(HookEvent.TURN_END, sessionId));
         }
     }
 
-    /** ④ 处理消息异常：ON_ERROR Hook + 错误响应 */
+    /**
+     * ④ 处理消息异常：ON_ERROR Hook + 错误响应
+     */
     private void handleProcessingError(InboundMessage message, String sessionId, Exception e) {
         logger.error("Failed to process message: {}", e.getMessage(), e);
         if (hookManager != null) {
@@ -520,8 +548,11 @@ public class AgentLoop {
     private void initStateHandlers() {
         stateHandlers.put(TurnState.RESTORE, new com.nanobot.core.state.RestoreState(sessionManager));
         stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(consolidator));
-        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, consolidator, dream, messageBus, hookManager));
-        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, dream, skillManager != null ? skillManager.getRegistry() : null, config.getWorkspacePath(), hookManager));
+        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager,
+                sessionManager, consolidator, dream, messageBus, hookManager));
+        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager,
+                () -> planMode, dream, skillManager != null ? skillManager.getRegistry() : null,
+                config.getWorkspacePath(), hookManager));
         stateHandlers.put(TurnState.RUN, new com.nanobot.core.state.RunState(runner, config, messageBus, hookManager));
         stateHandlers.put(TurnState.SAVE, new com.nanobot.core.state.SaveState(sessionManager));
         stateHandlers.put(TurnState.RESPOND, new com.nanobot.core.state.RespondState(messageBus));
@@ -533,7 +564,8 @@ public class AgentLoop {
     public void setConsolidator(com.nanobot.memory.Consolidator c) {
         this.consolidator = c;
         stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(c));
-        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, c, dream, messageBus, hookManager));
+        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager,
+                sessionManager, c, dream, messageBus, hookManager));
     }
 
     /**
@@ -547,8 +579,11 @@ public class AgentLoop {
     public void setDream(com.nanobot.memory.Dream d) {
         this.dream = d;
         stateHandlers.put(TurnState.SAVE, new com.nanobot.core.state.SaveState(sessionManager, d));
-        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager, () -> planMode, d, skillManager != null ? skillManager.getRegistry() : null, config.getWorkspacePath(), hookManager));
-        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager, sessionManager, consolidator, d, messageBus, hookManager));
+        stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager,
+                () -> planMode, d, skillManager != null ? skillManager.getRegistry() : null,
+                config.getWorkspacePath(), hookManager));
+        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager,
+                sessionManager, consolidator, d, messageBus, hookManager));
     }
 
     // ==================== 响应发送 ====================
@@ -576,9 +611,14 @@ public class AgentLoop {
                 .build();
 
         try {
-            // sync /api/chat 轮询匹配
+            // sync /api/chat阻塞式对话请求用于轮询匹配
+            //具体就是发送到sessionResponses中，它是一个map：session-response，
+            // 即一个请求一个响应，非常鲜明
             messageBus.publishOutbound(response);
-            // 流式通道（SSE/CLI/WS）也推送一份
+            // 流式通道（SSE/CLI/WS）也推送一份，推到outboundQueue队列中，
+            // 再会通过前面启动的扇出线程，将这个响应复制到subscriberQueues队列中，
+            // 而每个流式对话请求都会在将自己的请求发送到入站队列后就会生成/订阅一个这样的队列，
+            // 用于监听自己的响应，获取该响应的具体方式也就是启动一个死循环拉取该队列的消息继续推送！
             messageBus.publishToOutboundQueue(response);
         } catch (Exception e) {
             logger.error("Failed to send response: {}", e.getMessage(), e);

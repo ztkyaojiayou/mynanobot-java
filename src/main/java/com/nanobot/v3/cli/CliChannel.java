@@ -42,6 +42,8 @@ public class CliChannel {
     private final MessageBus messageBus;
     private final AgentLoop agentLoop;
     private String sessionId;
+    /** 当前订阅的出站队列（volatile：session 切换时原子替换，消费者线程每次 snapshot 读取） */
+    private volatile BlockingQueue<OutboundMessage> subscriberQueue;
     private final CommandRegistry commands;
     private final CommandContext cmdCtx;
 
@@ -78,6 +80,10 @@ public class CliChannel {
         this.messageBus = NanobotRunner.getMessageBus();
         this.agentLoop = NanobotRunner.getAgentLoop();
         this.sessionId = initialSessionId != null ? initialSessionId : "cli-" + System.currentTimeMillis();
+        // 初始化订阅队列（若 MessageBus 未就绪则延迟到 start()）
+        if (messageBus != null) {
+            this.subscriberQueue = messageBus.subscribeToOutbound(sessionId);
+        }
         this.appContext = appContext;
 
         // 初始化 JLine 终端（跨平台 Esc 检测，使用 /dev/tty 或 CONIN$，不干扰 Scanner）
@@ -97,6 +103,10 @@ public class CliChannel {
         this.commands.register(new HelpCommand(commands));
         this.commands.register(new InitCommand());
         this.commands.register(new ResumeCommand(sessionKey -> {
+            // 取消旧 session 的精准路由订阅，注册新 session 的
+            BlockingQueue<OutboundMessage> oldQueue = this.subscriberQueue;
+            this.subscriberQueue = messageBus.subscribeToOutbound(sessionKey);
+            if (oldQueue != null) messageBus.unsubscribeFromOutbound(this.sessionId, oldQueue);
             this.sessionId = sessionKey;
             System.out.println("会话已切换至: " + sessionKey + "，历史上下文将在下一条消息中恢复");
         }));
@@ -111,18 +121,21 @@ public class CliChannel {
         setupInteractivePermission();
         setupAskUserHandler();
 
-        // ── 订阅 outbound 扇出队列，流式输出到控制台 ──
-        BlockingQueue<OutboundMessage> subscriberQueue = messageBus.subscribeToOutbound();
+        // ── 订阅 outbound 扇出队列（精准路由：只要当前 session 的消息）──
+        if (this.subscriberQueue == null) {
+            this.subscriberQueue = messageBus.subscribeToOutbound(sessionId);
+        }
         AtomicBoolean consumerRunning = new AtomicBoolean(true);
         // 流式输出线程：持续监听 outbound 扇出队列，渲染到控制台
         Thread consumerThread = new Thread(() -> {
             long firstDeltaTime = 0;
             while (consumerRunning.get()) {
                 try {
-                    //取走即移除引用（但对应的消息还在堆中，等待JVM GC回收），避免阻塞其他线程
-                    OutboundMessage msg = subscriberQueue.poll(500, TimeUnit.MILLISECONDS);
+                    // volatile snapshot：session 切换时队列可能被替换，但本次循环用同一队列
+                    BlockingQueue<OutboundMessage> q = this.subscriberQueue;
+                    OutboundMessage msg = q.poll(500, TimeUnit.MILLISECONDS);
                     if (msg == null) continue;
-                    if (!sessionId.equals(msg.getSessionId())) continue;
+                    // sessionId 已由 Dispatcher 精准路由，无需过滤
 
                     //流式数据处理：根据 requestId 匹配当前流式输出，渲染到控制台
                     if (msg.isToolCall()) {
