@@ -149,7 +149,12 @@ public class DeepSeekProvider implements LLMProvider {
                     return LLMResponse.error("HTTP error: " + response.statusCode() + " - " + body, "http_error");
                 }
 
-                // ② 解析 SSE 流（DeepSeek 逐字符流式返回 arguments，需跨 delta 拼接）
+                // ② 解析 SSE 流。
+                // DeepSeek 对 tool_calls.arguments 是逐字符流式返回的（不是一次给完整 JSON），
+                // 例如 get_weather 的参数 {"city":"北京"} 可能分 3 个 chunk 到达：
+                //   chunk1: "{\"ci"   chunk2: "ty\":\"北"   chunk3: "京\"}"
+                // 所以 parseSseStream 内部需按 tool_call index 跨 delta 拼接，
+                // 等流结束后再整体 parse 成 JSON。如果边收边 parse 会失败（不完整的 JSON）。
                 StreamAccumulator acc = parseSseStream(response.body(), onDelta);
 
                 // ③ 构建最终响应
@@ -195,6 +200,11 @@ public class DeepSeekProvider implements LLMProvider {
                         }
                         if (delta.has("content")) {
                             String content = delta.get("content").asText();
+                            // 两件事同时做：
+                            //   acc.content.append(content)  — 累积完整响应，流结束后返回给 AgentRunner
+                            //   onDelta.accept(content)       — ★实时推送核心★ 每个 token 立即发给 RunState
+                            //     → buildOnDelta 包装为 OutboundMessage → publishToOutboundQueue
+                            //     → Dispatcher 扇出 → SSE/CLI/WS subscriberQueues → 用户看到逐字输出
                             acc.content.append(content);
                             if (onDelta != null) onDelta.accept(content);
                         }

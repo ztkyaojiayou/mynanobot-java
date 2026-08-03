@@ -64,6 +64,9 @@ public class RunState implements AgentState {
             logger.info("🤖 [LLM-CALL] session={}, requestId={}, msgs={}",
                     sessionId, requestId, ctx.getMessages().size());
             long start = System.currentTimeMillis();
+            // runner.run() 返回 CompletableFuture<String>，内部 LLM + 工具调用是异步的。
+            // .join() 让当前线程（本请求的专属线程）阻塞等待，直到整个 Agent Loop 跑完。
+            // 这是有意的同步等待——每个请求都有独立线程，无需在状态机层再引入异步复杂度。
             String result = runner.run(ctx, ctx.getMessages(), onDelta).join();
             long duration = System.currentTimeMillis() - start;
             logger.info("✅ [LLM-DONE] session={}, requestId={}, duration={}ms, resultLen={}",
@@ -84,7 +87,35 @@ public class RunState implements AgentState {
 
     /**
      * 构建流式回调 — LLM 每输出一个 token，包装为 OutboundMessage 发布到扇出队列。
-     * 不直接和任何消费者交互。
+     *
+     * <h3>理解这个 lambda</h3>
+     * 这是一个<b>工厂方法</b>：不直接执行推送，而是返回一个"待调用的回调函数"。
+     *
+     * <pre>{@code
+     * Consumer<String> onDelta = buildOnDelta(...);       // ① 创建回调（此刻什么都不发）
+     * runner.run(ctx, messages, onDelta);                 // ② 传入 AgentRunner
+     *   └→ provider.chatStream(..., onDelta)              // ③ 传入 LLM Provider
+     *        └→ onDelta.accept("北");  // LLM 产出 token  // ④ 回调在这里被触发！
+     *        └→ onDelta.accept("京");
+     *        └→ onDelta.accept("今天");
+     * }</pre>
+     *
+     * lambda 表达式 {@code delta -> { ... }} 等价于：
+     * <pre>{@code
+     * new Consumer<String>() {
+     *     @Override
+     *     public void accept(String delta) {  // delta 由 LLM Provider 传入
+     *         // ... 包装为 OutboundMessage → publishToOutboundQueue
+     *     }
+     * }
+     * }</pre>
+     *
+     * <b>闭包捕获</b>：lambda 内部使用的 channel、sessionId、requestId、connectionId
+     * 都是外层方法的局部变量/参数，lambda "记住"了这些值。
+     * 所以当 LLM Provider 在另一个线程中调用 {@code accept(delta)} 时，
+     * 仍能正确构建包含 sessionId/requestId 的 OutboundMessage。
+     *
+     * <p>注意：是每输出一个 token 就独立包装为 OutboundMessage！
      */
     private Consumer<String> buildOnDelta(TurnContext ctx, String connectionId,
                                            String requestId, String sessionId) {

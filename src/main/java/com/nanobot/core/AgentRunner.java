@@ -184,13 +184,13 @@ public class AgentRunner {
             TurnContext context,
             List<Map<String, Object>> messages,
             Consumer<String> onDelta) {
-
+        //异步执行
         return runInternal(context, messages, onDelta, 0, 0);
     }
 
     /**
      * 内部递归执行 — 核心 LLM 调用循环.
-     *
+     * 务必掌握！！！
      * <h3>执行流程（5 个步骤）</h3>
      * <ol>
      *   <li>{@link #checkGuardConditions} — 守护条件检查（失败降级/轮次限制/费用/取消）</li>
@@ -297,6 +297,38 @@ public class AgentRunner {
      * <p>
      * 这两个步骤确保传给 LLM 的消息历史格式正确，
      * 避免 DeepSeek 等严格后端因 tool_call/tool 不配对而报错.
+     *
+     * <h3>为什么需要这两个步骤？具体例子</h3>
+     * 假设消息历史如下（模拟上下文压缩导致的不一致）：
+     * <pre>{@code
+     * // 第一轮对话（完整）
+     * [0] {role: "user",      content: "北京天气怎么样？"}
+     * [1] {role: "assistant", content: "", tool_calls: [{id:"call_1", function:{name:"get_weather", arguments:"{\"city\":\"北京\"}"}}]}
+     * [2] {role: "tool",      tool_call_id: "call_1", content: "北京晴 25°C"}
+     * [3] {role: "assistant", content: "北京今天天气晴朗，气温25°C。"}
+     *
+     * // 第二轮对话（上下文压缩后 assistant 的 tool_calls 消息被丢弃了！）
+     * [4] {role: "user",      content: "那上海呢？"}
+     * [5] {role: "tool",      tool_call_id: "call_2", content: "上海阴 22°C"}  ← 孤儿工具结果！
+     * }</pre>
+     *
+     * <b>问题1 — 孤儿工具结果 (dropOrphanToolResults 解决)：</b><br>
+     * 消息[5]是 tool 角色，但它前面没有带 tool_calls 的 assistant 消息（[4]是 user），
+     * 这是"孤儿工具结果"——可能因上下文压缩时 assistant 消息被截断而产生。
+     * 如果直接发给 DeepSeek，它会报错：
+     * "Tool result must be preceded by a tool call"。<br>
+     * → 解决方法：向前扫描，确认 tool 结果前面是否有带 tool_calls 的 assistant 消息。
+     * 没有则删除这些孤儿 tool 消息。
+     *
+     * <p><b>问题2 — 不完整的 tool_calls (sanitizeToolCallHistory 解决)：</b><br>
+     * 假设 assistant 消息声明了 3 个 tool_calls（call_1, call_2, call_3），
+     * 但后面只有 2 个 tool 结果（call_3 的上下文被压缩丢弃了）。
+     * DeepSeek 会报错："tool_call and tool result count mismatch"。<br>
+     * → 解决方法：遍历所有 assistant 消息，检查其 tool_calls 数量是否与后续 tool 结果匹配。
+     * 不匹配则移除该 assistant 消息的 tool_calls 字段，降级为普通文本消息。
+     *
+     * <p><b>总结：</b>这两个步骤是防御性编程——不是修复根本原因，而是保证
+     * <b>即使上游产生了一致性问题，传给 LLM 的消息也永远是合法的</b>。
      */
     private List<Map<String, Object>> prepareMessages(List<Map<String, Object>> messages) {
         List<Map<String, Object>> cleaned = dropOrphanToolResults(messages);
@@ -372,11 +404,13 @@ public class AgentRunner {
             return handleErrorResponse(context, response.getError());
         }
 
+        // 路径A：LLM 决定调用工具 → 执行工具 → 结果追加到 workingMessages → 递归回 agentLoopInner 继续下一轮
         if (response.shouldExecuteTools()) {
             return handleToolCallResponse(
                     context, response, workingMessages, onDelta, iteration, consecutiveToolFailures);
         }
 
+        // 路径B：LLM 产出最终文本 → 追加 assistant 消息 → 返回 CompletableFuture<String>，Agent Loop 结束
         return handleFinalResponse(response.getContent(), workingMessages);
     }
 
@@ -591,7 +625,8 @@ public class AgentRunner {
                             .content("🔧 " + toolName)
                             .metadata(java.util.Map.of("_tool_call", true))
                             .build());
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                }
             }
 
             futures[i] = CompletableFuture.runAsync(() -> {
@@ -892,7 +927,70 @@ public class AgentRunner {
     }
 
     /**
-     * 转换单条消息
+     * 转换单条消息 — 将内部 Map 表示转为 LLMProvider.Message。
+     *
+     * <h3>三种消息类型及转换结果</h3>
+     *
+     * <b>① 带工具调用的 assistant 消息：</b>
+     * <pre>{@code
+     * // 输入 Map:
+     * {
+     *   "role": "assistant",
+     *   "content": "",
+     *   "tool_calls": [
+     *     {
+     *       "id": "call_abc123",
+     *       "type": "function",
+     *       "function": {
+     *         "name": "get_weather",
+     *         "arguments": "{\"city\":\"北京\"}"
+     *       }
+     *     }
+     *   ]
+     * }
+     *
+     * // 输出 LLMProvider.Message:
+     * LLMProvider.Message{
+     *   role: "assistant",
+     *   content: "",
+     *   toolCalls: [
+     *     ToolCallInfo{id: "call_abc123", name: "get_weather", args: {city: "北京"}}
+     *   ]
+     * }
+     * }</pre>
+     *
+     * <b>② 工具结果消息：</b>
+     * <pre>{@code
+     * // 输入 Map:
+     * {
+     *   "role": "tool",
+     *   "tool_call_id": "call_abc123",
+     *   "content": "北京今天晴，25°C，湿度40%"
+     * }
+     *
+     * // 输出 LLMProvider.Message:
+     * LLMProvider.Message{
+     *   role: "tool",
+     *   content: "北京今天晴，25°C，湿度40%",
+     *   toolCallId: "call_abc123"
+     * }
+     * }</pre>
+     *
+     * <b>③ 普通消息（system/user/纯文本assistant）：</b>
+     * <pre>{@code
+     * // 输入 Map:                    // 输出 LLMProvider.Message:
+     * {"role": "system",             LLMProvider.Message{
+     *  "content": "你是一个助手"}       role: "system",
+     *                                  content: "你是一个助手"}
+     *
+     * {"role": "user",               LLMProvider.Message{
+     *  "content": "北京天气怎么样？"}    role: "user",
+     *                                  content: "北京天气怎么样？"}
+     *
+     * {"role": "assistant",          LLMProvider.Message{
+     *  "content": "北京今天晴朗。"}      role: "assistant",
+     *                                  content: "北京今天晴朗。"}
+     * }</pre>
      */
     private LLMProvider.Message convertMessage(Map<String, Object> msg) {
         String role = (String) msg.get("role");
@@ -914,7 +1012,8 @@ public class AgentRunner {
                         if (argsObj instanceof String) {
                             // 如果是字符串格式，需要解析
                             try {
-                                args = objectMapper.readValue((String) argsObj, new TypeReference<Map<String, Object>>() {
+                                args = objectMapper.readValue((String) argsObj,
+                                        new TypeReference<Map<String, Object>>() {
                                 });
                             } catch (Exception e) {
                                 logger.warn("Failed to parse arguments string: {}", argsObj);

@@ -307,6 +307,10 @@ public class OpenAIProvider implements LLMProvider {
                 }
                 if (delta.has("content")) {
                     String content = delta.get("content").asText();
+                    // 两件事同时做：
+                    //   acc.content.append(content)  — 累积完整响应，流结束后作为最终结果返回给 AgentRunner
+                    //   onDelta.accept(content)       — 实时推送给订阅者（SSE/CLI/WS），不等流结束
+                    // 两个操作操作的是同一个 content 字符串引用，不是两份数据。
                     acc.content.append(content);
                     if (onDelta != null) onDelta.accept(content);
                 }

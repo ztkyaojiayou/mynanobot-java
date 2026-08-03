@@ -589,7 +589,22 @@ public class AgentLoop {
     // ==================== 响应发送 ====================
 
     /**
-     * 发送响应
+     * 发送最终响应（Agent Loop 全部跑完后调用）。
+     *
+     * <h3>content 是最终结果，不是流式增量</h3>
+     * 流式增量（token 级别）由 onDelta 回调在 agentLoopInner 内部实时推送，
+     * 不经过本方法。这里的 content 是 runner.run().join() 返回的完整文本。
+     *
+     * <h3>双通道发送</h3>
+     * <ol>
+     *   <li>{@code publishOutbound} → sessionResponses Map → sync /api/chat 轮询匹配</li>
+     *   <li>{@code publishToOutboundQueue} → Dispatcher 扇出 → SSE/CLI/WS subscriberQueues</li>
+     * </ol>
+     * 两条通道各发一份，分别服务于同步阻塞模式和流式订阅模式。
+     *
+     * @param message 原始入站消息（取其 channel/sessionId）
+     * @param content 最终完整响应文本（非流式增量）
+     * @param context 会话上下文（取其 requestId）
      */
     private void sendResponse(InboundMessage message, String content, TurnContext context) {
         if (content == null) {
