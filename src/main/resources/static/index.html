@@ -7,6 +7,13 @@
     <style>
         /* ═══════════════════════════════════════════════════════════════
            Nanobot — ChatGPT-style Layout
+
+           关键样式策略（防 FOUC）：
+           - 所有核心样式同步内联在 <head> 中，无外部 CSS 请求
+           - CSS 变量（--brand/--border/--text-*）在 :root 中提前注入，
+             无 JS 延迟赋值，避免首次渲染时变量缺失导致样式回退
+           - 消息标题字号用 px 写死，不依赖 em 级联计算
+           - 消息容器带内联 style="font-size:16px" 兜底
            ═══════════════════════════════════════════════════════════════ */
         :root {
             --sidebar-w: 320px;
@@ -445,9 +452,11 @@
         .message-content h1:first-child,
         .message-content h2:first-child,
         .message-content h3:first-child { margin-top: 0; }
-        .message-content h1 { font-size: 1.45em; }
-        .message-content h2 { font-size: 1.25em; }
-        .message-content h3 { font-size: 1.1em; }
+        .message-content h1 { font-size: 23px; }
+        .message-content h2 { font-size: 20px; }
+        .message-content h3 { font-size: 18px; }
+        /* 流式阶段不完整标题标记：###/##/# 后尚无内容时的小字号兜底 */
+        .heading-marker { color: var(--text-muted); font-size: 14px; font-weight: 600; }
         .message-content ul, .message-content ol {
             padding-left: 22px;
             margin: 6px 0;
@@ -643,7 +652,7 @@
         const div = document.createElement('div');
         div.className = 'message ' + (type === 'user' ? 'user-message' : 'bot-message');
         if (type === 'bot') {
-            div.innerHTML = `<div class="avatar">N</div><div class="content"><div class="message-content">${md2html(content)}</div><div class="msg-actions"><button onclick="copyMsg(this)">📋 复制</button><button disabled>👍</button><button disabled>🔄</button></div></div>`;
+            div.innerHTML = `<div class="avatar">N</div><div class="content"><div class="message-content" style="font-size:16px;line-height:1.8">${md2html(content)}</div><div class="msg-actions"><button onclick="copyMsg(this)">📋 复制</button><button disabled>👍</button><button disabled>🔄</button></div></div>`;
         } else {
             div.innerHTML = `<div class="bubble">${escHtml(content)}</div>`;
         }
@@ -699,6 +708,8 @@
                             if (!currentStreamingEl) { currentStreamingEl = createStreamEl(); currentStreamingContent = ''; }
                             currentStreamingContent += eventData;
                             currentStreamingEl.innerHTML = md2html(currentStreamingContent);
+                            // 首帧内容就绪 → 显示消息（之前 createStreamEl 以 display:none 挂载防闪烁）
+                            currentStreamingEl.closest('.message').style.display = '';
                             const msgs = document.getElementById('messages');
                             msgs.scrollTop = msgs.scrollHeight;
                         }
@@ -710,6 +721,7 @@
                         if (!currentStreamingEl) { currentStreamingEl = createStreamEl(); currentStreamingContent = ''; }
                         currentStreamingContent += eventData;
                         currentStreamingEl.innerHTML = md2html(currentStreamingContent);
+                        currentStreamingEl.closest('.message').style.display = '';
                     }
                     currentStreamingEl = null; break;
                 }
@@ -730,9 +742,14 @@
     function createStreamEl() {
         const div = document.createElement('div');
         div.className = 'message bot-message';
-        div.innerHTML = '<div class="avatar">N</div><div class="content"><div class="message-content"></div><div class="msg-actions"><button onclick="copyMsg(this)">📋 复制</button><button disabled>👍</button><button disabled>🔄</button></div></div>';
+        // 内联 font-size 兜底：确保在 CSS 计算完成前不会回退到浏览器默认大字体
+        div.innerHTML = '<div class="avatar">N</div><div class="content"><div class="message-content" style="font-size:16px;line-height:1.8"></div><div class="msg-actions"><button onclick="copyMsg(this)">📋 复制</button><button disabled>👍</button><button disabled>🔄</button></div></div>';
+        const contentEl = div.querySelector('.message-content');
+        // 先用 display:none 挂载 → 等第一个 token 到达、填充内容后再显示，
+        // 避免空 DOM + 无样式时浏览器用默认字号渲染瞬间闪现
+        div.style.display = 'none';
         document.getElementById('messages').appendChild(div);
-        return div.querySelector('.message-content');
+        return contentEl;
     }
 
     // ═══ Markdown → HTML ============================================================
@@ -766,9 +783,10 @@
 
                 // 最后一个代码块段且未闭合 → 流式渲染中
                 if (i === parts.length - 1 && parts.length % 2 === 0) {
-                    // 未闭合：直接包裹，保留原样（可能还在流式输出中）
-                    const langTag = lang ? ' class="language-' + lang + '"' : '';
-                    result += '<pre><code' + langTag + '>' + escHtml(seg) + '</code></pre>';
+                    // 流式阶段不知道 ``` 最终会不会闭合——先当正文渲染，
+                    // 确保 # 标题/列表等不会被错当成代码块原文展示。
+                    // 若后续闭合 → 下轮渲染时两个 ``` 配对，自动走代码块分支。
+                    result += processText(seg);
                 } else {
                     // 已闭合：从内容中分离语言标记（如果有）
                     const langTag = lang ? ' class="language-' + lang + '"' : '';
@@ -791,11 +809,16 @@
         // "text###Heading" → "text\n###Heading"，确保标题标记在行首被正则匹配
         h = h.replace(/(\S)(#{1,3})(?=\S)/g, '$1\n$2');
 
-        // 块级元素
-        // 用 (?<!\S) 替代 ^ — 匹配行首或文本开头，对 emoji 等多字节字符更稳健
-        h = h.replace(/(?<!\S)###\s*([^\n]+)/gm, (_, t) => t.trim() ? '<h3>' + t.trim() + '</h3>' : '');
-        h = h.replace(/(?<!\S)##\s*([^\n]+)/gm, (_, t) => t.trim() ? '<h2>' + t.trim() + '</h2>' : '');
-        h = h.replace(/(?<!\S)#\s*([^\n]+)/gm, (_, t) => t.trim() ? '<h1>' + t.trim() + '</h1>' : '');
+        // ── 标题 ──
+        // 先处理有内容的标题（贪婪 .+），再处理流式末尾空标题。
+        h = h.replace(/^[ \t]{0,3}(#{1,6})[ \t]+(.+)[ \t]*$/gm,
+            (_, hash, content) => '<h' + hash.length + '>' + content.trimEnd() + '</h' + hash.length + '>');
+        // #无空格直接跟文字（如 #📌标题）——[ \t]* 匹配0空格 + .+ 贪婪吃掉全部内容
+        h = h.replace(/^[ \t]{0,3}(#{1,6})([^ \t\n].*)[ \t]*$/gm,
+            (_, hash, content) => '<h' + hash.length + '>' + content.trimEnd() + '</h' + hash.length + '>');
+        // 流式末尾：仅 #/##/### 无内容
+        h = h.replace(/^[ \t]{0,3}(#{1,6})[ \t]*$/gm,
+            '<span class="heading-marker">$1</span>');
         h = h.replace(/^---+/gm, '<hr>');
         h = h.replace(/^>\s?(.+)$/gm, '<blockquote>$1</blockquote>');
 
@@ -824,6 +847,9 @@
 
         return h;
     }
+
+    // DEBUG：F12 控制台输入 testHeading('#🌱测试') 验证标题解析
+    window.testHeading = function(t) { console.log('IN:', t); console.log('OUT:', processText(t)); return processText(t); };
 
     function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 

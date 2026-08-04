@@ -9,7 +9,7 @@ JAR="$SCRIPT_DIR/target/nanobot-cli.jar"
 # 源码有更新？自动重新打包
 if [[ ! -f "$JAR" ]] || [[ -n "$(find "$SCRIPT_DIR/src/main/java" -name '*.java' -newer "$JAR" 2>/dev/null | head -1)" ]]; then
     echo "(source changed, rebuilding...)"
-    (cd "$SCRIPT_DIR" && mvn package -DskipTests -q)
+    (cd "$SCRIPT_DIR" && mvn package -Dmaven.test.skip=true -q)
 fi
 
 cd "$SCRIPT_DIR" && java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "$JAR" "$@"

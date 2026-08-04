@@ -65,15 +65,63 @@ public class CliChannel {
      */
     private volatile boolean cancelled;
 
+    /** 交互对话框活跃中（权限确认/ask_user 等），CancelMonitor 暂停读终端 */
+    private volatile boolean dialogActive;
+
+    /** 终端输入锁——CancelMonitor 和交互对话框共用，防抢 System.in */
+    private final Object terminalLock = new Object();
+
     /**
      * JLine 终端 — 跨平台原始按键读取（Esc 中断，不干扰 Scanner）
      */
     private final Terminal terminal;
 
     /**
-     * 共享 Scanner — 整个 CLI 共用一个 System.in 读取器，避免多 Scanner 抢输入
+     * 共享 Scanner — 整个 CLI 共用一个 System.in 读取器，避免多 Scanner 抢输入.
+     * 所有 scanner 操作必须通过 {@link #readLine()} 同步访问，防止多线程并发读导致
+     * IndexOutOfBoundsException（Scanner 非线程安全）.
      */
-    private final Scanner scanner = new Scanner(System.in);
+    private Scanner scanner = new Scanner(System.in);  // 非 final：readLine() 异常时重建
+
+    /** 同步读一行（Scanner 非线程安全，多线程共享时必须加锁） */
+    private String readLine() {
+        synchronized (scanner) {
+            try {
+                return scanner.nextLine();
+            } catch (RuntimeException e) {
+                logger.warn("Scanner 异常，重建: {}", e.toString());
+                try { scanner.close(); } catch (Exception ignored) {}
+                scanner = new Scanner(System.in);
+                return "";
+            }
+        }
+    }
+
+    /**
+     * 交互对话框专用：从 JLine terminal.reader() 逐字符读 + 回显。
+     * 与 CancelMonitor 共用 terminalLock，确保同一时刻只有一个读终端。
+     */
+    private String readInteractiveLine() {
+        synchronized (terminalLock) {
+            if (terminal == null) return readLine();
+            NonBlockingReader reader = terminal.reader();
+            StringBuilder sb = new StringBuilder();
+            try {
+                while (true) {
+                    int ch = reader.read(200);
+                    if (ch < 0) continue;
+                    if (ch == '\r' || ch == '\n') break;
+                    sb.append((char) ch);
+                    System.out.print((char) ch);
+                    System.out.flush();
+                }
+            } catch (java.io.IOException e) {
+                logger.warn("终端读取失败: {}", e.getMessage());
+            }
+            System.out.println();
+            return sb.toString();
+        }
+    }
 
     public CliChannel(ConfigurableApplicationContext appContext) {
         this(appContext, null);
@@ -206,8 +254,8 @@ public class CliChannel {
         while (true) {
             System.out.print("> ");
             System.out.flush();
-            if (!scanner.hasNextLine()) break;
-            String line = scanner.nextLine().trim();
+            synchronized (scanner) { if (!scanner.hasNextLine()) break; }
+            String line = readLine().trim();
             if (line.isEmpty()) continue;
             if (line.startsWith("/")) {
                 String cmdName = line.length() > 1 ? line.substring(1).trim().split("\\s+")[0].toLowerCase() : "";
@@ -241,23 +289,27 @@ public class CliChannel {
         var trusted = new java.util.concurrent.atomic.AtomicBoolean(false);
 
         registry.getPermissionManager().setInteractiveHandler((tool, params, reason) -> {
-            // 已信任则直接放行，不再询问
             if (trusted.get()) return true;
 
-            System.out.println();
-            System.out.println("[!] 工具调用需要确认:");
-            System.out.println("  工具: " + tool.getName());
-            System.out.println("  参数: " + params);
-            System.out.println("  原因: " + reason);
-            System.out.print("  1=允许  2=之后都放行  3=拒绝  [1/2/3] ");
-            System.out.flush();
-            String input = scanner.nextLine().trim();
-            if ("2".equals(input)) {
-                trusted.set(true);
-                System.out.println("  已信任当前会话，后续不再询问。");
-                return true;
+            dialogActive = true;  // 先设标志，CancelMonitor 下次循环跳过
+            try {
+                System.out.println();
+                System.out.println("[!] 工具调用需要确认:");
+                System.out.println("  工具: " + tool.getName());
+                System.out.println("  参数: " + params);
+                System.out.println("  原因: " + reason);
+                System.out.print("  1=允许  2=之后都放行  3=拒绝  [1/2/3] ");
+                System.out.flush();
+                String input = readInteractiveLine().trim();
+                if ("2".equals(input)) {
+                    trusted.set(true);
+                    System.out.println("  已信任当前会话，后续不再询问。");
+                    return true;
+                }
+                return "1".equals(input);
+            } finally {
+                dialogActive = false;
             }
-            return "1".equals(input);
         });
     }
 
@@ -270,11 +322,16 @@ public class CliChannel {
         var tool = registry.get("ask_user");
         if (tool instanceof AskUserTool askTool) {
             askTool.setInteractiveHandler(question -> {
-                System.out.println();
-                System.out.println("❓ " + question);
-                System.out.print("> ");
-                System.out.flush();
-                return scanner.nextLine().trim();
+                dialogActive = true;
+                try {
+                    System.out.println();
+                    System.out.println("❓ " + question);
+                    System.out.print("> ");
+                    System.out.flush();
+                    return readInteractiveLine().trim();
+                } finally {
+                    dialogActive = false;
+                }
             });
         }
     }
@@ -595,7 +652,12 @@ public class CliChannel {
                 if (terminal != null) {
                     NonBlockingReader reader = terminal.reader();
                     while (currentRequestId != null && !cancelled) {
-                        int ch = reader.read(50); // 50ms 超时轮询
+                        if (dialogActive) { Thread.sleep(100); continue; }
+                        int ch;
+                        synchronized (terminalLock) {
+                            ch = reader.read(50);
+                        }
+                        if (ch < 0) continue;
                         if (ch == 27) { // Esc key
                             cancelled = true;
                             currentRequestId = null;
@@ -606,7 +668,7 @@ public class CliChannel {
                     // 回退：无终端时用 Enter 中断
                     while (currentRequestId != null && !cancelled) {
                         if (System.in.available() > 0) {
-                            scanner.nextLine();
+                            readLine();
                             cancelled = true;
                             currentRequestId = null;
                             break;

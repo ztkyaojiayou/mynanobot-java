@@ -75,7 +75,7 @@ class MessageBusTest {
                 .build();
 
         // 发布消息到 sessionResponses
-        messageBus.publishOutbound(message);
+        messageBus.publishSessionResponse(message);
 
         // 通过 waitForSessionResponse 按 requestId 匹配取出
         OutboundMessage consumed = messageBus.waitForSessionResponse(
@@ -126,7 +126,7 @@ class MessageBusTest {
         // 异步发布（用 CompletableFuture 模拟）
         CompletableFuture.runAsync(() -> {
             try {
-                messageBus.publishOutbound(message);
+                messageBus.publishSessionResponse(message);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
