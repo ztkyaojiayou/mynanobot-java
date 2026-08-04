@@ -31,7 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class MCPManager {
     
-    private static final Logger log = LoggerFactory.getLogger(MCPManager.class);
+    private static final Logger logger = LoggerFactory.getLogger(MCPManager.class);
     
     /**
      * MCP 客户端映射（服务器名称 -> 客户端）
@@ -41,7 +41,7 @@ public class MCPManager {
     /**
      * 是否已初始化
      */
-    private boolean initialized = false;
+    private volatile boolean initialized = false;
     
     // ==================== 初始化方法 ====================
     
@@ -53,7 +53,7 @@ public class MCPManager {
      */
     public void initialize(Config config, ToolRegistry toolRegistry) {
         if (initialized) {
-            log.warn("MCPManager already initialized");
+            logger.warn("MCPManager already initialized");
             return;
         }
         
@@ -66,37 +66,37 @@ public class MCPManager {
         // 兜底：检查顶层 mcpServers（兼容旧配置格式）
         if ((servers == null || servers.isEmpty()) && config.getMcpServers() != null) {
             servers = config.getMcpServers();
-            log.info("MCP: using top-level mcpServers ({} entries)", servers.size());
+            logger.info("MCP: using top-level mcpServers ({} entries)", servers.size());
         }
 
-        log.info("MCP config: tools={}, servers={}",
+        logger.info("MCP config: tools={}, servers={}",
                 toolsConfig != null ? toolsConfig.getClass().getSimpleName() : "null",
                 servers != null ? servers.keySet() : "null");
         if (servers == null || servers.isEmpty()) {
-            log.info("No MCP servers configured");
+            logger.info("No MCP servers configured");
             return;
         }
         
-        log.info("Initializing MCP servers...");
+        logger.info("Initializing MCP servers...");
         
         for (Map.Entry<String, Config.MCPServerConfig> entry : servers.entrySet()) {
             String serverName = entry.getKey();
             Config.MCPServerConfig serverConfig = entry.getValue();
             
             if (!serverConfig.isEnable()) {
-                log.debug("MCP server {} is disabled", serverName);
+                logger.debug("MCP server {} is disabled", serverName);
                 continue;
             }
             
             try {
                 addServer(serverName, serverConfig, toolRegistry);
             } catch (Exception e) {
-                log.error("Failed to initialize MCP server {}: {}", serverName, e.getMessage());
+                logger.error("Failed to initialize MCP server {}: {}", serverName, e.getMessage());
             }
         }
         
         initialized = true;
-        log.info("MCP initialization complete");
+        logger.info("MCP initialization complete");
     }
     
     /**
@@ -110,7 +110,7 @@ public class MCPManager {
         // 创建客户端
         MCPClient client = createClient(serverName, config);
         if (client == null) {
-            log.error("Failed to create MCP client for {}", serverName);
+            logger.error("Failed to create MCP client for {}", serverName);
             return;
         }
         
@@ -120,22 +120,22 @@ public class MCPManager {
         try {
             // 获取工具列表并注册
             List<MCPToolInfo> tools = client.listTools().get();
-            log.info("Discovered {} tools from MCP server {}", tools.size(), serverName);
+            logger.info("Discovered {} tools from MCP server {}", tools.size(), serverName);
             
             for (MCPToolInfo toolInfo : tools) {
                 // 检查是否在启用列表中
                 if (!isToolEnabled(config.getEnabledTools(), toolInfo.getName())) {
-                    log.debug("Tool {} is not enabled", toolInfo.getName());
+                    logger.debug("Tool {} is not enabled", toolInfo.getName());
                     continue;
                 }
                 
                 MCPToolWrapper wrapper = new MCPToolWrapper(client, toolInfo);
                 toolRegistry.register(wrapper);
-                log.debug("Registered MCP tool: {}", wrapper.getName());
+                logger.debug("Registered MCP tool: {}", wrapper.getName());
             }
             
         } catch (Exception e) {
-            log.error("Failed to register tools from MCP server {}: {}", serverName, e.getMessage());
+            logger.error("Failed to register tools from MCP server {}: {}", serverName, e.getMessage());
             clients.remove(serverName);
             client.close();
         }
@@ -153,7 +153,7 @@ public class MCPManager {
         } else if ("sse".equalsIgnoreCase(type)) {
             return new SseMCPClient(serverName, config);
         } else {
-            log.error("Unknown MCP transport type: {}", type);
+            logger.error("Unknown MCP transport type: {}", type);
             return null;
         }
     }
@@ -193,21 +193,21 @@ public class MCPManager {
      * 关闭所有 MCP 客户端
      */
     public void close() {
-        log.info("Closing all MCP clients...");
+        logger.info("Closing all MCP clients...");
         
         for (Map.Entry<String, MCPClient> entry : clients.entrySet()) {
             try {
                 entry.getValue().close();
-                log.debug("Closed MCP client: {}", entry.getKey());
+                logger.debug("Closed MCP client: {}", entry.getKey());
             } catch (Exception e) {
-                log.error("Failed to close MCP client {}: {}", entry.getKey(), e.getMessage());
+                logger.error("Failed to close MCP client {}: {}", entry.getKey(), e.getMessage());
             }
         }
         
         clients.clear();
         initialized = false;
         
-        log.info("All MCP clients closed");
+        logger.info("All MCP clients closed");
     }
     
     /**

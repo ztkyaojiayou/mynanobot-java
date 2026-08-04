@@ -12,10 +12,10 @@ public final class MarkdownRenderer {
     private MarkdownRenderer() {}
 
     // ═══════════ ANSI 样式 ═══════════
-    private static final String R = "\033[0m";
-    private static final String B = "\033[1m";
-    private static final String I = "\033[3m";
-    private static final String U = "\033[4m";
+    private static final String RESET  = "\033[0m";
+    private static final String BOLD   = "\033[1m";
+    private static final String ITALIC = "\033[3m";
+    private static final String UNDERLINE = "\033[4m";
     private static final String PURPLE = "\033[38;5;99m";
     private static final String CYAN   = "\033[38;5;80m";
     private static final String GREEN  = "\033[38;5;78m";
@@ -50,11 +50,11 @@ public final class MarkdownRenderer {
                     lang = line.length() > 3 ? line.substring(3).trim() : "";
                     sb.append(GRAY).append(" ╭─").append(lang.isEmpty() ? "" : " " + lang).append(" ")
                             .append("─".repeat(Math.max(width - 8 - lang.length(), 8)))
-                            .append(R).append("\n");
+                            .append(RESET).append("\n");
                 } else {
                     inCodeBlock = false;
                     sb.append(GRAY).append(" ╰").append("─".repeat(Math.max(width - 4, 8)))
-                            .append(R).append("\n");
+                            .append(RESET).append("\n");
                 }
                 continue;
             }
@@ -62,44 +62,44 @@ public final class MarkdownRenderer {
             if (inCodeBlock) {
                 // 代码行：灰色背景
                 sb.append(DARK).append(" ").append(fixWidth(line, width - 2))
-                        .append(" ").append(R).append("\n");
+                        .append(" ").append(RESET).append("\n");
                 continue;
             }
 
             // 标题（兼容"### heading"和"###heading"两种写法）
             if (line.startsWith("###") && !line.startsWith("####")) {
                 String text = stripHeadingMarker(line, 3);
-                sb.append(B).append(PURPLE).append(text).append(R).append("\n");
+                sb.append(BOLD).append(PURPLE).append(text).append(RESET).append("\n");
                 continue;
             }
             if (line.startsWith("##") && !line.startsWith("###")) {
                 String text = stripHeadingMarker(line, 2);
-                sb.append(B).append(CYAN).append(text).append(R).append("\n");
+                sb.append(BOLD).append(CYAN).append(text).append(RESET).append("\n");
                 continue;
             }
             if (line.startsWith("#") && !line.startsWith("##")) {
                 String text = stripHeadingMarker(line, 1);
-                sb.append(B).append(GREEN).append(text).append(R).append("\n");
+                sb.append(BOLD).append(GREEN).append(text).append(RESET).append("\n");
                 continue;
             }
 
             // 列表项
             String rendered = line;
             if (rendered.startsWith("- ") || rendered.startsWith("* ")) {
-                rendered = "  " + GREEN + "•" + R + " " + rendered.substring(2);
+                rendered = "  " + GREEN + "•" + RESET + " " + rendered.substring(2);
             } else if (rendered.matches("^\\d+\\.\\s.*")) {
-                rendered = rendered.replaceFirst("^(\\d+\\.)(\\s)", GREEN + "$1" + R + " ");
+                rendered = rendered.replaceFirst("^(\\d+\\.)(\\s)", GREEN + "$1" + RESET + " ");
             }
 
             // 行内样式
-            rendered = BOLD_PATTERN.matcher(rendered).replaceAll(B + "$1" + R);
-            rendered = ITALIC_PATTERN.matcher(rendered).replaceAll(I + "$1" + R);
-            rendered = CODE_PATTERN.matcher(rendered).replaceAll(GRAY + DARK + "$1" + R);
-            rendered = LINK_PATTERN.matcher(rendered).replaceAll(CYAN + U + "$1" + R + GRAY + " ($2)" + R);
+            rendered = BOLD_PATTERN.matcher(rendered).replaceAll(BOLD + "$1" + RESET);
+            rendered = ITALIC_PATTERN.matcher(rendered).replaceAll(ITALIC + "$1" + RESET);
+            rendered = CODE_PATTERN.matcher(rendered).replaceAll(GRAY + DARK + "$1" + RESET);
+            rendered = LINK_PATTERN.matcher(rendered).replaceAll(CYAN + UNDERLINE + "$1" + RESET + GRAY + " ($2)" + RESET);
 
             // 水平线
             if (rendered.equals("---") || rendered.equals("***")) {
-                sb.append(GRAY).append("─".repeat(width)).append(R).append("\n");
+                sb.append(GRAY).append("─".repeat(width)).append(RESET).append("\n");
                 continue;
             }
 
@@ -128,16 +128,16 @@ public final class MarkdownRenderer {
     private static String renderStreamingLine(String s) {
         // 流式标题
         if (s.startsWith("###") && !s.startsWith("####")) {
-            s = B + PURPLE + s + R;
+            s = BOLD + PURPLE + s + RESET;
         } else if (s.startsWith("##") && !s.startsWith("###")) {
-            s = B + CYAN + s + R;
+            s = BOLD + CYAN + s + RESET;
         } else if (s.startsWith("#") && !s.startsWith("##")) {
-            s = B + GREEN + s + R;
+            s = BOLD + GREEN + s + RESET;
         }
 
-        s = BOLD_PATTERN.matcher(s).replaceAll(B + "$1" + R);
-        s = ITALIC_PATTERN.matcher(s).replaceAll(I + "$1" + R);
-        s = CODE_PATTERN.matcher(s).replaceAll(GRAY + DARK + "$1" + R);
+        s = BOLD_PATTERN.matcher(s).replaceAll(BOLD + "$1" + RESET);
+        s = ITALIC_PATTERN.matcher(s).replaceAll(ITALIC + "$1" + RESET);
+        s = CODE_PATTERN.matcher(s).replaceAll(GRAY + DARK + "$1" + RESET);
         return s;
     }
 

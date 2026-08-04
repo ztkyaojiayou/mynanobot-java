@@ -5,6 +5,9 @@ import com.nanobot.command.Command;
 import com.nanobot.command.CommandContext;
 import com.nanobot.session.SessionManager;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -48,9 +51,11 @@ public class ResumeCommand implements Command {
         int count = 0;
         for (var s : sessions) {
             if (++count > 5) break;
+            String time = DateTimeFormatter.ofPattern("MM-dd HH:mm")
+                    .withZone(ZoneId.systemDefault())
+                    .format(Instant.ofEpochMilli(s.lastModified()));
             System.out.printf("  %-40s %4d 条消息  %s%n",
-                    s.key(), s.messageCount(),
-                    new java.text.SimpleDateFormat("MM-dd HH:mm").format(new java.util.Date(s.lastModified())));
+                    s.key(), s.messageCount(), time);
         }
         return false;
     }

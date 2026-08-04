@@ -51,6 +51,7 @@ public class CommandState implements AgentState {
 
     @Override
     public TurnState execute(TurnContext ctx) {
+        if (ctx.getMessage() == null) return TurnState.BUILD;
         String content = ctx.getMessage().getContent();
         if (content == null || !content.startsWith("/")) return TurnState.BUILD;
 
@@ -159,7 +160,7 @@ public class CommandState implements AgentState {
         sb.append("📊 全局\n\n");
         sb.append("会话总数: ").append(sessionManager.getSessionCount()).append(" 个\n");
         sb.append("入站队列: ").append(messageBus.getInboundSize())
-                .append("/").append(100 - messageBus.getInboundRemainingCapacity() + 100).append("\n");
+                .append("/100\n");
         sb.append("出站队列: ").append(messageBus.getOutboundQueueSize()).append("/1000\n");
         sb.append("订阅者数: ").append(messageBus.getSubscriberCount()).append("\n");
     }
@@ -248,7 +249,7 @@ public class CommandState implements AgentState {
     /** 发布 _session_cleared 事件到 outboundQueue，通知各通道清空展示 */
     private void publishSessionCleared(TurnContext ctx) {
         try {
-            String requestId = extractRequestId(ctx);
+            String requestId = ctx.extractRequestId();
             OutboundMessage msg = OutboundMessage.builder()
                     .sessionId(ctx.getSessionKey())
                     .requestId(requestId)
@@ -259,11 +260,5 @@ public class CommandState implements AgentState {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-    }
-
-    private static String extractRequestId(TurnContext ctx) {
-        if (ctx.getMessage().getMetadata() == null) return null;
-        Object o = ctx.getMessage().getMetadata().get("requestId");
-        return o instanceof String s ? s : null;
     }
 }

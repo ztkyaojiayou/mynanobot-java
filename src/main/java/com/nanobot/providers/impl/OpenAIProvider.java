@@ -21,6 +21,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * OpenAI API 提供商实现
  * =========================
@@ -68,79 +71,43 @@ import java.util.stream.Collectors;
  * }).join();
  * ```
  */
-public class OpenAIProvider implements LLMProvider {
+public class OpenAIProvider extends AbstractLLMProvider {
+
+    private static final Logger logger = LoggerFactory.getLogger(OpenAIProvider.class);
 
     // ==================== 常量 ====================
 
     /** API 基础 URL */
     private static final String DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
-    /** API 版本 */
-    private static final String API_VERSION = "v1";
-
-    /** 连接超时时间 */
-    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(30);
-
-    /** 请求超时时间（包含流式响应的读取时间） */
-    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(300);
-
     // ==================== 配置 ====================
 
-    private final String apiKey;
-    private final String apiBase;
-    private final String model;
     private final int maxTokens;
     private final double temperature;
     private final Map<String, String> extraHeaders;
     private final Map<String, Object> extraBody;
 
-    // ==================== HTTP 客户端 ====================
-
-    private final HttpClient httpClient;
-    private final ObjectMapper objectMapper;
-
     // ==================== 构造函数 ====================
 
-    /**
-     * 创建 OpenAI 提供商
-     *
-     * @param apiKey OpenAI API 密钥
-     */
     public OpenAIProvider(String apiKey) {
         this(apiKey, "gpt-4-turbo-preview");
     }
 
-    /**
-     * 创建 OpenAI 提供商（指定模型）
-     *
-     * @param apiKey API 密钥
-     * @param model 模型名称
-     */
     public OpenAIProvider(String apiKey, String model) {
         this(apiKey, model, DEFAULT_BASE_URL);
     }
 
-    /**
-     * 创建 OpenAI 提供商（完整配置）
-     *
-     * @param apiKey API 密钥
-     * @param model 模型名称
-     * @param apiBase API 基础 URL
-     */
     public OpenAIProvider(String apiKey, String model, String apiBase) {
-        this.apiKey = Objects.requireNonNull(apiKey, "API key cannot be null");
-        this.model = Objects.requireNonNull(model, "Model cannot be null");
-        this.apiBase = apiBase != null ? apiBase : DEFAULT_BASE_URL;
+        super(apiKey, model, apiBase != null ? apiBase : DEFAULT_BASE_URL);
         this.maxTokens = 4096;
         this.temperature = 0.7;
         this.extraHeaders = Map.of();
         this.extraBody = Map.of();
 
-        this.httpClient = HttpClient.newBuilder()
-            .connectTimeout(CONNECT_TIMEOUT)
-            .build();
-        this.objectMapper = new ObjectMapper();
+        logger.info("OpenAIProvider initialized: model={}, baseUrl={}", this.model, this.apiBase);
     }
+
+    @Override protected String defaultBaseUrl() { return DEFAULT_BASE_URL; }
 
     /**
      * 创建 OpenAI 提供商（使用配置对象）
@@ -202,6 +169,9 @@ public class OpenAIProvider implements LLMProvider {
                 HttpResponse<String> response = httpClient.send(request,
                     HttpResponse.BodyHandlers.ofString());
                 return parseResponse(response);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return LLMResponse.error("Request interrupted", "interrupted");
             } catch (Exception e) {
                 return handleException(e);
             }
@@ -236,7 +206,9 @@ public class OpenAIProvider implements LLMProvider {
 
                 if (response.statusCode() != 200) {
                     String body = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
-                    return LLMResponse.error("HTTP error: " + response.statusCode() + " - " + body, "http_error");
+                    logger.warn("OpenAI API returned {}: {}",
+                            response.statusCode(), body.length() > 200 ? body.substring(0, 200) : body);
+                    return LLMResponse.httpError(response.statusCode(), body);
                 }
 
                 // ② 解析 SSE 流
@@ -253,7 +225,11 @@ public class OpenAIProvider implements LLMProvider {
                     );
                 }
 
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return LLMResponse.error("Streaming interrupted", "interrupted");
             } catch (Exception e) {
+                logger.error("OpenAI streaming request failed: {}", e.getMessage());
                 return handleException(e);
             }
         });
@@ -563,6 +539,10 @@ public class OpenAIProvider implements LLMProvider {
      * 处理异常
      */
     private LLMResponse handleException(Exception e) {
+        if (e instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
+            return LLMResponse.error("Request interrupted", "interrupted");
+        }
         if (e instanceof java.net.http.HttpTimeoutException) {
             return LLMResponse.timeout(120.0);
         } else if (e instanceof java.net.ConnectException) {

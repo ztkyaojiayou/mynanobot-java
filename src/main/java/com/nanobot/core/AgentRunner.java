@@ -17,6 +17,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -89,7 +90,7 @@ import java.util.stream.Collectors;
  * System.out.println(result);
  * ```
  */
-public class AgentRunner {
+public class AgentRunner implements AutoCloseable {
 
     // ==================== 日志 ====================
 
@@ -404,7 +405,7 @@ public class AgentRunner {
             return handleErrorResponse(context, response.getError());
         }
 
-        // 路径A：LLM 决定调用工具 → 执行工具 → 结果追加到 workingMessages → 递归回 agentLoopInner 继续下一轮
+        // 路径A：LLM 决定调用工具 → 执行工具 → 结果追加到 workingMessages → 递归回 runInternal 继续下一轮
         if (response.shouldExecuteTools()) {
             return handleToolCallResponse(
                     context, response, workingMessages, onDelta, iteration, consecutiveToolFailures);
@@ -541,31 +542,41 @@ public class AgentRunner {
     /**
      * 联网搜索被禁用后的回退 — 不带工具定义重新调用 LLM 并记录助手消息.
      */
-    private CompletableFuture<String> retryLLMWithoutWebTools(
-            TurnContext context,
-            List<Map<String, Object>> workingMessages,
-            Consumer<String> onDelta) {
+    /**
+     * 不带工具调用 LLM（合并 retryLLMWithoutWebTools 和 callLLMWithoutTools）.
+     *
+     * @param addToMessages 是否将 assistant 回复追加到 workingMessages
+     * @param emptyFallback content 为空时的兜底文本
+     * @param errorPrefix   异常时的提示前缀
+     */
+    private CompletableFuture<String> callLLMWithoutTools(
+            TurnContext ctx, List<Map<String, Object>> msgs, Consumer<String> delta,
+            boolean addToMessages, String emptyFallback, String errorPrefix) {
 
-        List<LLMProvider.Message> llmMsgs = convertToLLMMessages(workingMessages);
-        CompletableFuture<LLMResponse> future;
-        if (onDelta != null && provider.supportsStreaming()) {
-            future = provider.chatStream(llmMsgs, Collections.emptyList(), onDelta);
+        List<LLMProvider.Message> llmMsgs = convertToLLMMessages(msgs);
+        CompletableFuture<LLMResponse> f;
+        if (delta != null && provider.supportsStreaming()) {
+            f = provider.chatStream(llmMsgs, Collections.emptyList(), delta);
         } else {
-            future = provider.chat(llmMsgs, Collections.emptyList());
+            f = provider.chat(llmMsgs, Collections.emptyList());
         }
 
-        return future.thenCompose(response -> {
-            context.addUsage(response.getPromptTokens(), response.getCompletionTokens());
-            String content = response.getContent();
-            if (content == null || content.isBlank()) {
-                content = "(无内容)";
-            }
-            workingMessages.add(Map.of("role", "assistant", "content", content));
-            return CompletableFuture.completedFuture(content);
-        }).exceptionally(error -> {
-            logger.error("Exception when calling LLM without tools: {}", error.getMessage(), error);
-            return "发生异常：" + error.getMessage();
+        return f.thenCompose(r -> {
+            ctx.addUsage(r.getPromptTokens(), r.getCompletionTokens());
+            String c = r.getContent();
+            if (c == null || c.isBlank()) c = emptyFallback;
+            if (addToMessages) msgs.add(Map.of("role", "assistant", "content", c));
+            return CompletableFuture.completedFuture(c);
+        }).exceptionally(e -> {
+            logger.error("LLM without tools failed: {}", e.getMessage());
+            return errorPrefix + e.getMessage();
         });
+    }
+
+    /** 降级重试：连续失败后不带工具回答，追加到消息历史 */
+    private CompletableFuture<String> retryLLMWithoutWebTools(
+            TurnContext ctx, List<Map<String, Object>> msgs, Consumer<String> delta) {
+        return callLLMWithoutTools(ctx, msgs, delta, true, "(无内容)", "发生异常：");
     }
 
     // ==================== 工具执行 ====================
@@ -625,7 +636,8 @@ public class AgentRunner {
                             .content("🔧 " + toolName)
                             .metadata(java.util.Map.of("_tool_call", true))
                             .build());
-                } catch (Exception ignored) {
+                } catch (Exception e) {
+                    logger.debug("工具通知发送失败: {}", e.getMessage());
                 }
             }
 
@@ -765,22 +777,11 @@ public class AgentRunner {
         return found > 0 && failed == found;
     }
 
+    /** 不带工具回答，不追加到消息历史（guard 条件触发时使用） */
     private CompletableFuture<String> callLLMWithoutTools(
             TurnContext ctx, List<Map<String, Object>> msgs, Consumer<String> delta) {
         logger.info("Fallback LLM (no tools) for session: {}", ctx.getSessionKey());
-        List<LLMProvider.Message> llmMsgs = convertToLLMMessages(msgs);
-        CompletableFuture<LLMResponse> f;
-        if (delta != null && provider.supportsStreaming())
-            f = provider.chatStream(llmMsgs, Collections.emptyList(), delta);
-        else
-            f = provider.chat(llmMsgs, Collections.emptyList());
-        return f.thenApply(r -> {
-            String c = r.getContent();
-            return (c == null || c.isBlank()) ? "[工具调用失败，请重试]" : c;
-        }).exceptionally(e -> {
-            logger.error("Fallback LLM call failed: {}", e.getMessage());
-            return "抱歉，工具调用出现异常：" + e.getMessage();
-        });
+        return callLLMWithoutTools(ctx, msgs, delta, false, "[工具调用失败，请重试]", "抱歉，工具调用出现异常：");
     }
 
     // ==================== 消息处理 ====================
@@ -901,6 +902,7 @@ public class AgentRunner {
                                 String argsJson = objectMapper.writeValueAsString(args);
                                 func.put("arguments", argsJson);
                             } catch (Exception e) {
+                                logger.warn("工具参数序列化失败: {}", e.getMessage());
                                 func.put("arguments", "{}");
                             }
                         }
@@ -1059,6 +1061,16 @@ public class AgentRunner {
 
     public void shutdown() {
         toolExecutor.shutdown();
+        try {
+            if (!toolExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                toolExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            toolExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
         logger.info("AgentRunner shutdown");
     }
+
+    @Override public void close() { shutdown(); }
 }

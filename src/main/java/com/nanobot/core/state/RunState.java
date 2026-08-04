@@ -45,8 +45,9 @@ public class RunState implements AgentState {
 
     @Override
     public TurnState execute(TurnContext ctx) {
+        if (ctx.getMessage() == null) return TurnState.RESPOND;
         String connectionId = ctx.getMessage().getConnectionId();
-        String requestId = extractRequestId(ctx);
+        String requestId = ctx.extractRequestId();
         boolean streamMode = extractStreamMode(ctx);
         String sessionId = ctx.getMessage().getSessionId();
 
@@ -170,12 +171,6 @@ public class RunState implements AgentState {
         } catch (Exception e) {
             logger.warn("Failed to publish stream end: {}", e.getMessage());
         }
-    }
-
-    private static String extractRequestId(TurnContext ctx) {
-        if (ctx.getMessage().getMetadata() == null) return null;
-        Object o = ctx.getMessage().getMetadata().get("requestId");
-        return o instanceof String s ? s : null;
     }
 
     private static boolean extractStreamMode(TurnContext ctx) {

@@ -86,7 +86,69 @@ public class LLMResponse {
             "timeout"
         );
     }
-    
+
+    /**
+     * 将 HTTP 错误映射为用户友好的中文提示.
+     */
+    public static LLMResponse httpError(int statusCode, String responseBody) {
+        return error(toUserFriendlyError(statusCode, responseBody), "http_error");
+    }
+
+    /**
+     * LLM API 常见 HTTP 状态码枚举 — 统一管理状态码和用户提示.
+     */
+    public enum HttpStatus {
+        OK(200, "请求成功"),
+        BAD_REQUEST(400, "请求参数有误，请检查输入内容。"),
+        UNAUTHORIZED(401, "API Key 无效或已过期，请检查配置文件中的 API Key。"),
+        FORBIDDEN(403, "API Key 无效或已过期，请检查配置文件中的 API Key。"),
+        NOT_FOUND(404, "API 端点不存在，请检查 API 地址配置。"),
+        TOO_MANY_REQUESTS(429, "请求过于频繁，已被限流。请稍等片刻再试。"),
+        INTERNAL_ERROR(500, "AI 服务端异常，请稍后重试。"),
+        BAD_GATEWAY(502, "AI 服务网关异常，请稍后重试。"),
+        SERVICE_UNAVAILABLE(503, "") {  // 动态消息，根据 body 判断子场景
+            @Override
+            String toUserMessage(String body) {
+                if (body != null && body.contains("service_unavailable")) {
+                    return "AI 服务当前繁忙，请稍后重试。\n\n💡 建议：等待几秒后重新发送消息，或临时切换到其他模型。";
+                }
+                return "服务暂时不可用，请稍后重试。";
+            }
+        },
+        GATEWAY_TIMEOUT(504, "AI 服务响应超时，请稍后重试。");
+
+        private final int code;
+        private final String message;
+
+        HttpStatus(int code, String message) {
+            this.code = code;
+            this.message = message;
+        }
+
+        public int code() { return code; }
+
+        /** 正文不敏感时直接返回预设消息，子类重写以支持动态判断 */
+        String toUserMessage(String body) {
+            return message;
+        }
+
+        /** 根据状态码查找枚举，未知 5xx 归入 INTERNAL_ERROR */
+        static HttpStatus of(int code) {
+            for (HttpStatus s : values()) {
+                if (s.code == code) return s;
+            }
+            return code >= 500 ? INTERNAL_ERROR : null;
+        }
+    }
+
+    private static String toUserFriendlyError(int statusCode, String body) {
+        HttpStatus status = HttpStatus.of(statusCode);
+        if (status != null) {
+            return status.toUserMessage(body);
+        }
+        return String.format("请求失败（HTTP %d）", statusCode);
+    }
+
     // ==================== 自定义 Getter 方法 ====================
     
     public boolean shouldExecuteTools() {

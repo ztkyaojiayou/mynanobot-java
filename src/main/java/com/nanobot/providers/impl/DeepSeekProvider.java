@@ -35,29 +35,21 @@ import java.util.function.Consumer;
  *
  * API 文档：https://platform.deepseek.com/api-docs
  */
-public class DeepSeekProvider implements LLMProvider {
+public class DeepSeekProvider extends AbstractLLMProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(DeepSeekProvider.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper();
-
-    private final String apiKey;
-    private final String model;
-    private final String apiBase;
-    private final HttpClient httpClient;
+    private static final ObjectMapper SHARED_MAPPER = new ObjectMapper();
 
     public DeepSeekProvider(String apiKey, String model) {
         this(apiKey, model, "https://api.deepseek.com");
     }
 
     public DeepSeekProvider(String apiKey, String model, String apiBase) {
-        this.apiKey = apiKey;
-        this.model = model;
-        this.apiBase = apiBase;
-        this.httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(30))
-            .build();
+        super(apiKey, model, apiBase);
         logger.info("DeepSeekProvider initialized for model: {}", model);
     }
+
+    @Override protected String defaultBaseUrl() { return "https://api.deepseek.com"; }
 
     @Override
     public String getName() {
@@ -89,25 +81,23 @@ public class DeepSeekProvider implements LLMProvider {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 String requestBody = buildRequestBody(messages, tools);
-
-                HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(apiBase + "/chat/completions"))
-                    .header("Authorization", "Bearer " + apiKey)
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                    .timeout(Duration.ofSeconds(300))
-                    .build();
-
-                HttpResponse<String> response = httpClient.send(request,
-                    HttpResponse.BodyHandlers.ofString());
+                String endpoint = apiBase + "/chat/completions";
+                HttpResponse<String> response = sendSync(endpoint, requestBody);
 
                 if (response.statusCode() == 200) {
                     return parseResponse(response.body());
                 } else {
-                    logger.error("DeepSeek API error: {} - {}", response.statusCode(), response.body());
-                    return LLMResponse.error("API request failed: " + response.statusCode(), "api_error");
+                    String body = response.body();
+                    // 截断+脱敏，防止 API Key 泄露到日志
+                    String safeBody = body.length() > 200 ? body.substring(0, 200) + "..." : body;
+                    safeBody = safeBody.replaceAll("sk-[a-zA-Z0-9]+", "sk-***");
+                    logger.warn("DeepSeek API returned {}: {}", response.statusCode(), safeBody);
+                    return LLMResponse.httpError(response.statusCode(), body);
                 }
 
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return LLMResponse.error("Request interrupted", "interrupted");
             } catch (Exception e) {
                 logger.error("DeepSeek API request failed", e);
                 return LLMResponse.error("Failed to call DeepSeek API: " + e.getMessage(), "network_error");
@@ -132,21 +122,13 @@ public class DeepSeekProvider implements LLMProvider {
             try {
                 // ① 构建流式请求并发送
                 String requestBody = buildRequestBody(messages, tools, true);
+                String endpoint = apiBase + "/chat/completions";
+                HttpResponse<InputStream> response = sendStreaming(endpoint, requestBody);
 
-                HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(apiBase + "/chat/completions"))
-                    .header("Authorization", "Bearer " + apiKey)
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                    .timeout(Duration.ofSeconds(300))
-                    .build();
-
-                HttpResponse<InputStream> response = httpClient.send(request,
-                    HttpResponse.BodyHandlers.ofInputStream());
-
-                if (response.statusCode() != 200) {
-                    String body = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
-                    return LLMResponse.error("HTTP error: " + response.statusCode() + " - " + body, "http_error");
+                LLMResponse err = checkHttpStatus(response);
+                if (err != null) {
+                    logger.warn("DeepSeek API stream returned {}", response.statusCode());
+                    return err;
                 }
 
                 // ② 解析 SSE 流。
@@ -167,6 +149,9 @@ public class DeepSeekProvider implements LLMProvider {
 
                 return LLMResponse.success(acc.content.toString(), "stop", null);
 
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return LLMResponse.error("Streaming interrupted", "interrupted");
             } catch (Exception e) {
                 logger.error("DeepSeek streaming request failed", e);
                 return LLMResponse.error("Failed to call DeepSeek API: " + e.getMessage(), "network_error");
@@ -229,7 +214,7 @@ public class DeepSeekProvider implements LLMProvider {
 
     private String buildRequestBody(List<Message> messages, List<JsonNode> tools, boolean stream) {
         try {
-            Map<String, Object> body = new HashMap<>();
+            Map<String, Object> body = new HashMap<>(8);
             body.put("model", model);
             body.put("max_tokens", 8192);
             body.put("temperature", 0.7);
@@ -251,7 +236,7 @@ public class DeepSeekProvider implements LLMProvider {
                         toolCall.put("id", tc.getId());
                         toolCall.put("type", "function");
 
-                        Map<String, Object> function = new HashMap<>();
+                        Map<String, Object> function = new HashMap<>(4);
                         function.put("name", tc.getName());
                         // DeepSeek API 要求 arguments 必须是字符串格式（JSON 字符串）
                         Object args = tc.getArguments();

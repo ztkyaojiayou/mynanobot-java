@@ -101,7 +101,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * bus.publishInbound(message);
  * ```
  */
-public class AgentLoop {
+public class AgentLoop implements AutoCloseable {
 
     // ==================== 日志 ====================
 
@@ -294,11 +294,21 @@ public class AgentLoop {
         }
 
         messageExecutor.shutdown();
+        try {
+            if (!messageExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                messageExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            messageExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
         messageBus.stop();
         runner.shutdown();
 
         logger.info("AgentLoop stopped");
     }
+
+    @Override public void close() { stop(); }
 
     // ==================== 主循环 ====================
 
@@ -629,7 +639,7 @@ public class AgentLoop {
             // sync /api/chat阻塞式对话请求用于轮询匹配
             //具体就是发送到sessionResponses中，它是一个map：session-response，
             // 即一个请求一个响应，非常鲜明
-            messageBus.publishOutbound(response);
+            messageBus.publishSessionResponse(response);
             // 流式通道（SSE/CLI/WS）也推送一份，推到outboundQueue队列中，
             // 再会通过前面启动的扇出线程，将这个响应复制到subscriberQueues队列中，
             // 而每个流式对话请求都会在将自己的请求发送到入站队列后就会生成/订阅一个这样的队列，

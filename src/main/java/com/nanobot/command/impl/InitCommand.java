@@ -13,6 +13,9 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * /init — 分析当前项目并生成 NANOBOT.md。
  *
@@ -22,6 +25,8 @@ import java.util.stream.Collectors;
  * 3. Java 直接写入文件
  */
 public class InitCommand implements Command {
+
+    private static final Logger logger = LoggerFactory.getLogger(InitCommand.class);
 
     /** NANOBOT.md 文件名 */
     private static final String NANOBOT_FILENAME = "NANOBOT.md";
@@ -78,7 +83,7 @@ public class InitCommand implements Command {
             Files.writeString(outputPath, content);
             System.out.println("[OK] 已生成: " + outputPath.toAbsolutePath() + "（模板模式，" + content.length() + " 字符）");
         } catch (IOException e) {
-            System.err.println("[ERR] 写入失败: " + e.getMessage());
+            logger.error("写入 NANOBOT.md 失败: {}", e.getMessage(), e);
         }
 
         return false;

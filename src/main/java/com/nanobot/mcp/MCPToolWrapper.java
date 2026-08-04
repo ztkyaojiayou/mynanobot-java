@@ -33,7 +33,7 @@ import java.util.concurrent.CompletableFuture;
  */
 public class MCPToolWrapper implements Tool {
     
-    private static final Logger log = LoggerFactory.getLogger(MCPToolWrapper.class);
+    private static final Logger logger = LoggerFactory.getLogger(MCPToolWrapper.class);
     
     /**
      * MCP 客户端
@@ -97,20 +97,20 @@ public class MCPToolWrapper implements Tool {
             }
         }
         
-        log.debug("Calling MCP tool {} with params: {}", qualifiedName, filteredParams);
+        logger.debug("Calling MCP tool {} with params: {}", qualifiedName, filteredParams);
         
         return client.callTool(toolInfo.getName(), filteredParams)
                 .thenApply(result -> {
                     if (result.isSuccess()) {
-                        log.debug("MCP tool {} returned: {}", qualifiedName, result.toString());
+                        logger.debug("MCP tool {} returned: {}", qualifiedName, result.toString());
                         return (Object) result.toString();
                     } else {
-                        log.warn("MCP tool {} failed: {}", qualifiedName, result.getErrorMessage());
+                        logger.warn("MCP tool {} failed: {}", qualifiedName, result.getErrorMessage());
                         return (Object) ("Error: " + result.getErrorMessage());
                     }
                 })
                 .exceptionally(e -> {
-                    log.error("MCP tool {} exception: {}", qualifiedName, e.getMessage());
+                    logger.error("MCP tool {} exception: {}", qualifiedName, e.getMessage());
                     return (Object) ("Error: " + e.getMessage());
                 });
     }

@@ -164,8 +164,7 @@ class SessionStore {
         try { return mapper.writeValueAsString(obj); } catch (Exception e) { return "{}"; }
     }
 
-    @SuppressWarnings("unchecked")
     static Map<String, Object> fromJson(String json) {
-        try { return mapper.readValue(json, Map.class); } catch (Exception e) { return Map.of(); }
+        try { return mapper.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<>() {}); } catch (Exception e) { return Map.of(); }
     }
 }

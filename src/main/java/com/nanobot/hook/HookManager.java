@@ -101,7 +101,7 @@ public class HookManager {
      * 使用 CopyOnWriteArrayList：运行时只读（遍历匹配），启动时写入（加载配置），
      * 免去读锁开销。遍历 O(n)，n 通常 < 20.
      */
-    private final List<Hook> hooks = new ArrayList<>();
+    private final List<Hook> hooks = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     // ═══════════════════════════════════════════════════════════════════
     // 内置统计（替代旧 MetricsHook，供 /stats 查询）

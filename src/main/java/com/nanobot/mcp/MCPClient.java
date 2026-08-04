@@ -2,6 +2,7 @@ package com.nanobot.mcp;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -80,8 +81,40 @@ public interface MCPClient {
     
     /**
      * 获取服务器名称
-     * 
+     *
      * @return 服务器名称
      */
     String getServerName();
+
+    // ═══════════ 共享工具方法 ═══════════
+
+    /**
+     * 解析 MCP tools/list 响应为 {@link MCPToolInfo} 列表.
+     * 所有三种传输实现共用此逻辑.
+     */
+    default List<MCPToolInfo> parseToolList(JsonNode result) {
+        List<MCPToolInfo> tools = new ArrayList<>();
+        JsonNode toolsArray = result != null ? result.get("tools") : null;
+        if (toolsArray == null || !toolsArray.isArray()) return tools;
+        for (JsonNode node : toolsArray) {
+            MCPToolInfo info = new MCPToolInfo();
+            info.setName(node.has("name") ? node.get("name").asText() : "unknown");
+            info.setDescription(node.has("description") ? node.get("description").asText() : "");
+            info.setParameters(node.has("inputSchema") ? node.get("inputSchema") : node.get("parameters"));
+            info.setReadOnly(!isWriteTool(info.getName()));
+            info.setServerName(getServerName());
+            tools.add(info);
+        }
+        return tools;
+    }
+
+    /**
+     * 判断工具名是否属于写操作（写工具需要权限确认）.
+     */
+    default boolean isWriteTool(String name) {
+        String n = name.toLowerCase();
+        return n.contains("write") || n.contains("save") || n.contains("delete") || n.contains("remove")
+                || n.contains("create") || n.contains("update") || n.contains("edit") || n.contains("exec")
+                || n.contains("run") || n.contains("build") || n.contains("deploy") || n.contains("commit");
+    }
 }

@@ -68,6 +68,9 @@ public class MessageBus {
     /** 通配订阅者：接收所有 session 的消息（WebSocket 多路复用等场景） */
     private final java.util.List<BlockingQueue<OutboundMessage>> wildcardSubscribers =
             new java.util.concurrent.CopyOnWriteArrayList<>();
+    /** 队列满丢弃计数器（每30秒汇总输出一次，防止高吞吐下 WARN 刷屏） */
+    private long sessionDropCount, wildcardDropCount;
+    private long lastDropReportTime;
     private Thread dispatcherThread;
 
     // ── Sync /api/chat 响应匹配 ──
@@ -183,8 +186,7 @@ public class MessageBus {
                             for (BlockingQueue<OutboundMessage> sq : targets) {
                                 try {
                                     if (!sq.offer(msg, 100, TimeUnit.MILLISECONDS)) {
-                                        logger.warn("Subscriber queue full (session), dropping: sid={}, rid={}",
-                                                sid, msg.getRequestId());
+                                        sessionDropCount++;
                                     }
                                 } catch (InterruptedException e) {
                                     Thread.currentThread().interrupt();
@@ -198,13 +200,26 @@ public class MessageBus {
                     for (BlockingQueue<OutboundMessage> sq : wildcardSubscribers) {
                         try {
                             if (!sq.offer(msg, 100, TimeUnit.MILLISECONDS)) {
-                                logger.warn("Subscriber queue full (wildcard), dropping: sid={}, rid={}",
-                                        sid, msg.getRequestId());
+                                wildcardDropCount++;
                             }
                         } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
                             break;
                         }
+                    }
+
+                    // ── 每30秒汇总输出丢弃计数 ──
+                    long now = System.currentTimeMillis();
+                    if (lastDropReportTime == 0) lastDropReportTime = now;
+                    if (now - lastDropReportTime > 30_000) {
+                        long total = sessionDropCount + wildcardDropCount;
+                        if (total > 0) {
+                            logger.warn("Queue drops in last 30s: session={}, wildcard={}",
+                                    sessionDropCount, wildcardDropCount);
+                            sessionDropCount = 0;
+                            wildcardDropCount = 0;
+                        }
+                        lastDropReportTime = now;
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -224,14 +239,15 @@ public class MessageBus {
     /** 发布用户消息到入站队列（阻塞直到队列有空间） */
     public void publishInbound(InboundMessage message) throws InterruptedException {
         if (!running.get()) {
-            logger.warn("🛑 MessageBus NOT RUNNING — message dropped! content='{}'",
-                    message.getContent() != null ? message.getContent().substring(0, Math.min(60, message.getContent().length())) : "null");
+            logger.warn("MessageBus NOT RUNNING — message dropped! sid={}, len={}",
+                    message.getSessionId(),
+                    message.getContent() != null ? message.getContent().length() : 0);
             return;
         }
         inboundQueue.put(message);
-        logger.info("📥 [PUB] sessionId={}, content='{}', queueSize={}",
+        logger.debug("PUB sessionId={}, len={}, queueSize={}",
                 message.getSessionId(),
-                message.getContent() != null ? message.getContent().substring(0, Math.min(60, message.getContent().length())) : "null",
+                message.getContent() != null ? message.getContent().length() : 0,
                 inboundQueue.size());
     }
 
@@ -346,7 +362,7 @@ public class MessageBus {
      * 发布响应到会话映射 — AgentLoop.doRespond() 调用。
      * 响应存储在 sessionResponses 中，由 ChatController.waitForSessionResponse() 按 requestId 匹配取出。
      */
-    public void publishOutbound(OutboundMessage message) throws InterruptedException {
+    public void publishSessionResponse(OutboundMessage message) throws InterruptedException {
         if (!running.get()) {
             logger.warn("MessageBus not running, ignoring outbound");
             return;

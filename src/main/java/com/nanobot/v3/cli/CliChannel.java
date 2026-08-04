@@ -16,6 +16,8 @@ import com.nanobot.v3.tui.MarkdownRenderer;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
 import org.jline.utils.NonBlockingReader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ConfigurableApplicationContext;
 
 import java.io.IOException;
@@ -39,11 +41,15 @@ import java.util.regex.Pattern;
  */
 public class CliChannel {
 
+    private static final Logger logger = LoggerFactory.getLogger(CliChannel.class);
+
     private final MessageBus messageBus;
     private final AgentLoop agentLoop;
     private String sessionId;
     /** 当前订阅的出站队列（volatile：session 切换时原子替换，消费者线程每次 snapshot 读取） */
     private volatile BlockingQueue<OutboundMessage> subscriberQueue;
+    private AtomicBoolean consumerRunning;
+    private Thread consumerThread;
     private final CommandRegistry commands;
     private final CommandContext cmdCtx;
 
@@ -91,7 +97,7 @@ public class CliChannel {
         try {
             t = TerminalBuilder.builder().build();
         } catch (IOException e) {
-            System.err.println("终端初始化失败，Esc 中断不可用: " + e.getMessage());
+            logger.error("终端初始化失败，Esc 中断不可用: {}", e.getMessage());
         }
         this.terminal = t;
 
@@ -114,95 +120,106 @@ public class CliChannel {
 
     public void start() {
         if (messageBus == null || agentLoop == null) {
-            System.err.println("CLI 启动失败: MessageBus 或 AgentLoop 未就绪");
+            logger.error("CLI 启动失败: MessageBus 或 AgentLoop 未就绪");
             return;
         }
 
         setupInteractivePermission();
         setupAskUserHandler();
+        startConsumerThread();
+        printStartupBanner();
+        runInputLoop();
+    }
 
-        // ── 订阅 outbound 扇出队列（精准路由：只要当前 session 的消息）──
+    // ── start 子步骤 ──
+
+    /** ① 启动流式消费线程 — 监听 outbound 扇出队列，渲染到控制台 */
+    private void startConsumerThread() {
         if (this.subscriberQueue == null) {
             this.subscriberQueue = messageBus.subscribeToOutbound(sessionId);
         }
-        AtomicBoolean consumerRunning = new AtomicBoolean(true);
-        // 流式输出线程：持续监听 outbound 扇出队列，渲染到控制台
-        Thread consumerThread = new Thread(() -> {
+        consumerRunning = new AtomicBoolean(true);
+        consumerThread = new Thread(() -> {
             long firstDeltaTime = 0;
             while (consumerRunning.get()) {
                 try {
-                    // volatile snapshot：session 切换时队列可能被替换，但本次循环用同一队列
                     BlockingQueue<OutboundMessage> q = this.subscriberQueue;
                     OutboundMessage msg = q.poll(500, TimeUnit.MILLISECONDS);
                     if (msg == null) continue;
-                    // sessionId 已由 Dispatcher 精准路由，无需过滤
-
-                    //流式数据处理：根据 requestId 匹配当前流式输出，渲染到控制台
-                    if (msg.isToolCall()) {
-                        System.out.print("\n  " + msg.getContent() + " ");
-                    } else if (msg.isSessionCleared()) {
-                        if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
-                            System.out.println();
-                            currentRequestId = null;
-                        }
-                    } else if (msg.isStreamDelta()) {
-                        if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
-                            if (firstDeltaTime == 0) firstDeltaTime = System.currentTimeMillis();
-                            System.out.print(MarkdownRenderer.renderStreaming(msg.getContent()));
-                        }
-                    }
-                    // stream_end 独立判断（不用 else-if，因为命令响应同时带 delta+end）
-                    if (msg.isStreamEnd()) {
-                        if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
-                            System.out.println();
-                            int tokens = msg.getMetadataInt("_token_count", -1);
-                            int iterations = msg.getMetadataInt("_tool_iterations", 0);
-                            long duration = firstDeltaTime > 0 ? System.currentTimeMillis() - firstDeltaTime : 0;
-                            StringBuilder stats = new StringBuilder("  ⏱ ");
-                            if (duration > 0) stats.append(String.format("%.1fs", duration / 1000.0));
-                            if (tokens > 0) stats.append(" · ").append(tokens).append(" tokens");
-                            if (iterations > 0) stats.append(" · ").append(iterations).append(" tool calls");
-                            if (stats.length() > 5) System.out.println(stats);
-                            firstDeltaTime = 0;
-                            currentRequestId = null;
-                        }
-                    }
+                    firstDeltaTime = renderStreamMessage(msg, firstDeltaTime);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
-                } catch (Exception ignored) {
+                } catch (Exception e) {
+                    logger.debug("CLI consumer error", e);
                 }
             }
         }, "CLI-consumer");
         consumerThread.setDaemon(true);
         consumerThread.start();
+    }
 
+    /** 渲染单条流式消息到控制台，返回更新后的 firstDeltaTime */
+    private long renderStreamMessage(OutboundMessage msg, long firstDeltaTime) {
+        if (msg.isToolCall()) {
+            System.out.print("\n  " + msg.getContent() + " ");
+        } else if (msg.isSessionCleared()) {
+            if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
+                System.out.println();
+                currentRequestId = null;
+            }
+        } else if (msg.isStreamDelta()) {
+            if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
+                if (firstDeltaTime == 0) firstDeltaTime = System.currentTimeMillis();
+                System.out.print(MarkdownRenderer.renderStreaming(msg.getContent()));
+            }
+        }
+        // stream_end 独立判断（不用 else-if，命令响应同时带 delta+end）
+        if (msg.isStreamEnd()) {
+            if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
+                System.out.println();
+                int tokens = msg.getMetadataInt("_token_count", -1);
+                int iterations = msg.getMetadataInt("_tool_iterations", 0);
+                long duration = firstDeltaTime > 0 ? System.currentTimeMillis() - firstDeltaTime : 0;
+                StringBuilder stats = new StringBuilder("  ⏱ ");
+                if (duration > 0) stats.append(String.format("%.1fs", duration / 1000.0));
+                if (tokens > 0) stats.append(" · ").append(tokens).append(" tokens");
+                if (iterations > 0) stats.append(" · ").append(iterations).append(" tool calls");
+                if (stats.length() > 5) System.out.println(stats);
+                currentRequestId = null;
+                return 0;
+            }
+        }
+        return firstDeltaTime;
+    }
+
+    /** ② 打印启动横幅 */
+    private void printStartupBanner() {
         printBanner();
         System.out.println("输入消息开始对话，/exit 退出，/clear 清上下文，Esc 中断回复");
         System.out.println("💡 @文件路径 可引用文件内容（如 @src/main/Foo.java）");
         System.out.println();
+    }
 
-        //持续监听用户输入，这就是入口！！！
+    /** ③ 主输入循环 */
+    private void runInputLoop() {
         while (true) {
             System.out.print("> ");
             System.out.flush();
             if (!scanner.hasNextLine()) break;
             String line = scanner.nextLine().trim();
             if (line.isEmpty()) continue;
-            //优先处理本地命令，其余透传给 AgentLoop 的 CommandState
             if (line.startsWith("/")) {
                 String cmdName = line.length() > 1 ? line.substring(1).trim().split("\\s+")[0].toLowerCase() : "";
                 switch (cmdName) {
                     case "clear" -> { handleClear(); continue; }
-                    case "exit", "q", "quit" -> { handleExit(); break; }
+                    case "exit", "q", "quit" -> { handleExit(); return; }
                     case "help", "mode", "init", "resume" -> {
                         commands.execute(cmdCtx, line);
                         continue;
                     }
                 }
-                // /stats, /compact, /remember, /skills, /rules 等 → 发给 AgentLoop
             }
-            //非命令则正常发消息到 MessageBus
             sendMessage(line);
         }
 
@@ -517,34 +534,30 @@ public class CliChannel {
         }
     }
 
+    private static final java.util.Map<String, String> EXT_TO_LANG = java.util.Map.ofEntries(
+            java.util.Map.entry(".java", "java"), java.util.Map.entry(".kt", "kotlin"),
+            java.util.Map.entry(".py", "python"), java.util.Map.entry(".js", "javascript"),
+            java.util.Map.entry(".ts", "typescript"), java.util.Map.entry(".tsx", "typescript"),
+            java.util.Map.entry(".jsx", "jsx"), java.util.Map.entry(".go", "go"),
+            java.util.Map.entry(".rs", "rust"), java.util.Map.entry(".c", "c"),
+            java.util.Map.entry(".h", "c"), java.util.Map.entry(".cpp", "cpp"),
+            java.util.Map.entry(".cc", "cpp"), java.util.Map.entry(".cxx", "cpp"),
+            java.util.Map.entry(".hpp", "cpp"), java.util.Map.entry(".cs", "csharp"),
+            java.util.Map.entry(".rb", "ruby"), java.util.Map.entry(".sh", "bash"),
+            java.util.Map.entry(".bash", "bash"), java.util.Map.entry(".sql", "sql"),
+            java.util.Map.entry(".xml", "xml"), java.util.Map.entry(".json", "json"),
+            java.util.Map.entry(".yaml", "yaml"), java.util.Map.entry(".yml", "yaml"),
+            java.util.Map.entry(".toml", "toml"), java.util.Map.entry(".md", "markdown"),
+            java.util.Map.entry(".markdown", "markdown"), java.util.Map.entry(".html", "html"),
+            java.util.Map.entry(".css", "css"), java.util.Map.entry(".properties", "properties"),
+            java.util.Map.entry(".gradle", "groovy"), java.util.Map.entry(".pom", "xml")
+    );
+
     /** 根据文件扩展名推断 markdown 代码块语言标记 */
     private static String inferLanguage(String fileName) {
-        String name = fileName.toLowerCase();
-        if (name.endsWith(".java")) return "java";
-        if (name.endsWith(".kt")) return "kotlin";
-        if (name.endsWith(".py")) return "python";
-        if (name.endsWith(".js")) return "javascript";
-        if (name.endsWith(".ts") || name.endsWith(".tsx")) return "typescript";
-        if (name.endsWith(".jsx")) return "jsx";
-        if (name.endsWith(".go")) return "go";
-        if (name.endsWith(".rs")) return "rust";
-        if (name.endsWith(".c") || name.endsWith(".h")) return "c";
-        if (name.endsWith(".cpp") || name.endsWith(".cc") || name.endsWith(".cxx") || name.endsWith(".hpp")) return "cpp";
-        if (name.endsWith(".cs")) return "csharp";
-        if (name.endsWith(".rb")) return "ruby";
-        if (name.endsWith(".sh") || name.endsWith(".bash")) return "bash";
-        if (name.endsWith(".sql")) return "sql";
-        if (name.endsWith(".xml")) return "xml";
-        if (name.endsWith(".json")) return "json";
-        if (name.endsWith(".yaml") || name.endsWith(".yml")) return "yaml";
-        if (name.endsWith(".toml")) return "toml";
-        if (name.endsWith(".md") || name.endsWith(".markdown")) return "markdown";
-        if (name.endsWith(".html")) return "html";
-        if (name.endsWith(".css")) return "css";
-        if (name.endsWith(".properties")) return "properties";
-        if (name.endsWith(".gradle")) return "groovy";
-        if (name.endsWith(".xml") || name.endsWith(".pom")) return "xml";
-        return "";
+        int dot = fileName.lastIndexOf('.');
+        if (dot < 0) return "";
+        return EXT_TO_LANG.getOrDefault(fileName.substring(dot).toLowerCase(), "");
     }
 
     /**
@@ -601,7 +614,8 @@ public class CliChannel {
                         Thread.sleep(200);
                     }
                 }
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                logger.debug("CancelMonitor error", e);
             }
         }, "CancelMonitor");
         cancelMonitor.setDaemon(true);

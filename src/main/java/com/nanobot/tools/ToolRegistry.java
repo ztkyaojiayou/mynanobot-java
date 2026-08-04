@@ -310,7 +310,7 @@ public class ToolRegistry {
     public List<JsonNode> getDefinitions(boolean readOnlyOnly) {
         // 缓存仅在全量列表时使用
         if (!readOnlyOnly && cachedDefinitions != null) {
-            return cachedDefinitions;
+            return Collections.unmodifiableList(cachedDefinitions);
         }
 
         // 分类工具：内置工具 vs MCP 工具

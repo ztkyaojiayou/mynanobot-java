@@ -28,7 +28,7 @@ import java.util.concurrent.*;
  */
 public class StdioMCPClient implements MCPClient {
 
-    private static final Logger log = LoggerFactory.getLogger(StdioMCPClient.class);
+    private static final Logger logger = LoggerFactory.getLogger(StdioMCPClient.class);
 
     private final String serverName;
     private final Config.MCPServerConfig config;
@@ -67,7 +67,7 @@ public class StdioMCPClient implements MCPClient {
             pb.directory(new File(config.getWorkspace()));
         }
 
-        log.info("Starting MCP server {}: {}", serverName, String.join(" ", cmd));
+        logger.info("Starting MCP server {}: {}", serverName, String.join(" ", cmd));
         process = pb.start();
         writer = new PrintWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8), true);
         reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
@@ -75,16 +75,22 @@ public class StdioMCPClient implements MCPClient {
         // ── 启动响应监听 ──
         startResponseListener();
 
-        // ── initialize 握手 ──
-        JsonRpcMessage.Response initResp = sendAndWait(JsonRpcMessage.Request.initialize(), config.getToolTimeout());
-        if (!initResp.isSuccess()) {
-            throw new IOException("Initialize failed: " + initResp.error());
-        }
-        log.info("MCP server {} initialized, protocol={}", serverName,
-                initResp.result() != null ? initResp.result().get("protocolVersion").asText() : "unknown");
+        try {
+            // ── initialize 握手 ──
+            JsonRpcMessage.Response initResp = sendAndWait(JsonRpcMessage.Request.initialize(), config.getToolTimeout());
+            if (!initResp.isSuccess()) {
+                throw new IOException("Initialize failed: " + initResp.error());
+            }
+            logger.info("MCP server {} initialized, protocol={}", serverName,
+                    initResp.result() != null ? initResp.result().get("protocolVersion").asText() : "unknown");
 
-        // ── 发送 initialized 通知 ──
-        sendNotification(JsonRpcMessage.Request.notification(JsonRpcMessage.INITIALIZED));
+            // ── 发送 initialized 通知 ──
+            sendNotification(JsonRpcMessage.Request.notification(JsonRpcMessage.INITIALIZED));
+        } catch (IOException e) {
+            // 握手失败 → 清理已启动的进程，防止泄漏
+            close();
+            throw e;
+        }
     }
 
     // ═══════════ 消息收发 ═══════════
@@ -96,7 +102,7 @@ public class StdioMCPClient implements MCPClient {
             writer.println(json);
             writer.flush();
         } catch (JsonProcessingException e) {
-            log.error("Failed to serialize notification: {}", e.getMessage());
+            logger.warn("Failed to serialize notification: {}", e.getMessage());
         }
     }
 
@@ -136,11 +142,11 @@ public class StdioMCPClient implements MCPClient {
                         CompletableFuture<JsonRpcMessage.Response> future = pendingRequests.remove(resp.id());
                         if (future != null) future.complete(resp);
                     } catch (Exception e) {
-                        log.debug("Skipping non-JSON MCP output: {}", line.substring(0, Math.min(80, line.length())));
+                        logger.debug("Skipping non-JSON MCP output: {}", line.substring(0, Math.min(80, line.length())));
                     }
                 }
             } catch (IOException e) {
-                if (!closed) log.error("MCP reader error for {}: {}", serverName, e.getMessage());
+                if (!closed) logger.error("MCP reader error for {}: {}", serverName, e.getMessage());
             }
         });
     }
@@ -170,12 +176,12 @@ public class StdioMCPClient implements MCPClient {
                 if (!isConnected()) connect();
                 JsonRpcMessage.Response resp = sendAndWait(JsonRpcMessage.Request.listTools(), config.getToolTimeout());
                 if (!resp.isSuccess()) {
-                    log.warn("listTools failed: {}", resp.error());
+                    logger.warn("listTools failed: {}", resp.error());
                     return Collections.emptyList();
                 }
                 return parseToolList(resp.result());
             } catch (Exception e) {
-                log.error("listTools failed: {}", e.getMessage());
+                logger.error("listTools failed: {}", e.getMessage());
                 return Collections.emptyList();
             }
         }, executor);
@@ -205,34 +211,6 @@ public class StdioMCPClient implements MCPClient {
                 return MCPResult.error(e.getMessage());
             }
         }, executor);
-    }
-
-    // ═══════════ 解析 ═══════════
-
-    /** 解析标准 tools/list 响应 */
-    private List<MCPToolInfo> parseToolList(JsonNode result) {
-        List<MCPToolInfo> tools = new ArrayList<>();
-        JsonNode toolsArray = result.get("tools");
-        if (toolsArray == null || !toolsArray.isArray()) return tools;
-
-        for (JsonNode node : toolsArray) {
-            MCPToolInfo info = new MCPToolInfo();
-            info.setName(node.get("name").asText());
-            info.setDescription(node.has("description") ? node.get("description").asText() : "");
-            info.setParameters(node.has("inputSchema") ? node.get("inputSchema") : node.get("parameters"));
-            info.setReadOnly(!isWriteTool(node.get("name").asText()));
-            info.setServerName(serverName);
-            tools.add(info);
-        }
-        return tools;
-    }
-
-    /** 判断工具是否为写操作（写工具需要权限确认） */
-    private static boolean isWriteTool(String name) {
-        String n = name.toLowerCase();
-        return n.contains("write") || n.contains("save") || n.contains("delete") || n.contains("remove")
-                || n.contains("create") || n.contains("update") || n.contains("edit") || n.contains("exec")
-                || n.contains("run") || n.contains("build") || n.contains("deploy") || n.contains("commit");
     }
 
     // ═══════════ 生命周期 ═══════════

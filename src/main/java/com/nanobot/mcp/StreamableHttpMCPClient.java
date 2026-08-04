@@ -33,13 +33,13 @@ import java.util.concurrent.CompletableFuture;
  */
 public class StreamableHttpMCPClient implements MCPClient {
 
-    private static final Logger log = LoggerFactory.getLogger(StreamableHttpMCPClient.class);
+    private static final Logger logger = LoggerFactory.getLogger(StreamableHttpMCPClient.class);
 
     private final String serverName;
     private final Config.MCPServerConfig config;
     private final ObjectMapper mapper;
     private final HttpClient httpClient;
-    private boolean initialized;
+    private volatile boolean initialized;
 
     public StreamableHttpMCPClient(String serverName, Config.MCPServerConfig config) {
         this.serverName = serverName;
@@ -50,11 +50,11 @@ public class StreamableHttpMCPClient implements MCPClient {
 
     // ═══════════ 握手 ═══════════
 
-    private void ensureInitialized() throws IOException {
+    private synchronized void ensureInitialized() throws IOException {
         if (initialized) return;
         JsonRpcMessage.Response resp = sendRpc(JsonRpcMessage.Request.initialize());
         if (!resp.isSuccess()) throw new IOException("Initialize failed: " + resp.error());
-        log.info("MCP server {} initialized via Streamable HTTP", serverName);
+        logger.info("MCP server {} initialized via Streamable HTTP", serverName);
         sendRpcNotification(JsonRpcMessage.Request.notification(JsonRpcMessage.INITIALIZED));
         initialized = true;
     }
@@ -103,7 +103,7 @@ public class StreamableHttpMCPClient implements MCPClient {
             String body = mapper.writeValueAsString(notification);
             httpClient.sendAsync(buildRequest(body), HttpResponse.BodyHandlers.discarding());
         } catch (JsonProcessingException e) {
-            log.warn("Failed to send notification: {}", e.getMessage());
+            logger.warn("Failed to send notification: {}", e.getMessage());
         }
     }
 
@@ -156,7 +156,7 @@ public class StreamableHttpMCPClient implements MCPClient {
                 if (!resp.isSuccess()) return Collections.emptyList();
                 return parseToolList(resp.result());
             } catch (Exception e) {
-                log.error("listTools failed: {}", e.getMessage());
+                logger.error("listTools failed: {}", e.getMessage());
                 return Collections.emptyList();
             }
         });
@@ -188,31 +188,10 @@ public class StreamableHttpMCPClient implements MCPClient {
         });
     }
 
-    /** 解析标准 tools/list 响应 */
-    private List<MCPToolInfo> parseToolList(JsonNode result) {
-        List<MCPToolInfo> tools = new ArrayList<>();
-        JsonNode toolsArray = result != null ? result.get("tools") : null;
-        if (toolsArray == null || !toolsArray.isArray()) return tools;
-        for (JsonNode node : toolsArray) {
-            MCPToolInfo info = new MCPToolInfo();
-            info.setName(node.get("name").asText());
-            info.setDescription(node.has("description") ? node.get("description").asText() : "");
-            info.setParameters(node.has("inputSchema") ? node.get("inputSchema") : node.get("parameters"));
-            info.setReadOnly(!isWriteTool(info.getName()));
-            info.setServerName(serverName);
-            tools.add(info);
-        }
-        return tools;
+    @Override public void close() {
+        initialized = false;
+        // 注：Java 17 HttpClient 无 close()，改用 shared static 实例以减少资源占用
     }
-
-    private static boolean isWriteTool(String name) {
-        String n = name.toLowerCase();
-        return n.contains("write") || n.contains("save") || n.contains("delete") || n.contains("remove")
-                || n.contains("create") || n.contains("update") || n.contains("edit") || n.contains("exec")
-                || n.contains("run") || n.contains("build") || n.contains("deploy") || n.contains("commit");
-    }
-
-    @Override public void close() { /* HttpClient 生命周期由 Spring 管理 */ }
     @Override public boolean isConnected() { return true; }
     @Override public String getServerName() { return serverName; }
 }

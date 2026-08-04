@@ -330,7 +330,6 @@ public class OutboundMessage {
             .metadata(this.metadata)
             .buttons(this.buttons)
             .connectionId(this.connectionId)
-            .sessionId(this.sessionId)
             .requestId(this.requestId);
     }
 

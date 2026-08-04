@@ -167,7 +167,7 @@ public class TurnContext {
             ? new ArrayList<>(builder.toolDefinitions) 
             : new ArrayList<>();
         this.toolResults = new ArrayList<>();
-        this.usage = new HashMap<>();
+        this.usage = new HashMap<>(8);  // promptTokens/completionTokens/totalTokens
     }
     
     // ==================== 工厂方法 ====================
@@ -464,6 +464,15 @@ public class TurnContext {
         );
     }
     
+    /**
+     * 从消息 metadata 中提取 requestId（供 CommandState/RunState/AgentLoop 共用）.
+     */
+    public String extractRequestId() {
+        if (message == null || message.getMetadata() == null) return null;
+        Object o = message.getMetadata().get("requestId");
+        return o instanceof String s ? s : null;
+    }
+
     @Override
     public String toString() {
         return "TurnContext{" +

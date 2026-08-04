@@ -202,11 +202,13 @@ public class SubagentCommunication {
     private void publishEvent(SubagentEvent event) {
         List<Consumer<SubagentEvent>> subscribers = eventSubscribers.get(event.getType());
         if (subscribers != null) {
-            for (Consumer<SubagentEvent> subscriber : subscribers) {
-                try {
-                    subscriber.accept(event);
-                } catch (Exception e) {
-                    logger.error("Error processing event subscriber: {}", e.getMessage());
+            synchronized (subscribers) {
+                for (Consumer<SubagentEvent> subscriber : subscribers) {
+                    try {
+                        subscriber.accept(event);
+                    } catch (Exception e) {
+                        logger.error("Error processing event subscriber: {}", e.getMessage());
+                    }
                 }
             }
         }

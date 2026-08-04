@@ -23,7 +23,7 @@ public class RespondState implements AgentState {
         if (content == null) content = "(无响应)";
 
         String requestId = null;
-        if (ctx.getMessage().getMetadata() != null) {
+        if (ctx.getMessage() != null && ctx.getMessage().getMetadata() != null) {
             Object o = ctx.getMessage().getMetadata().get("requestId");
             if (o != null) requestId = o.toString();
         }
@@ -36,7 +36,7 @@ public class RespondState implements AgentState {
                 .build();
 
         try {
-            messageBus.publishOutbound(response);
+            messageBus.publishSessionResponse(response);
         } catch (Exception e) {
             logger.error("Failed to send response: {}", e.getMessage(), e);
         }
