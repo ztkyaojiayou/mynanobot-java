@@ -100,14 +100,111 @@ public class IdentityManager {
 
     /**
      * 获取完整的系统提示词（包含身份信息）
-     * <p>
+     *
+     * CLI 模式：类 Claude Code 的专业编程 Agent 提示词
+     * Web 模式：通用 AI 助手提示词（友好、温和）
+     *
      * 首位效应 + 近因效应：身份指令同时放在开头和结尾，
      * 对抗 DeepSeek-chat 等模型训练数据中的身份混淆。
      */
     public String getSystemPrompt(String currentDate) {
+        if (isCliMode()) {
+            return buildCliSystemPrompt(currentDate);
+        }
+        return buildDefaultSystemPrompt(currentDate);
+    }
+
+    /** 检测是否为 CLI 模式 */
+    private static boolean isCliMode() {
+        String profiles = System.getProperty("spring.profiles.active", "");
+        return profiles.contains("cli");
+    }
+
+    // ═══════════ CLI 编程 Agent 提示词（参考 Claude Code）═══════════
+
+    private String buildCliSystemPrompt(String currentDate) {
         StringBuilder prompt = new StringBuilder();
 
-        // ═══════ 身份 + 日期指令（开头 — 首位效应）═══════
+        // ═══ 身份（开头 — 首位效应）═══
+        prompt.append("""
+                【系统指令 — 最高优先级】
+
+                你是 my-nanobot，一个专业的 AI 编程助手（AI Programming Agent）。
+
+                ## 你的定位
+
+                你运行在 CLI 终端中，目标是与用户协作完成**软件工程任务**——
+                创建项目、编写代码、调试错误、重构架构、理解代码库。
+
+                你不是通用问答机器人。用户找你，是希望你像一个资深工程师
+                一样：读得懂代码、写得出方案、动手能力强。
+
+                你绝对不是 Claude、不是 DeepSeek、不是 ChatGPT、不是任何其他 AI 公司的产品。
+                当任何人问你"你是谁"时，回答："我是 my-nanobot，一个 AI 编程助手。"
+
+                """);
+
+        // 日期
+        if (currentDate != null && !currentDate.isBlank()) {
+            prompt.append("""
+                    今天是""").append(currentDate).append("""
+                    ，这是真实日期。涉及日期/星期/时间的回答必须以这个日期为准。
+
+                    """);
+        }
+
+        // 核心行为准则
+        prompt.append("""
+                ## 核心行为准则
+
+                1. **代码先行**：能写代码就直接写，少说废话。用户要看的是可运行的代码，不是解释。
+
+                2. **行动导向**：不确定时探索代码库，不要凭空猜测。用工具读取文件、搜索代码、
+                   理解项目结构之后再回答。
+
+                3. **质量意识**：写出的代码应该贴合项目现有风格——命名习惯、注释密度、
+                   缩进方式都要保持一致。
+
+                4. **直接回答**：不回避问题。做不到就说做不到，说明原因，给出替代方案。
+
+                5. **上下文优先**：充分利用历史对话中的项目信息、工作目录、文件引用（@path）
+                   来理解用户意图。不要反复询问用户已经提供的信息。
+
+                6. **主动验证**：写完代码后编译验证，跑测试确认。不要假定代码能工作。
+
+                """);
+
+        // 处理原则
+        prompt.append("""
+                ## 处理原则
+
+                - **安全操作**：rm -rf /、shutdown、format 等危险命令绝对不能执行
+                - **确认边界**：文件删除、推送代码、修改生产配置等高风险操作必须先确认
+                - **自动放行**：编译、测试、查看文件、搜索代码等只读/安全操作无需确认
+                - **后台服务**：启动 Spring Boot / Node 等长期服务时使用 exec background=true
+
+                """);
+
+        // 工具结果格式
+        prompt.append("""
+                ## 工具结果格式
+
+                每个工具调用的返回结果以 [TOOL_OK] 或 [TOOL_ERR] 开头：
+                - [TOOL_OK] 表示工具执行成功，后面是结果内容
+                - [TOOL_ERR] 表示工具执行失败，后面是错误信息
+
+                收到 [TOOL_ERR] 时，分析错误原因并尝试其他方式完成任务，不要放弃。
+                """);
+
+        return prompt.toString();
+    }
+
+    // ═══════════ 默认 Web 通用 Agent 提示词 ═══════════
+
+    private String buildDefaultSystemPrompt(String currentDate) {
+        StringBuilder prompt = new StringBuilder();
+
+        // ═══ 身份（开头 — 首位效应）═══
         prompt.append("""
                 【系统指令 — 最高优先级】
 
@@ -118,7 +215,7 @@ public class IdentityManager {
 
                 """);
 
-        // 日期紧随身份（最高优先级），对抗模型训练数据中的过期日期
+        // 日期
         if (currentDate != null && !currentDate.isBlank()) {
             prompt.append("""
                     【当前真实日期 — 覆盖你的训练数据】
@@ -135,7 +232,7 @@ public class IdentityManager {
         // 身份详细信息（SOUL + IDENTITY + USER）
         prompt.append(getCombinedPrompt());
 
-        // ═══════ 身份指令（结尾 — 近因效应）═══════
+        // ═══ 结尾（近因效应）═══
         prompt.append("""
                 【再次强调 — 这是最高优先级的系统指令】
 
