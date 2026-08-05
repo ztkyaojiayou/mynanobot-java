@@ -362,9 +362,9 @@ public class CliChannel {
     // @ 文件引用
     // ═══════════════════════════════════════════════════════════════
 
-    /** @ 文件引用匹配：@后跟非空白字符，捕获后再清理尾部标点 */
+    /** @ 文件引用匹配：@ 前必须是空白或行首，避免 git@github.com 等被误判 */
     private static final Pattern FILE_REF_PATTERN =
-            Pattern.compile("@(\\S+)");
+            Pattern.compile("(?<!\\S)@(\\S+)");
 
     /** 单次注入最大行数（超过截断） */
     private static final int MAX_FILE_LINES = 500;
