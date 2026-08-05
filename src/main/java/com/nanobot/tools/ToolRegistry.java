@@ -613,12 +613,18 @@ public class ToolRegistry {
         // PathGuard：文件类工具
         if (isFileTool(toolName) && pathGuard != null) {
             String pathParam = (String) params.get("path");
+            // GlobTool 使用 "basePath" 而非 "path"
+            if (pathParam == null) pathParam = (String) params.get("basePath");
             // 即使 LLM 没传 path，也要把默认 "." 解析为 workspace 下的绝对路径，
             // 否则工具内的 Paths.get(".") 会基于 JVM user.dir（可能已被 pushd 改变）
             java.nio.file.Path validatedPath = pathGuard.resolvePath(
                     pathParam != null ? pathParam : ".");
             securedParams = new HashMap<>(params);
+            // 把解析后的绝对路径回写，同时覆盖 path 和 basePath 确保工具读取到
             securedParams.put("path", validatedPath.toString());
+            if (params.containsKey("basePath")) {
+                securedParams.put("basePath", validatedPath.toString());
+            }
         }
 
         // CommandGuard：Shell 执行工具
