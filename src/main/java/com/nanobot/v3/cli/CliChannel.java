@@ -86,10 +86,27 @@ public class CliChannel {
 
     /**
      * 共享 Scanner — 整个 CLI 共用一个 System.in 读取器，避免多 Scanner 抢输入.
-     * 所有 scanner 操作必须通过 {@link #readLine()} 同步访问，防止多线程并发读导致
-     * IndexOutOfBoundsException（Scanner 非线程安全）.
+     * 使用 UTF-8 解码，解决 Windows CMD GBK 下中文乱码问题。
+     * 所有 scanner 操作必须通过 {@link #readLine()} 同步访问。
      */
-    private Scanner scanner = new Scanner(System.in);  // 非 final：readLine() 异常时重建
+    private Scanner scanner = createUtf8Scanner();
+
+    /** 创建 UTF-8 Scanner，若失败则回退默认编码 */
+    private static Scanner createUtf8Scanner() {
+        try {
+            // 先尝试切 Windows 控制台到 UTF-8 (chcp 65001)
+            if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
+                try {
+                    new ProcessBuilder("cmd.exe", "/c", "chcp", "65001", ">nul")
+                            .inheritIO().start().waitFor(2, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (Exception ignored) {}
+            }
+            return new Scanner(System.in, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            logger.warn("UTF-8 Scanner 创建失败，回退默认编码: {}", e.getMessage());
+            return new Scanner(System.in);
+        }
+    }
 
     /** 同步读一行（Scanner 非线程安全，多线程共享时必须加锁） */
     private String readLine() {
@@ -99,7 +116,7 @@ public class CliChannel {
             } catch (RuntimeException e) {
                 logger.warn("Scanner 异常，重建: {}", e.toString());
                 try { scanner.close(); } catch (Exception ignored) {}
-                scanner = new Scanner(System.in);
+                scanner = createUtf8Scanner();
                 return "";
             }
         }
