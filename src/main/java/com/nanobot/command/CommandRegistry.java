@@ -33,6 +33,11 @@ public class CommandRegistry {
         return name != null && commands.containsKey(name.toLowerCase());
     }
 
+    /** 获取所有注册的命令（用于 /help 遍历） */
+    public java.util.Collection<Command> getCommands() {
+        return commands.values();
+    }
+
     /**
      * 执行命令。
      *

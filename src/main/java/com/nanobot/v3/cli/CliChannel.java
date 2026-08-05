@@ -887,7 +887,7 @@ public class CliChannel {
         } catch (Exception ignored) {}
 
         // ── 命令提示 ──
-        boxLine(W, "  " + B + "/help" + R + GRAY + " 命令  ·  " + R + B + "@文件" + R + GRAY + " 引用  ·  " + R + B + "Esc" + R + GRAY + " 中断回复" + R,GRAY);
+        boxLine(W, "  " + B + "/help" + R + GRAY + " 命令  ·  " + R + B + "!!" + R + GRAY + " 重复  ·  " + R + B + "@文件" + R + GRAY + " 引用  ·  " + R + B + "Esc" + R + GRAY + " 中断" + R,GRAY);
 
         System.out.println(GRAY + "  ╰" + "─".repeat(W) + "╯" + R);
         System.out.println();
