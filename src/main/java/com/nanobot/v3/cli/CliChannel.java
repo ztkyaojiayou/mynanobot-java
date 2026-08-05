@@ -167,34 +167,13 @@ public class CliChannel {
         }
         this.terminal = t;
 
-        // ── 终端能力检测 ──
-        String jlineType = t != null ? t.getType() : "null";
-        boolean isDumb;
-        if (t == null) {
-            isDumb = true;
-        } else if ("dumb".equalsIgnoreCase(jlineType) || "dumb-color".equalsIgnoreCase(jlineType)) {
-            // Windows Terminal 会设 WT_SESSION，即使 JLine 误判也可纠偏
-            isDumb = System.getenv("WT_SESSION") == null;
-            if (!isDumb) logger.info("Windows Terminal 检测到，覆盖 JLine dumb 判定");
-        } else {
-            // JLine 识别的正常终端 → 进一步检查 Win CMD 残留
-            boolean isWin = System.getProperty("os.name", "").toLowerCase().contains("win");
-            boolean inWinTerm = System.getenv("WT_SESSION") != null;
-            boolean inGitBash = System.getenv("MINGW_PREFIX") != null
-                    || System.getenv("MSYSTEM") != null;
-            boolean termOk = System.getenv("TERM") != null
-                    && !"dumb".equalsIgnoreCase(System.getenv("TERM"));
-            // 仅当 Windows 且不在已知好终端且 TERM 不明确 → 降级
-            isDumb = isWin && !inWinTerm && !inGitBash && !termOk;
-        }
-        if (isDumb) {
+        // ── 终端能力检测：Windows → 纯文本，其他 → ANSI 彩色 ──
+        if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
             TerminalStyle.disable();
-            logger.info("终端降级为纯文本 (jline={}, WT={}, TERM={})",
-                    jlineType,
-                    System.getenv("WT_SESSION") != null ? "yes" : "no",
-                    System.getenv("TERM"));
+            logger.info("Windows 终端，ANSI 颜色已关闭（纯文本模式）");
         } else {
-            logger.info("终端就绪: jline={}, ANSI 颜色已启用", jlineType);
+            logger.info("Unix 终端 (jline={})，ANSI 颜色已启用",
+                    t != null ? t.getType() : "null");
         }
 
         // 初始化命令注册中心
