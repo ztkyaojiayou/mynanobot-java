@@ -868,10 +868,9 @@ public class CliChannel {
         // 路径截断：从目录分隔符处切断，避免 "...g\xxx" 这种难看效果
         if (ws.length() > 35) {
             int cut = ws.length() - 32;
-            // 找到 cut 之后第一个 \ 或 /，从那里开始显示
-            int sep = ws.indexOf('\\', cut);
-            if (sep < 0) sep = ws.indexOf('/', cut);
-            if (sep >= 0 && sep < ws.length() - 1) cut = sep + 1;
+            int slash = ws.indexOf('\\', cut);
+            if (slash < 0) slash = ws.indexOf('/', cut);
+            if (slash >= 0 && slash < ws.length() - 1) cut = slash + 1;
             ws = "..." + ws.substring(cut);
         }
         boxLine(W, "  " + B + "模型:" + R + " " + BLUE + model + R + GRAY + "  │  " + TerminalStyle.dim("~") + ws + R,GRAY);
