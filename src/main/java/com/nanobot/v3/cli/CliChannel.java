@@ -258,15 +258,18 @@ public class CliChannel {
             String line = readLine().trim();
             if (line.isEmpty()) continue;
             if (line.startsWith("/")) {
-                String cmdName = line.length() > 1 ? line.substring(1).trim().split("\\s+")[0].toLowerCase() : "";
-                switch (cmdName) {
-                    case "clear" -> { handleClear(); continue; }
-                    case "exit", "q", "quit" -> { handleExit(); return; }
-                    case "help", "mode", "init", "resume" -> {
-                        commands.execute(cmdCtx, line);
-                        continue;
-                    }
+                String cmdName = extractCmdName(line);
+                // 内置命令（不依赖 CommandRegistry）
+                if ("clear".equals(cmdName)) { handleClear(); continue; }
+                if ("exit".equals(cmdName) || "q".equals(cmdName) || "quit".equals(cmdName)) { handleExit(); return; }
+                // 注册的命令（/help, /mode, /init, /resume 等）
+                if (commands.isRegistered(cmdName)) {
+                    commands.execute(cmdCtx, line);
+                    continue;
                 }
+                // 未知命令
+                System.out.println("未知命令: " + line + "（输入 /help 查看可用命令）");
+                continue;
             }
             sendMessage(line);
         }
@@ -334,6 +337,12 @@ public class CliChannel {
                 }
             });
         }
+    }
+
+    /** 从输入行提取命令名（去掉 / 前缀，取第一个空格前 token 小写） */
+    private static String extractCmdName(String line) {
+        if (line == null || line.length() <= 1) return "";
+        return line.substring(1).trim().split("\\s+")[0].toLowerCase();
     }
 
     /** /clear — 直接调 SessionManager，不经过 MessageBus（避免等待永不来的 _stream_end） */

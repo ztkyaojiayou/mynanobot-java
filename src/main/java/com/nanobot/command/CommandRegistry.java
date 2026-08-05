@@ -28,6 +28,11 @@ public class CommandRegistry {
         }
     }
 
+    /** 检查命令是否已注册 */
+    public boolean isRegistered(String name) {
+        return name != null && commands.containsKey(name.toLowerCase());
+    }
+
     /**
      * 执行命令。
      *
