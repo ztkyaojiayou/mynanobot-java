@@ -133,7 +133,7 @@ public class CliChannel {
     public CliChannel(ConfigurableApplicationContext appContext, String initialSessionId) {
         this.messageBus = NanobotRunner.getMessageBus();
         this.agentLoop = NanobotRunner.getAgentLoop();
-        this.sessionId = initialSessionId != null ? initialSessionId : "cli-" + System.currentTimeMillis();
+        this.sessionId = initialSessionId != null ? initialSessionId : String.valueOf(System.currentTimeMillis());
         // 初始化订阅队列（若 MessageBus 未就绪则延迟到 start()）
         if (messageBus != null) {
             this.subscriberQueue = messageBus.subscribeToOutbound(sessionId);
