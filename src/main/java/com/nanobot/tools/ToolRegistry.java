@@ -613,12 +613,12 @@ public class ToolRegistry {
         // PathGuard：文件类工具
         if (isFileTool(toolName) && pathGuard != null) {
             String pathParam = (String) params.get("path");
-            if (pathParam != null) {
-                java.nio.file.Path validatedPath = pathGuard.resolvePath(pathParam);
-                // 替换为解析后的安全绝对路径
-                securedParams = new HashMap<>(params);
-                securedParams.put("path", validatedPath.toString());
-            }
+            // 即使 LLM 没传 path，也要把默认 "." 解析为 workspace 下的绝对路径，
+            // 否则工具内的 Paths.get(".") 会基于 JVM user.dir（可能已被 pushd 改变）
+            java.nio.file.Path validatedPath = pathGuard.resolvePath(
+                    pathParam != null ? pathParam : ".");
+            securedParams = new HashMap<>(params);
+            securedParams.put("path", validatedPath.toString());
         }
 
         // CommandGuard：Shell 执行工具
