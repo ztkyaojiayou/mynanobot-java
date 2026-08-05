@@ -66,13 +66,6 @@ public class CliChannel {
      */
     private volatile boolean cancelled;
 
-    /** 命令历史（最近 50 条） */
-    private final java.util.LinkedList<String> inputHistory = new java.util.LinkedList<>();
-    private static final int MAX_HISTORY = 50;
-
-    /** thinking spinner 运行中，收到首个 delta 后停止 */
-    private volatile boolean thinking;
-
     /** 交互对话框活跃中（权限确认/ask_user 等），CancelMonitor 暂停读终端 */
     private volatile boolean dialogActive;
 
@@ -84,31 +77,31 @@ public class CliChannel {
      */
     private final Terminal terminal;
 
+    /** 命令历史（最近 50 条） */
+    private final java.util.LinkedList<String> inputHistory = new java.util.LinkedList<>();
+    private static final int MAX_HISTORY = 50;
+
+    /** thinking spinner 运行中 */
+    private volatile boolean thinking;
+
     /**
-     * 共享 Scanner — 整个 CLI 共用一个 System.in 读取器，避免多 Scanner 抢输入.
-     * 使用 UTF-8 解码，解决 Windows CMD GBK 下中文乱码问题。
-     * 所有 scanner 操作必须通过 {@link #readLine()} 同步访问。
+     * 共享 Scanner — 强制 UTF-8 解码，解决 Win CMD GBK 乱码.
+     * 所有 scanner 操作必须通过 {@link #readLine()} 同步访问.
      */
     private Scanner scanner = createUtf8Scanner();
 
-    /** 创建 UTF-8 Scanner，若失败则回退默认编码 */
     private static Scanner createUtf8Scanner() {
         try {
-            // 先尝试切 Windows 控制台到 UTF-8 (chcp 65001)
             if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
-                try {
-                    new ProcessBuilder("cmd.exe", "/c", "chcp", "65001", ">nul")
-                            .inheritIO().start().waitFor(2, java.util.concurrent.TimeUnit.SECONDS);
-                } catch (Exception ignored) {}
+                try { new ProcessBuilder("cmd.exe", "/c", "chcp 65001 >nul").inheritIO().start().waitFor(2, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception ignored) {}
             }
-            return new Scanner(System.in, java.nio.charset.StandardCharsets.UTF_8);
+            return new Scanner(System.in, StandardCharsets.UTF_8);
         } catch (Exception e) {
             logger.warn("UTF-8 Scanner 创建失败，回退默认编码: {}", e.getMessage());
             return new Scanner(System.in);
         }
     }
 
-    /** 同步读一行（Scanner 非线程安全，多线程共享时必须加锁） */
     private String readLine() {
         synchronized (scanner) {
             try {
@@ -174,26 +167,18 @@ public class CliChannel {
         }
         this.terminal = t;
 
-        // ── 终端能力检测：多层判断 → dumb 终端/Win CMD 降级纯文本 ──
-        String jlineType = t != null ? t.getType() : "null";
+        // ── 终端能力检测 ──
         boolean isDumb = t == null
-                || "dumb".equalsIgnoreCase(jlineType)
-                || "dumb-color".equalsIgnoreCase(jlineType)
-                || "ansi".equalsIgnoreCase(jlineType);  // Win CMD 有时报 ansi 但实际不支持
-        // 第二层：Windows 且有 dumb 迹象
+                || "dumb".equalsIgnoreCase(t.getType())
+                || "dumb-color".equalsIgnoreCase(t.getType());
         if (!isDumb && System.getProperty("os.name", "").toLowerCase().contains("win")) {
-            String term = System.getenv("TERM");
-            // Win CMD 通常没有 TERM 环境变量，或 TERM=dumb
-            if (term == null || term.isBlank() || "dumb".equalsIgnoreCase(term)) {
-                isDumb = true;
-            }
+            String termEnv = System.getenv("TERM");
+            if (termEnv == null || termEnv.isBlank() || "dumb".equalsIgnoreCase(termEnv)) isDumb = true;
         }
         if (isDumb) {
             TerminalStyle.disable();
-            logger.info("检测到 ANSI 不兼容终端 (jline={}, os={}), 已降级为纯文本",
-                    jlineType, System.getProperty("os.name"));
-        } else {
-            logger.info("终端就绪: jline={}, ANSI 颜色已启用", jlineType);
+            logger.info("DUMB 终端检测 (jline={})，已切换纯文本模式",
+                    t != null ? t.getType() : "null");
         }
 
         // 初始化命令注册中心
@@ -214,14 +199,12 @@ public class CliChannel {
             this.sessionId = sessionKey.startsWith(channelPrefix)
                     ? sessionKey.substring(channelPrefix.length())
                     : sessionKey;
-            System.out.println(TerminalStyle.success("会话已切换至: " + sessionKey + "，历史上下文将在下一条消息中恢复"));
+            System.out.println("会话已切换至: " + sessionKey + "，历史上下文将在下一条消息中恢复");
         }));
     }
 
     public void start() {
         if (messageBus == null || agentLoop == null) {
-            System.out.println(TerminalStyle.error("CLI 启动失败: MessageBus 或 AgentLoop 未就绪"));
-            System.out.println(TerminalStyle.dim("  请检查 Spring 容器日志，确认所有 Bean 已正确初始化。"));
             logger.error("CLI 启动失败: MessageBus 或 AgentLoop 未就绪");
             return;
         }
@@ -267,10 +250,8 @@ public class CliChannel {
             stopThinking();
             int idx = msg.getMetadataInt("_tool_index", -1);
             int total = msg.getMetadataInt("_tool_total", -1);
-            String counter = (idx >= 0 && total > 0)
-                    ? idx + "/" + total + " "
-                    : "";
-            System.out.print("\n  " + TerminalStyle.dim(counter + "⚙ " + msg.getContent()) + " ");
+            String counter = (idx >= 0 && total > 0) ? idx + "/" + total + " " : "";
+            System.out.print("\n  " + TerminalStyle.dim(counter + "* " + msg.getContent()) + " ");
         } else if (msg.isSessionCleared()) {
             if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
                 System.out.println();
@@ -303,7 +284,15 @@ public class CliChannel {
 
     /** ② 打印启动横幅 */
     private void printStartupBanner() {
-        printBanner();
+        int termWidth = terminal != null ? terminal.getWidth() : 80;
+        if (termWidth < 40) termWidth = 80; // 容错
+
+        if (TerminalStyle.isEnabled()) {
+            printRichBanner(termWidth);
+        } else {
+            printDumbBanner(termWidth);
+        }
+        System.out.println();
     }
 
     /** ③ 主输入循环 */
@@ -330,21 +319,16 @@ public class CliChannel {
                 System.out.println(TerminalStyle.dim("  ! " + line));
             }
 
-            // 记录历史（去重：如果与上一条相同则替换）
-            if (inputHistory.isEmpty() || !inputHistory.getLast().equals(line)) {
-                inputHistory.addLast(line);
-                if (inputHistory.size() > MAX_HISTORY) inputHistory.removeFirst();
-            }
+            if (!inputHistory.isEmpty() && inputHistory.getLast().equals(line)) inputHistory.removeLast();
+            inputHistory.addLast(line);
+            if (inputHistory.size() > MAX_HISTORY) inputHistory.removeFirst();
 
             if (line.startsWith("/")) {
                 String cmdName = extractCmdName(line);
                 if ("clear".equals(cmdName)) { handleClear(); continue; }
                 if ("exit".equals(cmdName) || "q".equals(cmdName) || "quit".equals(cmdName)) { handleExit(); return; }
                 if ("history".equals(cmdName)) { showHistory(); continue; }
-                if (commands.isRegistered(cmdName)) {
-                    commands.execute(cmdCtx, line);
-                    continue;
-                }
+                if (commands.isRegistered(cmdName)) { commands.execute(cmdCtx, line); continue; }
                 System.out.println(TerminalStyle.warn("未知命令: " + line + "（输入 /help 查看可用命令）"));
                 continue;
             }
@@ -374,12 +358,11 @@ public class CliChannel {
             dialogActive = true;
             try {
                 System.out.println();
-                System.out.println(TerminalStyle.ORANGE + TerminalStyle.B + "  ⚡ 工具调用确认" + TerminalStyle.R);
+                System.out.println(TerminalStyle.ORANGE + TerminalStyle.B + "  [!] 工具调用确认" + TerminalStyle.R);
                 System.out.println("  " + TerminalStyle.bold("工具: ") + TerminalStyle.highlight(tool.getName()));
-                // 参数仅显示摘要（完整 JSON 太冗长）
-                String paramStr = params.toString();
-                if (paramStr.length() > 80) paramStr = paramStr.substring(0, 77) + "...";
-                System.out.println("  " + TerminalStyle.dim("参数: " + paramStr));
+                String ps = params.toString();
+                if (ps.length() > 80) ps = ps.substring(0, 77) + "...";
+                System.out.println("  " + TerminalStyle.dim("参数: " + ps));
                 System.out.println("  " + TerminalStyle.dim("原因: " + reason));
                 System.out.print("  " + TerminalStyle.GREEN + "[1] 允许 " + TerminalStyle.R
                         + TerminalStyle.CYAN + "[2] 之后都放行 " + TerminalStyle.R
@@ -421,46 +404,25 @@ public class CliChannel {
         }
     }
 
-    /** 构建带状态信息的输入提示符 */
+    /** 构建带状态指示的输入提示符 */
     private String buildPrompt() {
-        StringBuilder sb = new StringBuilder();
         try {
             var pm = cmdCtx.permissionManager();
             if (pm != null) {
                 var mode = pm.getMode();
-                // 模式指示器
-                String indicator = switch (mode) {
-                    case PLAN -> TerminalStyle.YELLOW + TerminalStyle.B + " [PLAN] " + TerminalStyle.R;
-                    case ACCEPT_EDITS -> TerminalStyle.GREEN + " [EDIT] " + TerminalStyle.R;
-                    case BYPASS -> TerminalStyle.MAGENTA + TerminalStyle.B + " [BYPASS] " + TerminalStyle.R;
-                    default -> "";
-                };
-                // Plan 模式额外警告
-                if (mode == com.nanobot.security.PermissionMode.PLAN) {
-                    sb.append(indicator);
-                } else if (!indicator.isEmpty()) {
-                    sb.append(indicator);
-                } else {
-                    // DEFAULT 模式无特殊标签，简洁
-                }
+                if (mode == com.nanobot.security.PermissionMode.PLAN)
+                    return TerminalStyle.YELLOW + TerminalStyle.B + " [PLAN] " + TerminalStyle.R + TerminalStyle.B + "> " + TerminalStyle.R;
+                if (mode == com.nanobot.security.PermissionMode.ACCEPT_EDITS)
+                    return TerminalStyle.GREEN + " [EDIT] " + TerminalStyle.R + TerminalStyle.B + "> " + TerminalStyle.R;
+                if (mode == com.nanobot.security.PermissionMode.BYPASS)
+                    return TerminalStyle.MAGENTA + TerminalStyle.B + " [BYPASS] " + TerminalStyle.R + TerminalStyle.B + "> " + TerminalStyle.R;
             }
         } catch (Exception ignored) {}
-        sb.append(TerminalStyle.B).append("> ").append(TerminalStyle.R);
-        return sb.toString();
+        return "> ";
     }
 
-    /** 从输入行提取命令名（去掉 / 前缀，取第一个空格前 token 小写） */
-    private static String extractCmdName(String line) {
-        if (line == null || line.length() <= 1) return "";
-        return line.substring(1).trim().split("\\s+")[0].toLowerCase();
-    }
-
-    /** /history — 显示最近输入历史 */
     private void showHistory() {
-        if (inputHistory.isEmpty()) {
-            System.out.println(TerminalStyle.dim("暂无历史命令"));
-            return;
-        }
+        if (inputHistory.isEmpty()) { System.out.println(TerminalStyle.dim("暂无历史命令")); return; }
         System.out.println(TerminalStyle.dim("最近命令（!! 重复上条，!N 指定序号）:"));
         int idx = 1;
         for (String h : inputHistory) {
@@ -470,12 +432,18 @@ public class CliChannel {
         }
     }
 
+    /** 从输入行提取命令名（去掉 / 前缀，取第一个空格前 token 小写） */
+    private static String extractCmdName(String line) {
+        if (line == null || line.length() <= 1) return "";
+        return line.substring(1).trim().split("\\s+")[0].toLowerCase();
+    }
+
     /** /clear — 直接调 SessionManager，不经过 MessageBus（避免等待永不来的 _stream_end） */
     private boolean handleClear() {
         var sm = NanobotRunner.getSessionManager();
         if (sm != null) {
             sm.clearSession(sessionId);
-            System.out.println(TerminalStyle.info("会话已清除。"));
+            System.out.println("会话已清除。");
         } else {
             System.out.println("会话管理器未就绪。");
         }
@@ -569,7 +537,7 @@ public class CliChannel {
 
         // ③ 安全检查
         if (isDangerousPath(path)) {
-            System.out.println(TerminalStyle.error("危险路径已拒绝: " + cleaned));
+            System.out.println("⚠  危险路径已拒绝: " + cleaned);
             return "@" + cleaned;
         }
 
@@ -631,7 +599,7 @@ public class CliChannel {
         }
         if (probe != null && Files.exists(probe)) return probe;
 
-        System.out.println(TerminalStyle.warn("文件未找到: " + rawPath));
+        System.out.println("⚠  文件未找到: " + rawPath);
         return null;
     }
 
@@ -648,10 +616,10 @@ public class CliChannel {
             }
             if (children.size() == 50) sb.append("  ... (截断)\n");
             sb.append("```");
-            System.out.println(TerminalStyle.success("已注入目录: " + rawPath + " (" + children.size() + " 项)"));
+            System.out.println("📂 已注入目录: " + rawPath + " (" + children.size() + " 项)");
             return sb.toString();
         } catch (IOException e) {
-            System.out.println(TerminalStyle.warn("无法列出目录: " + rawPath));
+            System.out.println("⚠  无法列出目录: " + rawPath);
             return "@" + rawPath;
         }
     }
@@ -666,15 +634,15 @@ public class CliChannel {
         try {
             long size = Files.size(path);
             if (size > MAX_FILE_BYTES) {
-                System.out.println(TerminalStyle.warn("文件过大 (>" + (MAX_FILE_BYTES / 1024 / 1024) + "MB): " + rawPath));
+                System.out.println("⚠  文件过大 (>" + (MAX_FILE_BYTES / 1024 / 1024) + "MB): " + rawPath);
                 return "@" + rawPath;
             }
             if (size == 0) {
-                System.out.println(TerminalStyle.warn("空文件: " + rawPath));
+                System.out.println("⚠  空文件: " + rawPath);
                 return "@" + rawPath;
             }
         } catch (IOException e) {
-            System.out.println(TerminalStyle.warn("无法读取文件大小: " + rawPath));
+            System.out.println("⚠  无法读取文件大小: " + rawPath);
             return "@" + rawPath;
         }
 
@@ -689,13 +657,13 @@ public class CliChannel {
                         if (head[i] == 0) nullCount++;
                     }
                     if ((double) nullCount / read > BINARY_NULL_RATIO_THRESHOLD) {
-                        System.out.println(TerminalStyle.warn("二进制文件，跳过: " + rawPath));
+                        System.out.println("⚠  二进制文件，跳过: " + rawPath);
                         return "@" + rawPath;
                     }
                 }
             }
         } catch (IOException e) {
-            System.out.println(TerminalStyle.warn("无法读取文件: " + rawPath + " (" + e.getMessage() + ")"));
+            System.out.println("⚠  无法读取文件: " + rawPath + " (" + e.getMessage() + ")");
             return "@" + rawPath;
         }
 
@@ -725,7 +693,7 @@ public class CliChannel {
                     + (truncated ? " (截断至 " + MAX_FILE_LINES + " 行)" : ""));
             return sb.toString();
         } catch (IOException e) {
-            System.out.println(TerminalStyle.warn("无法读取文件: " + rawPath + " (" + e.getMessage() + ")"));
+            System.out.println("⚠  无法读取文件: " + rawPath + " (" + e.getMessage() + ")");
             return "@" + rawPath;
         }
     }
@@ -773,10 +741,7 @@ public class CliChannel {
         try {
             messageBus.publishInbound(InboundMessage.builder().sessionId(sessionId).senderId(sessionId).content(content).channel("cli").metadata(java.util.Map.of("requestId", requestId, "streamMode", true)).build());
 
-            // ①-b 启动 thinking spinner（首个 delta 到达后自动停止）
             startThinkingSpinner();
-
-            // ② 等待流式完成（最多等5分钟，或按 Esc/Enter 取消）
             waitForStreamCompletion();
 
         } catch (InterruptedException e) {
@@ -788,7 +753,6 @@ public class CliChannel {
         }
     }
 
-    /** ①-b 启动 thinking spinner（在首个 delta 到达前显示进度动画） */
     private void startThinkingSpinner() {
         thinking = true;
         Thread spinner = new Thread(() -> {
@@ -801,7 +765,6 @@ public class CliChannel {
                     i = (i + 1) % frames.length;
                     Thread.sleep(120);
                 }
-                // 清除 spinner 行
                 System.out.print("\r" + " ".repeat(30) + "\r");
             } catch (InterruptedException ignored) {}
         }, "CLI-spinner");
@@ -809,11 +772,7 @@ public class CliChannel {
         spinner.start();
     }
 
-    private void stopThinking() {
-        if (thinking) {
-            thinking = false;
-        }
-    }
+    private void stopThinking() { if (thinking) thinking = false; }
 
     /** ① 启动后台监听线程：流式输出期间按 Esc 中断当前回复 */
     private void startCancelMonitor() {
@@ -870,85 +829,111 @@ public class CliChannel {
         }
     }
 
-    private void printBanner() {
-        final String R = "\033[0m";
-        final String B = "\033[1m";
-        final String D = "\033[2m";
-        final String MAGENTA = "\033[38;5;201m";
-        final String CYAN = "\033[38;5;51m";
-        final String GREEN = "\033[38;5;82m";
-        final String BLUE = "\033[38;5;75m";
-        final String GRAY = "\033[38;5;242m";
+    // ═══════════════════════════════════════════════════════
+    //  Banner 渲染（双分支）
+    // ═══════════════════════════════════════════════════════
 
-        final int W = 54;
+    /** 正常终端：双栏布局 + ANSI 颜色 + Unicode 边框 */
+    private void printRichBanner(int w) {
+        String R = TerminalStyle.R, B = TerminalStyle.B, D = TerminalStyle.D;
+        String CYAN = TerminalStyle.CYAN, GREEN = TerminalStyle.GREEN;
+        String BLUE = TerminalStyle.BLUE, GRAY = TerminalStyle.GRAY;
+        String MAGENTA = TerminalStyle.MAGENTA;
 
-        // 辅助：打印框内一行（自动对齐右侧边框）
-        Runnable sep = () -> System.out.println(TerminalStyle.filter(GRAY + "  │" + " ".repeat(W) + "│" + R));
+        boolean doubleCol = w >= 80;
+        int leftW = doubleCol ? w - 30 : w - 4; // 右侧面板占 30 列
 
-        System.out.println(TerminalStyle.filter(GRAY + "  ╭" + "─".repeat(W) + "╮" + R));
-
-        // ── Logo（ANSI 正常终端 → ASCII Art；dumb 终端 → 纯文本）──
-        if (TerminalStyle.isEnabled()) {
-            boxLine(W, "  " + B + MAGENTA + "███╗   ██╗ █████╗ ███╗   ██╗" + R,GRAY);
-            boxLine(W, "  " + B + MAGENTA + "████╗  ██║██╔══██╗████╗  ██║" + R,GRAY);
-            boxLine(W, "  " + B + CYAN   + "██╔██╗ ██║███████║██╔██╗ ██║" + R,GRAY);
-            boxLine(W, "  " + B + CYAN   + "██║╚██╗██║██╔══██║██║╚██╗██║" + R,GRAY);
-            boxLine(W, "  " + B + GREEN  + "██║ ╚████║██║  ██║██║ ╚████║" + R,GRAY);
-            boxLine(W, "  " + B + GREEN  + "╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═══╝" + R,GRAY);
-            boxLine(W, "      " + D + "— AI Programming Agent —" + R,GRAY);
-        } else {
-            boxLine(W, "  ***  NANO-BOT  ***",GRAY);
-            boxLine(W, "  AI Programming Agent",GRAY);
-        }
-        sep.run();
-
-        boxLine(W, "  " + B + "my-nanobot" + R + GRAY + "  v2.3.0  基于 Java 的 AI Agent 编程助手" + R,GRAY);
-        sep.run();
-
-        // ── 模型 + 目录 ──
+        // 模型、目录
         String model = "deepseek-chat";
-        try { var cfg = NanobotRunner.getConfig(); if (cfg != null) model = cfg.getAgents().getDefaults().getModel(); } catch (Exception ignored) {}
+        try { var c = NanobotRunner.getConfig(); if (c != null) model = c.getAgents().getDefaults().getModel(); } catch (Exception ignored) {}
         String ws = System.getProperty("nanobot.workspace", System.getProperty("user.dir", "."));
-        // 路径截断：从目录分隔符处切断，避免 "...g\xxx" 这种难看效果
-        if (ws.length() > 35) {
-            int cut = ws.length() - 32;
-            int slash = ws.indexOf('\\', cut);
-            if (slash < 0) slash = ws.indexOf('/', cut);
-            if (slash >= 0 && slash < ws.length() - 1) cut = slash + 1;
-            ws = "..." + ws.substring(cut);
+        if (ws.length() > leftW - 12) ws = "..." + ws.substring(ws.length() - (leftW - 15));
+
+        // 上次会话
+        String lastSession = null;
+        try { var sm = NanobotRunner.getSessionManager(); if (sm != null) { var s = sm.listSessionDetails(); if (!s.isEmpty()) { var l = s.get(0); String t = java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.ofEpochMilli(l.lastModified())); lastSession = l.key() + " (" + l.messageCount() + " 条, " + t + ")"; } } } catch (Exception ignored) {}
+
+        // ═══ 顶部装饰线 ═══
+        println(GRAY + "  ┏" + "━".repeat(leftW) + (doubleCol ? "┳" + "━".repeat(28) : "") + "┓" + R);
+
+        // ═══ Logo 行 ═══
+        println(padR("  ┃  " + B + CYAN + "⚡ NANO-BOT" + R + GRAY + "  v2.3.0 — AI Programming Agent" + R, leftW, GRAY, doubleCol, D + "🛠  编程搭档" + R));
+
+        // ═══ 分隔 ═══
+        println(GRAY + "  ┣" + "━".repeat(leftW) + (doubleCol ? "╋" + "━".repeat(28) : "") + "┫" + R);
+
+        // ═══ 模型 + 目录 ═══
+        println(padR("  ┃  " + B + "模型:" + R + " " + BLUE + model + R, leftW, GRAY, doubleCol, B + "/help" + R + GRAY + " 查看命令" + R));
+
+        // ═══ 工作目录 ═══
+        println(padR("  ┃  " + GRAY + "📁 " + ws + R, leftW, GRAY, doubleCol, B + "/resume" + R + GRAY + " 恢复会话" + R));
+
+        // ═══ 上次会话 ═══
+        if (lastSession != null) {
+            println(padR("  ┃  " + GRAY + "上次: " + lastSession + R, leftW, GRAY, doubleCol, GRAY + "!!" + R + GRAY + " 重复上条命令" + R));
         }
-        boxLine(W, "  " + B + "模型:" + R + " " + BLUE + model + R + GRAY + "  │  " + TerminalStyle.dim("~") + ws + R,GRAY);
-        sep.run();
 
-        // ── 上次会话 ──
-        try {
-            var sm = NanobotRunner.getSessionManager();
-            if (sm != null) {
-                var sessions = sm.listSessionDetails();
-                if (!sessions.isEmpty()) {
-                    var last = sessions.get(0);
-                    String time = java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm")
-                            .withZone(java.time.ZoneId.systemDefault())
-                            .format(java.time.Instant.ofEpochMilli(last.lastModified()));
-                    boxLine(W, "  " + GRAY + "上次: " + last.key() + " (" + last.messageCount() + " 条, " + time + ")" + R,GRAY);
-                    boxLine(W, "  " + GRAY + "输入 " + R + B + "/resume" + R + GRAY + " 恢复，或直接开始对话" + R,GRAY);
-                    sep.run();
-                }
-            }
-        } catch (Exception ignored) {}
+        // ═══ 空行 ═══
+        println(padR("  ┃  ", leftW, GRAY, doubleCol, B + "@文件" + R + GRAY + " 引用上下文" + R));
 
-        // ── 命令提示 ──
-        boxLine(W, "  " + B + "/help" + R + GRAY + " 命令  ·  " + R + B + "!!" + R + GRAY + " 重复  ·  " + R + B + "@文件" + R + GRAY + " 引用  ·  " + R + B + "Esc" + R + GRAY + " 中断" + R,GRAY);
-
-        System.out.println(TerminalStyle.filter(GRAY + "  ╰" + "─".repeat(W) + "╯" + R));
-        System.out.println();
+        // ═══ 底部 ═══
+        println(GRAY + "  ┗" + "━".repeat(leftW) + (doubleCol ? "┻" + "━".repeat(28) : "") + "┛" + R);
     }
 
-    /** 打印框内一行：内容靠左，右侧自动补齐边框。dumb 终端自动降级 ASCII */
-    private static void boxLine(int boxWidth, String content, String grayColor) {
-        String visible = content.replaceAll("\033\\[[0-9;]*m", "");
-        int pad = boxWidth - visible.length();
-        String line = grayColor + "  │" + content + (pad > 0 ? " ".repeat(pad) : "") + "│" + "\033[0m";
-        System.out.println(TerminalStyle.filter(line));
+    /** dumb 终端：纯 ASCII 单栏，无 ANSI、无 emoji、无 Unicode */
+    private void printDumbBanner(int w) {
+        int bw = Math.min(w, 80) - 4; // 内容宽
+        String line = "+" + "-".repeat(bw) + "+";
+
+        System.out.println(line);
+        System.out.println(padAscii("|  *** NANO-BOT v2.3.0 ***", bw));
+        System.out.println(padAscii("|  AI Programming Agent", bw));
+        System.out.println(padAscii("|", bw));
+
+        String model = "deepseek-chat";
+        try { var c = NanobotRunner.getConfig(); if (c != null) model = c.getAgents().getDefaults().getModel(); } catch (Exception ignored) {}
+        String ws = System.getProperty("nanobot.workspace", System.getProperty("user.dir", "."));
+        if (ws.length() > bw - 12) ws = "..." + ws.substring(ws.length() - (bw - 15));
+
+        System.out.println(padAscii("|  模型: " + model, bw));
+        System.out.println(padAscii("|  目录: " + ws, bw));
+
+        String lastSession = null;
+        try { var sm = NanobotRunner.getSessionManager(); if (sm != null) { var s = sm.listSessionDetails(); if (!s.isEmpty()) { var l = s.get(0); String t = java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.ofEpochMilli(l.lastModified())); lastSession = l.key() + " (" + l.messageCount() + " 条, " + t + ")"; } } } catch (Exception ignored) {}
+        if (lastSession != null) {
+            System.out.println(padAscii("|  上次: " + lastSession, bw));
+            System.out.println(padAscii("|  输入 /resume 恢复，或直接开始对话", bw));
+        }
+
+        System.out.println(padAscii("|", bw));
+        System.out.println(padAscii("|  /help 命令  |  !! 重复  |  @文件 引用  |  Esc 中断", bw));
+        System.out.println(line);
+    }
+
+    // ── 渲染辅助 ──
+
+    /** 打印一行（含双栏自动对齐 + ANSI 过滤） */
+    private static void println(String s) {
+        System.out.println(TerminalStyle.filter(s));
+    }
+
+    /** 左栏内容 + 可选右栏，自动补齐到 leftW 宽度 */
+    private static String padR(String left, int leftW, String gray, boolean doubleCol, String right) {
+        // 计算可见长度（去 ANSI）
+        String v = left.replaceAll("\033\\[[0-9;]*m", "");
+        int pad = leftW - v.length() + 1; // +1 因为 ┃ 占位
+        String s = left + (pad > 0 ? " ".repeat(pad) : " ");
+        if (doubleCol) {
+            s += gray + "┃  " + right + TerminalStyle.R;
+        }
+        return s + gray + "┃" + TerminalStyle.R;
+    }
+
+    /** ASCII 行：内容左对齐，右侧补齐 | */
+    private static String padAscii(String content, int width) {
+        // 去 ANSI 计算可见长度
+        String v = content.replaceAll("\033\\[[0-9;]*m", "");
+        int pad = width - v.length();
+        return content + (pad > 0 ? " ".repeat(pad) : "") + "|";
     }
 }
