@@ -13,6 +13,7 @@ import com.nanobot.command.impl.ResumeCommand;
 import com.nanobot.core.AgentLoop;
 import com.nanobot.tools.impl.AskUserTool;
 import com.nanobot.v3.tui.MarkdownRenderer;
+import com.nanobot.v3.tui.TerminalStyle;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
 import org.jline.utils.NonBlockingReader;
@@ -167,12 +168,14 @@ public class CliChannel {
             this.sessionId = sessionKey.startsWith(channelPrefix)
                     ? sessionKey.substring(channelPrefix.length())
                     : sessionKey;
-            System.out.println("会话已切换至: " + sessionKey + "，历史上下文将在下一条消息中恢复");
+            System.out.println(TerminalStyle.success("会话已切换至: " + sessionKey + "，历史上下文将在下一条消息中恢复"));
         }));
     }
 
     public void start() {
         if (messageBus == null || agentLoop == null) {
+            System.out.println(TerminalStyle.error("CLI 启动失败: MessageBus 或 AgentLoop 未就绪"));
+            System.out.println(TerminalStyle.dim("  请检查 Spring 容器日志，确认所有 Bean 已正确初始化。"));
             logger.error("CLI 启动失败: MessageBus 或 AgentLoop 未就绪");
             return;
         }
@@ -215,7 +218,7 @@ public class CliChannel {
     /** 渲染单条流式消息到控制台，返回更新后的 firstDeltaTime */
     private long renderStreamMessage(OutboundMessage msg, long firstDeltaTime) {
         if (msg.isToolCall()) {
-            System.out.print("\n  " + msg.getContent() + " ");
+            System.out.print("\n  " + TerminalStyle.dim("⚙ " + msg.getContent()) + " ");
         } else if (msg.isSessionCleared()) {
             if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
                 System.out.println();
@@ -227,18 +230,17 @@ public class CliChannel {
                 System.out.print(MarkdownRenderer.renderStreaming(msg.getContent()));
             }
         }
-        // stream_end 独立判断（不用 else-if，命令响应同时带 delta+end）
         if (msg.isStreamEnd()) {
             if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
                 System.out.println();
                 int tokens = msg.getMetadataInt("_token_count", -1);
                 int iterations = msg.getMetadataInt("_tool_iterations", 0);
                 long duration = firstDeltaTime > 0 ? System.currentTimeMillis() - firstDeltaTime : 0;
-                StringBuilder stats = new StringBuilder("  ⏱ ");
-                if (duration > 0) stats.append(String.format("%.1fs", duration / 1000.0));
+                StringBuilder stats = new StringBuilder();
+                if (duration > 0) stats.append(String.format("  %.1fs", duration / 1000.0));
                 if (tokens > 0) stats.append(" · ").append(tokens).append(" tokens");
                 if (iterations > 0) stats.append(" · ").append(iterations).append(" tool calls");
-                if (stats.length() > 5) System.out.println(stats);
+                if (stats.length() > 0) System.out.println(TerminalStyle.dim(stats.toString().trim()));
                 currentRequestId = null;
                 return 0;
             }
@@ -270,7 +272,7 @@ public class CliChannel {
                     continue;
                 }
                 // 未知命令
-                System.out.println("未知命令: " + line + "（输入 /help 查看可用命令）");
+                System.out.println(TerminalStyle.warn("未知命令: " + line + "（输入 /help 查看可用命令）"));
                 continue;
             }
             sendMessage(line);
@@ -296,19 +298,24 @@ public class CliChannel {
         registry.getPermissionManager().setInteractiveHandler((tool, params, reason) -> {
             if (trusted.get()) return true;
 
-            dialogActive = true;  // 先设标志，CancelMonitor 下次循环跳过
+            dialogActive = true;
             try {
                 System.out.println();
-                System.out.println("[!] 工具调用需要确认:");
-                System.out.println("  工具: " + tool.getName());
-                System.out.println("  参数: " + params);
-                System.out.println("  原因: " + reason);
-                System.out.print("  1=允许  2=之后都放行  3=拒绝  [1/2/3] ");
+                System.out.println(TerminalStyle.ORANGE + TerminalStyle.B + "  ⚡ 工具调用确认" + TerminalStyle.R);
+                System.out.println("  " + TerminalStyle.bold("工具: ") + TerminalStyle.highlight(tool.getName()));
+                // 参数仅显示摘要（完整 JSON 太冗长）
+                String paramStr = params.toString();
+                if (paramStr.length() > 80) paramStr = paramStr.substring(0, 77) + "...";
+                System.out.println("  " + TerminalStyle.dim("参数: " + paramStr));
+                System.out.println("  " + TerminalStyle.dim("原因: " + reason));
+                System.out.print("  " + TerminalStyle.GREEN + "[1] 允许 " + TerminalStyle.R
+                        + TerminalStyle.CYAN + "[2] 之后都放行 " + TerminalStyle.R
+                        + TerminalStyle.RED + "[3] 拒绝 " + TerminalStyle.R);
                 System.out.flush();
                 String input = readInteractiveLine().trim();
                 if ("2".equals(input)) {
                     trusted.set(true);
-                    System.out.println("  已信任当前会话，后续不再询问。");
+                    System.out.println("  " + TerminalStyle.success("已信任当前会话，后续不再询问。"));
                     return true;
                 }
                 return "1".equals(input);
@@ -352,7 +359,7 @@ public class CliChannel {
         var sm = NanobotRunner.getSessionManager();
         if (sm != null) {
             sm.clearSession(sessionId);
-            System.out.println("会话已清除。");
+            System.out.println(TerminalStyle.info("会话已清除。"));
         } else {
             System.out.println("会话管理器未就绪。");
         }
@@ -446,7 +453,7 @@ public class CliChannel {
 
         // ③ 安全检查
         if (isDangerousPath(path)) {
-            System.out.println("⚠  危险路径已拒绝: " + cleaned);
+            System.out.println(TerminalStyle.error("危险路径已拒绝: " + cleaned));
             return "@" + cleaned;
         }
 
@@ -508,7 +515,7 @@ public class CliChannel {
         }
         if (probe != null && Files.exists(probe)) return probe;
 
-        System.out.println("⚠  文件未找到: " + rawPath);
+        System.out.println(TerminalStyle.warn("文件未找到: " + rawPath));
         return null;
     }
 
@@ -525,10 +532,10 @@ public class CliChannel {
             }
             if (children.size() == 50) sb.append("  ... (截断)\n");
             sb.append("```");
-            System.out.println("📂 已注入目录: " + rawPath + " (" + children.size() + " 项)");
+            System.out.println(TerminalStyle.success("已注入目录: " + rawPath + " (" + children.size() + " 项)"));
             return sb.toString();
         } catch (IOException e) {
-            System.out.println("⚠  无法列出目录: " + rawPath);
+            System.out.println(TerminalStyle.warn("无法列出目录: " + rawPath));
             return "@" + rawPath;
         }
     }
@@ -543,15 +550,15 @@ public class CliChannel {
         try {
             long size = Files.size(path);
             if (size > MAX_FILE_BYTES) {
-                System.out.println("⚠  文件过大 (>" + (MAX_FILE_BYTES / 1024 / 1024) + "MB): " + rawPath);
+                System.out.println(TerminalStyle.warn("文件过大 (>" + (MAX_FILE_BYTES / 1024 / 1024) + "MB): " + rawPath));
                 return "@" + rawPath;
             }
             if (size == 0) {
-                System.out.println("⚠  空文件: " + rawPath);
+                System.out.println(TerminalStyle.warn("空文件: " + rawPath));
                 return "@" + rawPath;
             }
         } catch (IOException e) {
-            System.out.println("⚠  无法读取文件大小: " + rawPath);
+            System.out.println(TerminalStyle.warn("无法读取文件大小: " + rawPath));
             return "@" + rawPath;
         }
 
@@ -566,13 +573,13 @@ public class CliChannel {
                         if (head[i] == 0) nullCount++;
                     }
                     if ((double) nullCount / read > BINARY_NULL_RATIO_THRESHOLD) {
-                        System.out.println("⚠  二进制文件，跳过: " + rawPath);
+                        System.out.println(TerminalStyle.warn("二进制文件，跳过: " + rawPath));
                         return "@" + rawPath;
                     }
                 }
             }
         } catch (IOException e) {
-            System.out.println("⚠  无法读取文件: " + rawPath + " (" + e.getMessage() + ")");
+            System.out.println(TerminalStyle.warn("无法读取文件: " + rawPath + " (" + e.getMessage() + ")"));
             return "@" + rawPath;
         }
 
@@ -602,7 +609,7 @@ public class CliChannel {
                     + (truncated ? " (截断至 " + MAX_FILE_LINES + " 行)" : ""));
             return sb.toString();
         } catch (IOException e) {
-            System.out.println("⚠  无法读取文件: " + rawPath + " (" + e.getMessage() + ")");
+            System.out.println(TerminalStyle.warn("无法读取文件: " + rawPath + " (" + e.getMessage() + ")"));
             return "@" + rawPath;
         }
     }
