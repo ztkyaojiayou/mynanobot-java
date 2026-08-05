@@ -66,6 +66,9 @@ public class CliChannel {
      */
     private volatile boolean cancelled;
 
+    /** thinking spinner 运行中，收到首个 delta 后停止 */
+    private volatile boolean thinking;
+
     /** 交互对话框活跃中（权限确认/ask_user 等），CancelMonitor 暂停读终端 */
     private volatile boolean dialogActive;
 
@@ -218,6 +221,7 @@ public class CliChannel {
     /** 渲染单条流式消息到控制台，返回更新后的 firstDeltaTime */
     private long renderStreamMessage(OutboundMessage msg, long firstDeltaTime) {
         if (msg.isToolCall()) {
+            stopThinking();
             int idx = msg.getMetadataInt("_tool_index", -1);
             int total = msg.getMetadataInt("_tool_total", -1);
             String counter = (idx >= 0 && total > 0)
@@ -231,6 +235,7 @@ public class CliChannel {
             }
         } else if (msg.isStreamDelta()) {
             if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
+                stopThinking();
                 if (firstDeltaTime == 0) firstDeltaTime = System.currentTimeMillis();
                 System.out.print(MarkdownRenderer.renderStreaming(msg.getContent()));
             }
@@ -687,6 +692,9 @@ public class CliChannel {
         try {
             messageBus.publishInbound(InboundMessage.builder().sessionId(sessionId).senderId(sessionId).content(content).channel("cli").metadata(java.util.Map.of("requestId", requestId, "streamMode", true)).build());
 
+            // ①-b 启动 thinking spinner（首个 delta 到达后自动停止）
+            startThinkingSpinner();
+
             // ② 等待流式完成（最多等5分钟，或按 Esc/Enter 取消）
             waitForStreamCompletion();
 
@@ -694,7 +702,35 @@ public class CliChannel {
             Thread.currentThread().interrupt();
             currentRequestId = null;
         } finally {
+            stopThinking();
             currentRequestId = null;
+        }
+    }
+
+    /** ①-b 启动 thinking spinner（在首个 delta 到达前显示进度动画） */
+    private void startThinkingSpinner() {
+        thinking = true;
+        Thread spinner = new Thread(() -> {
+            String[] frames = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
+            int i = 0;
+            try {
+                while (thinking) {
+                    System.out.print("\r  " + TerminalStyle.dim(frames[i] + " Thinking...") + " \r");
+                    System.out.flush();
+                    i = (i + 1) % frames.length;
+                    Thread.sleep(120);
+                }
+                // 清除 spinner 行
+                System.out.print("\r" + " ".repeat(30) + "\r");
+            } catch (InterruptedException ignored) {}
+        }, "CLI-spinner");
+        spinner.setDaemon(true);
+        spinner.start();
+    }
+
+    private void stopThinking() {
+        if (thinking) {
+            thinking = false;
         }
     }
 
