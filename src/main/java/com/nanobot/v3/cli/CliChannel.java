@@ -729,14 +729,23 @@ public class CliChannel {
         final String ORANGE = "\033[38;5;208m";
         final String GRAY = "\033[38;5;242m";
 
+        // ═══════════ ASCII Art Logo ═══════════
+        System.out.println("  " + B + MAGENTA + "███╗   ██╗ █████╗ ███╗   ██╗" + R);
+        System.out.println("  " + B + MAGENTA + "████╗  ██║██╔══██╗████╗  ██║" + R);
+        System.out.println("  " + B + CYAN   + "██╔██╗ ██║███████║██╔██╗ ██║" + R);
+        System.out.println("  " + B + CYAN   + "██║╚██╗██║██╔══██║██║╚██╗██║" + R);
+        System.out.println("  " + B + GREEN  + "██║ ╚████║██║  ██║██║ ╚████║" + R);
+        System.out.println("  " + B + GREEN  + "╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═══╝" + R);
+        System.out.println("  " + " ".repeat(10) + D + "— AI Programming Agent —" + R);
+        System.out.println();
+
         // ── 顶部装饰线 ──
         System.out.println(GRAY + "  ╭" + "─".repeat(50) + "╮" + R);
 
-        // ── Logo + 身份 ──
-        System.out.println("  │" + " ".repeat(50) + "│");
-        System.out.println("  │   " + B + CYAN + "⚡ NANO-BOT" + R
-                + GRAY + "  v2.3.0" + R + " ".repeat(26) + "│");
-        System.out.println("  │   " + D + "AI Programming Agent — 你的编程搭档" + R + " ".repeat(13) + "│");
+        // ── 版本行 ──
+        System.out.println("  │   " + B + "my-nanobot" + R
+                + GRAY + "  v2.3.0" + R
+                + GRAY + "  基于 Java 的 AI Agent 编程助手" + R + " ".repeat(4) + "│");
         System.out.println("  │" + " ".repeat(50) + "│");
 
         // ── 状态行：模型 + 目录 ──
