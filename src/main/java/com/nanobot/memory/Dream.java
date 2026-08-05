@@ -236,22 +236,38 @@ public class Dream {
      * 分析消息并提取记忆条目
      */
     private CompletableFuture<List<MemoryEntry>> analyzeMessages(List<Map<String, Object>> messages) {
-        StringBuilder content = new StringBuilder();
-        content.append("请从以下对话中提取值得长期记忆的信息：\n\n");
+        StringBuilder userContent = new StringBuilder();
+        userContent.append("从以下对话中提取值得长期记忆的信息：\n\n");
 
         for (Map<String, Object> msg : messages) {
             String role = (String) msg.get("role");
             String msgContent = (String) msg.get("content");
-            content.append(role).append(": ").append(msgContent).append("\n");
+            userContent.append(role).append(": ").append(msgContent).append("\n");
         }
 
-        content.append("\n请以 JSON 格式输出记忆条目，每个条目包含：");
-        content.append("\n- content: 记忆内容");
-        content.append("\n- keywords: 关键词数组");
-        content.append("\n- importance: 重要性(0-1)");
-
         List<LLMProvider.Message> llmMessages = List.of(
-            LLMProvider.Message.ofUser(content.toString())
+            LLMProvider.Message.ofSystem("""
+                你是一个记忆提取助手。从对话中提取关键信息，严格按照 JSON 数组格式输出。
+
+                ## 输出格式（必须是纯 JSON 数组，不要任何其他文字）
+
+                [
+                  {
+                    "content": "记忆内容（一句话描述）",
+                    "keywords": ["关键词1", "关键词2"],
+                    "importance": 0.8
+                  }
+                ]
+
+                ## 规则
+                - 只输出 JSON 数组，不要加 ```json 标记、不要加解释文字
+                - content 字段必填，用中文
+                - keywords 选 1-3 个最能概括的关键词
+                - importance: 重要技术决策/架构信息 0.8-0.9，普通上下文 0.4-0.6
+                - 如果没有值得长期记忆的内容，输出空数组 []
+                - 不要输出字符串数组，每个元素必须是对象
+                """),
+            LLMProvider.Message.ofUser(userContent.toString())
         );
 
         return llmProvider.chat(llmMessages, Collections.emptyList())
