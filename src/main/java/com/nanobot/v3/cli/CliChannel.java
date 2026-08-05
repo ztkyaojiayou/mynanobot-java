@@ -866,18 +866,23 @@ public class CliChannel {
         final int W = 54;
 
         // 辅助：打印框内一行（自动对齐右侧边框）
-        Runnable sep = () -> System.out.println(GRAY + "  │" + " ".repeat(W) + "│" + R);
+        Runnable sep = () -> System.out.println(TerminalStyle.filter(GRAY + "  │" + " ".repeat(W) + "│" + R));
 
-        System.out.println(GRAY + "  ╭" + "─".repeat(W) + "╮" + R);
+        System.out.println(TerminalStyle.filter(GRAY + "  ╭" + "─".repeat(W) + "╮" + R));
 
-        // ── ASCII Art Logo ──
-        boxLine(W, "  " + B + MAGENTA + "███╗   ██╗ █████╗ ███╗   ██╗" + R,GRAY);
-        boxLine(W, "  " + B + MAGENTA + "████╗  ██║██╔══██╗████╗  ██║" + R,GRAY);
-        boxLine(W, "  " + B + CYAN   + "██╔██╗ ██║███████║██╔██╗ ██║" + R,GRAY);
-        boxLine(W, "  " + B + CYAN   + "██║╚██╗██║██╔══██║██║╚██╗██║" + R,GRAY);
-        boxLine(W, "  " + B + GREEN  + "██║ ╚████║██║  ██║██║ ╚████║" + R,GRAY);
-        boxLine(W, "  " + B + GREEN  + "╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═══╝" + R,GRAY);
-        boxLine(W, "      " + D + "— AI Programming Agent —" + R,GRAY);
+        // ── Logo（ANSI 正常终端 → ASCII Art；dumb 终端 → 纯文本）──
+        if (TerminalStyle.isEnabled()) {
+            boxLine(W, "  " + B + MAGENTA + "███╗   ██╗ █████╗ ███╗   ██╗" + R,GRAY);
+            boxLine(W, "  " + B + MAGENTA + "████╗  ██║██╔══██╗████╗  ██║" + R,GRAY);
+            boxLine(W, "  " + B + CYAN   + "██╔██╗ ██║███████║██╔██╗ ██║" + R,GRAY);
+            boxLine(W, "  " + B + CYAN   + "██║╚██╗██║██╔══██║██║╚██╗██║" + R,GRAY);
+            boxLine(W, "  " + B + GREEN  + "██║ ╚████║██║  ██║██║ ╚████║" + R,GRAY);
+            boxLine(W, "  " + B + GREEN  + "╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═══╝" + R,GRAY);
+            boxLine(W, "      " + D + "— AI Programming Agent —" + R,GRAY);
+        } else {
+            boxLine(W, "  ***  NANO-BOT  ***",GRAY);
+            boxLine(W, "  AI Programming Agent",GRAY);
+        }
         sep.run();
 
         boxLine(W, "  " + B + "my-nanobot" + R + GRAY + "  v2.3.0  基于 Java 的 AI Agent 编程助手" + R,GRAY);
@@ -918,15 +923,15 @@ public class CliChannel {
         // ── 命令提示 ──
         boxLine(W, "  " + B + "/help" + R + GRAY + " 命令  ·  " + R + B + "!!" + R + GRAY + " 重复  ·  " + R + B + "@文件" + R + GRAY + " 引用  ·  " + R + B + "Esc" + R + GRAY + " 中断" + R,GRAY);
 
-        System.out.println(GRAY + "  ╰" + "─".repeat(W) + "╯" + R);
+        System.out.println(TerminalStyle.filter(GRAY + "  ╰" + "─".repeat(W) + "╯" + R));
         System.out.println();
     }
 
-    /** 打印框内一行：内容靠左，右侧自动补齐灰色边框 */
+    /** 打印框内一行：内容靠左，右侧自动补齐边框。dumb 终端自动降级 ASCII */
     private static void boxLine(int boxWidth, String content, String grayColor) {
         String visible = content.replaceAll("\033\\[[0-9;]*m", "");
         int pad = boxWidth - visible.length();
         String line = grayColor + "  │" + content + (pad > 0 ? " ".repeat(pad) : "") + "│" + "\033[0m";
-        System.out.println(TerminalStyle.stripAnsi(line));
+        System.out.println(TerminalStyle.filter(line));
     }
 }

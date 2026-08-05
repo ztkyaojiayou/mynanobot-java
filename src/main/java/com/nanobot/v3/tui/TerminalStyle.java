@@ -61,21 +61,96 @@ public final class TerminalStyle {
     public static String P_WARN = YELLOW + B + "! " + R;
     public static String P_INFO = BLUE + "ℹ " + R;
 
-    // ═══════ ANSI 过滤器 ═══════
+    // ════════════════════════ 降级过滤 ════════════════════════
 
-    /** 正则匹配所有 ANSI CSI 转义序列（用于 dumb 终端二次兜底过滤） */
+    /** 正则：匹配所有 ANSI SGR/CSI/OSC 转义序列（覆盖256色、真彩、光标控制等） */
     private static final java.util.regex.Pattern ANSI_PATTERN =
             java.util.regex.Pattern.compile(
-                "\033\\[[0-9;]*[a-zA-Z]"    // CSI: ESC[ ... 字母
-                + "|\033\\][^\\a]*\\a"       // OSC: ESC] ... BEL
-                + "|\033\\([0-9B]"            // 字符集选择
-                + "|\033[PX^_].*?\033\\\\"    // 其他转义序列
+                "\033\\[[0-9;]*[a-zA-Z]"    // CSI: ESC[1;38;5;196m 等
+              + "|\033\\][^\\a]*\\a"         // OSC: ESC]0;title\a
+              + "|\033\\][^\\a]*\033\\\\"    // OSC (ST终结): ESC]...ESC\
+              + "|\033\\([0-9BK]"            // 字符集: ESC(B ESC(0
+              + "|\033[=>]"                  // 模式切换: ESC> ESC=
+              + "|\033[PX^_].*?\033\\\\"     // SOS/PM/APC: ESC X ... ESC\
+              + "|\033[7-8]"                 // 反显/恢复: ESC7 ESC8
+              + "|\033M|\033D"               // 反向索引: ESC M, 正向索引: ESC D
+              + "|\033[FH]"                  // 光标定位: ESC H, ESC F
+              + "|\033c"                      // 重置终端: ESC c
             );
 
-    /** 清除字符串中的所有 ANSI 转义序列（用于 dumb 终端的二次兜底过滤） */
+    /** Unicode 框线 → ASCII 降级表 */
+    private static final java.util.Map<Character, Character> BOX_TO_ASCII = new java.util.HashMap<>();
+    static {
+        // 单线框
+        BOX_TO_ASCII.put('╭', '+'); BOX_TO_ASCII.put('╮', '+');
+        BOX_TO_ASCII.put('╰', '+'); BOX_TO_ASCII.put('╯', '+');
+        BOX_TO_ASCII.put('│', '|'); BOX_TO_ASCII.put('─', '-');
+        BOX_TO_ASCII.put('├', '+'); BOX_TO_ASCII.put('┤', '+');
+        BOX_TO_ASCII.put('┬', '+'); BOX_TO_ASCII.put('┴', '+');
+        BOX_TO_ASCII.put('┼', '+');
+        // 双线框
+        BOX_TO_ASCII.put('╔', '+'); BOX_TO_ASCII.put('╗', '+');
+        BOX_TO_ASCII.put('╚', '+'); BOX_TO_ASCII.put('╝', '+');
+        BOX_TO_ASCII.put('║', '|'); BOX_TO_ASCII.put('═', '=');
+        BOX_TO_ASCII.put('╠', '+'); BOX_TO_ASCII.put('╣', '+');
+        BOX_TO_ASCII.put('╦', '+'); BOX_TO_ASCII.put('╩', '+');
+        BOX_TO_ASCII.put('╬', '+');
+        // 虚线/点线
+        BOX_TO_ASCII.put('┄', '-'); BOX_TO_ASCII.put('┅', '-');
+        BOX_TO_ASCII.put('┆', '|'); BOX_TO_ASCII.put('┇', '|');
+        BOX_TO_ASCII.put('┈', '-'); BOX_TO_ASCII.put('┉', '-');
+        BOX_TO_ASCII.put('┊', '|'); BOX_TO_ASCII.put('┋', '|');
+        // 块状
+        BOX_TO_ASCII.put('█', '#'); BOX_TO_ASCII.put('▓', '#');
+        BOX_TO_ASCII.put('▒', '.'); BOX_TO_ASCII.put('░', ' ');
+    }
+    /** Unicode 特殊符号 → ASCII 降级 */
+    private static final java.util.Map<Character, Character> SYMBOL_TO_ASCII = new java.util.HashMap<>();
+    static {
+        SYMBOL_TO_ASCII.put('✓', 'v'); SYMBOL_TO_ASCII.put('✗', 'x');
+        SYMBOL_TO_ASCII.put('✏', '+'); SYMBOL_TO_ASCII.put('⚡', '!');
+        SYMBOL_TO_ASCII.put('⚙', '*'); SYMBOL_TO_ASCII.put('📋', '=');
+        SYMBOL_TO_ASCII.put('📁', '~'); SYMBOL_TO_ASCII.put('📄', '>');
+        SYMBOL_TO_ASCII.put('📂', '+'); SYMBOL_TO_ASCII.put('⏱', 't');
+        SYMBOL_TO_ASCII.put('ℹ', 'i'); SYMBOL_TO_ASCII.put('❓', '?');
+        SYMBOL_TO_ASCII.put('💡', '*'); SYMBOL_TO_ASCII.put('⚠', '!');
+    }
+
+    /** 清除 ANSI 转义序列 */
     public static String stripAnsi(String text) {
-        if (text == null || text.isEmpty() || enabled) return text;
+        if (text == null || text.isEmpty()) return text;
+        if (enabled) return text;  // 正常终端不处理
         return ANSI_PATTERN.matcher(text).replaceAll("");
+    }
+
+    /** 将 Unicode 框线字符替换为 ASCII 等价 */
+    public static String replaceBoxChars(String text) {
+        if (text == null || text.isEmpty() || enabled) return text;
+        StringBuilder sb = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            Character r = BOX_TO_ASCII.get(c);
+            if (r != null) { sb.append(r); continue; }
+            r = SYMBOL_TO_ASCII.get(c);
+            if (r != null) { sb.append(r); continue; }
+            // 非 ASCII Unicode 且不在 CJK 范围 → 替换为 ?
+            if (c > 127 && !Character.isIdeographic(c)
+                    && Character.UnicodeBlock.of(c) != Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS
+                    && Character.UnicodeBlock.of(c) != Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A
+                    && Character.UnicodeBlock.of(c) != Character.UnicodeBlock.CJK_SYMBOLS_AND_PUNCTUATION) {
+                sb.append('?');
+                continue;
+            }
+            sb.append(c);
+        }
+        return sb.toString();
+    }
+
+    /** dumb 终端：一站式过滤（去 ANSI + 框线降级 + 符号降级） */
+    public static String filter(String text) {
+        if (text == null || text.isEmpty()) return text;
+        if (enabled) return text;
+        return replaceBoxChars(stripAnsi(text));
     }
 
     // ═══════ 静态方法 ═══════
