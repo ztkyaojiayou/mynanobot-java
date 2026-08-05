@@ -19,7 +19,7 @@ public class HelpCommand implements Command {
     @Override
     public boolean execute(CommandContext ctx, String input) {
         System.out.println();
-        System.out.println(TerminalStyle.bold("  📋 可用命令"));
+        System.out.println(TerminalStyle.bold("  === 可用命令 ==="));
         System.out.println(TerminalStyle.dim("  ─────────────────────────────────────────"));
 
         // 内置命令

@@ -391,9 +391,9 @@ public class CliChannel {
                 var mode = pm.getMode();
                 // 模式指示器
                 String indicator = switch (mode) {
-                    case PLAN -> TerminalStyle.YELLOW + TerminalStyle.B + " 📋 PLAN " + TerminalStyle.R;
-                    case ACCEPT_EDITS -> TerminalStyle.GREEN + " ✏️  EDIT " + TerminalStyle.R;
-                    case BYPASS -> TerminalStyle.MAGENTA + TerminalStyle.B + " ⚡ BYPASS " + TerminalStyle.R;
+                    case PLAN -> TerminalStyle.YELLOW + TerminalStyle.B + " [PLAN] " + TerminalStyle.R;
+                    case ACCEPT_EDITS -> TerminalStyle.GREEN + " [EDIT] " + TerminalStyle.R;
+                    case BYPASS -> TerminalStyle.MAGENTA + TerminalStyle.B + " [BYPASS] " + TerminalStyle.R;
                     default -> "";
                 };
                 // Plan 模式额外警告
@@ -753,7 +753,7 @@ public class CliChannel {
     private void startThinkingSpinner() {
         thinking = true;
         Thread spinner = new Thread(() -> {
-            String[] frames = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
+            String[] frames = {"|", "/", "-", "\\"};
             int i = 0;
             try {
                 while (thinking) {
@@ -865,8 +865,16 @@ public class CliChannel {
         String model = "deepseek-chat";
         try { var cfg = NanobotRunner.getConfig(); if (cfg != null) model = cfg.getAgents().getDefaults().getModel(); } catch (Exception ignored) {}
         String ws = System.getProperty("nanobot.workspace", System.getProperty("user.dir", "."));
-        if (ws.length() > 38) ws = "..." + ws.substring(ws.length() - 35);
-        boxLine(W, "  " + B + "模型:" + R + " " + BLUE + model + R + GRAY + "  │  📁 " + ws + R,GRAY);
+        // 路径截断：从目录分隔符处切断，避免 "...g\xxx" 这种难看效果
+        if (ws.length() > 35) {
+            int cut = ws.length() - 32;
+            // 找到 cut 之后第一个 \ 或 /，从那里开始显示
+            int sep = ws.indexOf('\\', cut);
+            if (sep < 0) sep = ws.indexOf('/', cut);
+            if (sep >= 0 && sep < ws.length() - 1) cut = sep + 1;
+            ws = "..." + ws.substring(cut);
+        }
+        boxLine(W, "  " + B + "模型:" + R + " " + BLUE + model + R + GRAY + "  │  " + TerminalStyle.dim("~") + ws + R,GRAY);
         sep.run();
 
         // ── 上次会话 ──
