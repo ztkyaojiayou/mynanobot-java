@@ -249,9 +249,6 @@ public class CliChannel {
     /** ② 打印启动横幅 */
     private void printStartupBanner() {
         printBanner();
-        System.out.println("输入消息开始对话，/exit 退出，/clear 清上下文，Esc 中断回复");
-        System.out.println("💡 @文件路径 可引用文件内容（如 @src/main/Foo.java）");
-        System.out.println();
     }
 
     /** ③ 主输入循环 */
@@ -720,10 +717,71 @@ public class CliChannel {
     }
 
     private void printBanner() {
-        System.out.println("""
-                ╔══════════════════════════════════╗
-                ║       my-nanobot CLI 模式       ║
-                ║  基于 Java 的 AI Agent助手  ║
-                ╚══════════════════════════════════╝""");
+        // ANSI 颜色
+        final String R = "\033[0m";       // 重置
+        final String B = "\033[1m";       // 粗体
+        final String D = "\033[2m";       // 暗色
+        final String CYAN = "\033[38;5;51m";
+        final String GREEN = "\033[38;5;82m";
+        final String YELLOW = "\033[38;5;220m";
+        final String MAGENTA = "\033[38;5;201m";
+        final String BLUE = "\033[38;5;75m";
+        final String ORANGE = "\033[38;5;208m";
+        final String GRAY = "\033[38;5;242m";
+
+        // ── 顶部装饰线 ──
+        System.out.println(GRAY + "  ╭" + "─".repeat(50) + "╮" + R);
+
+        // ── Logo + 身份 ──
+        System.out.println("  │" + " ".repeat(50) + "│");
+        System.out.println("  │   " + B + CYAN + "⚡ NANO-BOT" + R
+                + GRAY + "  v2.3.0" + R + " ".repeat(26) + "│");
+        System.out.println("  │   " + D + "AI Programming Agent — 你的编程搭档" + R + " ".repeat(13) + "│");
+        System.out.println("  │" + " ".repeat(50) + "│");
+
+        // ── 状态行：模型 + 目录 ──
+        String model = "deepseek-chat";
+        try {
+            var cfg = NanobotRunner.getConfig();
+            if (cfg != null) model = cfg.getAgents().getDefaults().getModel();
+        } catch (Exception ignored) {}
+        String ws = System.getProperty("nanobot.workspace",
+                System.getProperty("user.dir", "."));
+        // 截断过长的路径
+        if (ws.length() > 42) ws = "..." + ws.substring(ws.length() - 39);
+        System.out.println("  │   " + B + "模型:" + R + " " + BLUE + model + R
+                + GRAY + "  │  📁 " + ws + R + " ".repeat(Math.max(0, 5 - ws.length() + (ws.length() > 42 ? 0 : 0))) + "│");
+
+        System.out.println("  │" + " ".repeat(50) + "│");
+
+        // ── 上次会话提示 ──
+        try {
+            var sm = NanobotRunner.getSessionManager();
+            if (sm != null) {
+                var sessions = sm.listSessionDetails();
+                if (!sessions.isEmpty()) {
+                    var last = sessions.get(0);
+                    String time = java.time.format.DateTimeFormatter
+                            .ofPattern("MM-dd HH:mm")
+                            .withZone(java.time.ZoneId.systemDefault())
+                            .format(java.time.Instant.ofEpochMilli(last.lastModified()));
+                    System.out.println("  │   " + GRAY + "上次会话: " + last.key()
+                            + " (" + last.messageCount() + " 条消息, " + time + ")" + R + " ".repeat(Math.max(0, 5)) + "│");
+                    System.out.println("  │   " + GRAY + "输入 " + R + B + "/resume" + R + GRAY + " 恢复，或直接开始对话" + R + " ".repeat(10) + "│");
+                    System.out.println("  │" + " ".repeat(50) + "│");
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // ── 命令提示行 ──
+        System.out.println("  │   "
+                + B + "/help" + R + GRAY + " 命令  ·  " + R
+                + B + "@文件" + R + GRAY + " 引用  ·  " + R
+                + B + "Esc" + R + GRAY + " 中断回复" + R + " ".repeat(14) + "│");
+        System.out.println("  │" + " ".repeat(50) + "│");
+
+        // ── 底部 ──
+        System.out.println("  ╰" + "─".repeat(50) + "╯" + R);
+        System.out.println();
     }
 }
