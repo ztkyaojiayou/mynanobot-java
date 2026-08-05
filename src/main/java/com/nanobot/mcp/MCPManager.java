@@ -135,9 +135,12 @@ public class MCPManager {
             }
             
         } catch (Exception e) {
-            logger.error("Failed to register tools from MCP server {}: {}", serverName, e.getMessage());
+            // npx 未安装等环境问题 → 仅警告，不打断启动
+            logger.warn("MCP server '{}' 跳过: {} ({})",
+                    serverName, e.getMessage(),
+                    e.getCause() != null ? e.getCause().getClass().getSimpleName() : "no_cause");
             clients.remove(serverName);
-            client.close();
+            try { client.close(); } catch (Exception ignored) {}
         }
     }
     

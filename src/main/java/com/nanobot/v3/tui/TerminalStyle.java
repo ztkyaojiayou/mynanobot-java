@@ -61,6 +61,23 @@ public final class TerminalStyle {
     public static String P_WARN = YELLOW + B + "! " + R;
     public static String P_INFO = BLUE + "ℹ " + R;
 
+    // ═══════ ANSI 过滤器 ═══════
+
+    /** 正则匹配所有 ANSI CSI 转义序列（用于 dumb 终端二次兜底过滤） */
+    private static final java.util.regex.Pattern ANSI_PATTERN =
+            java.util.regex.Pattern.compile(
+                "\033\\[[0-9;]*[a-zA-Z]"    // CSI: ESC[ ... 字母
+                + "|\033\\][^\\a]*\\a"       // OSC: ESC] ... BEL
+                + "|\033\\([0-9B]"            // 字符集选择
+                + "|\033[PX^_].*?\033\\\\"    // 其他转义序列
+            );
+
+    /** 清除字符串中的所有 ANSI 转义序列（用于 dumb 终端的二次兜底过滤） */
+    public static String stripAnsi(String text) {
+        if (text == null || text.isEmpty() || enabled) return text;
+        return ANSI_PATTERN.matcher(text).replaceAll("");
+    }
+
     // ═══════ 静态方法 ═══════
 
     public static String success(String msg) { return P_OK + msg; }

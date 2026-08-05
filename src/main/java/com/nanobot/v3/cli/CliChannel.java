@@ -157,14 +157,26 @@ public class CliChannel {
         }
         this.terminal = t;
 
-        // ── 终端能力检测：dumb 终端 / Win CMD 下自动降级纯文本 ──
-        if (t == null || "dumb".equalsIgnoreCase(t.getType())
-                || "dumb-color".equalsIgnoreCase(t.getType())) {
+        // ── 终端能力检测：多层判断 → dumb 终端/Win CMD 降级纯文本 ──
+        String jlineType = t != null ? t.getType() : "null";
+        boolean isDumb = t == null
+                || "dumb".equalsIgnoreCase(jlineType)
+                || "dumb-color".equalsIgnoreCase(jlineType)
+                || "ansi".equalsIgnoreCase(jlineType);  // Win CMD 有时报 ansi 但实际不支持
+        // 第二层：Windows 且有 dumb 迹象
+        if (!isDumb && System.getProperty("os.name", "").toLowerCase().contains("win")) {
+            String term = System.getenv("TERM");
+            // Win CMD 通常没有 TERM 环境变量，或 TERM=dumb
+            if (term == null || term.isBlank() || "dumb".equalsIgnoreCase(term)) {
+                isDumb = true;
+            }
+        }
+        if (isDumb) {
             TerminalStyle.disable();
-            logger.info("检测到 dumb 终端 (type={})，ANSI 颜色已关闭",
-                    t != null ? t.getType() : "null");
+            logger.info("检测到 ANSI 不兼容终端 (jline={}, os={}), 已降级为纯文本",
+                    jlineType, System.getProperty("os.name"));
         } else {
-            logger.info("终端就绪: type={}, ANSI 颜色已启用", t.getType());
+            logger.info("终端就绪: jline={}, ANSI 颜色已启用", jlineType);
         }
 
         // 初始化命令注册中心
@@ -912,9 +924,9 @@ public class CliChannel {
 
     /** 打印框内一行：内容靠左，右侧自动补齐灰色边框 */
     private static void boxLine(int boxWidth, String content, String grayColor) {
-        // 去掉 ANSI 转义序列计算可见长度
         String visible = content.replaceAll("\033\\[[0-9;]*m", "");
         int pad = boxWidth - visible.length();
-        System.out.println(grayColor + "  │" + content + (pad > 0 ? " ".repeat(pad) : "") + "│" + "\033[0m");
+        String line = grayColor + "  │" + content + (pad > 0 ? " ".repeat(pad) : "") + "│" + "\033[0m";
+        System.out.println(TerminalStyle.stripAnsi(line));
     }
 }
