@@ -66,6 +66,10 @@ public class CliChannel {
      */
     private volatile boolean cancelled;
 
+    /** 命令历史（最近 50 条） */
+    private final java.util.LinkedList<String> inputHistory = new java.util.LinkedList<>();
+    private static final int MAX_HISTORY = 50;
+
     /** thinking spinner 运行中，收到首个 delta 后停止 */
     private volatile boolean thinking;
 
@@ -271,10 +275,33 @@ public class CliChannel {
             synchronized (scanner) { if (!scanner.hasNextLine()) break; }
             String line = readLine().trim();
             if (line.isEmpty()) continue;
+
+            // ── 历史快捷操作 ──
+            if ("!!".equals(line)) {
+                if (inputHistory.isEmpty()) { System.out.println(TerminalStyle.dim("暂无历史命令")); continue; }
+                line = inputHistory.getLast();
+                System.out.println(TerminalStyle.dim("  ! " + line));
+            } else if (line.matches("!\\d+")) {
+                int idx = Integer.parseInt(line.substring(1)) - 1;
+                if (idx < 0 || idx >= inputHistory.size()) {
+                    System.out.println(TerminalStyle.warn("历史索引无效: " + line + "（共 " + inputHistory.size() + " 条）"));
+                    continue;
+                }
+                line = inputHistory.get(idx);
+                System.out.println(TerminalStyle.dim("  ! " + line));
+            }
+
+            // 记录历史（去重：如果与上一条相同则替换）
+            if (inputHistory.isEmpty() || !inputHistory.getLast().equals(line)) {
+                inputHistory.addLast(line);
+                if (inputHistory.size() > MAX_HISTORY) inputHistory.removeFirst();
+            }
+
             if (line.startsWith("/")) {
                 String cmdName = extractCmdName(line);
                 if ("clear".equals(cmdName)) { handleClear(); continue; }
                 if ("exit".equals(cmdName) || "q".equals(cmdName) || "quit".equals(cmdName)) { handleExit(); return; }
+                if ("history".equals(cmdName)) { showHistory(); continue; }
                 if (commands.isRegistered(cmdName)) {
                     commands.execute(cmdCtx, line);
                     continue;
@@ -387,6 +414,21 @@ public class CliChannel {
     private static String extractCmdName(String line) {
         if (line == null || line.length() <= 1) return "";
         return line.substring(1).trim().split("\\s+")[0].toLowerCase();
+    }
+
+    /** /history — 显示最近输入历史 */
+    private void showHistory() {
+        if (inputHistory.isEmpty()) {
+            System.out.println(TerminalStyle.dim("暂无历史命令"));
+            return;
+        }
+        System.out.println(TerminalStyle.dim("最近命令（!! 重复上条，!N 指定序号）:"));
+        int idx = 1;
+        for (String h : inputHistory) {
+            System.out.printf("  %s%2d%s %s%n",
+                    TerminalStyle.GRAY, idx++, TerminalStyle.R,
+                    h.length() > 60 ? h.substring(0, 57) + "..." : h);
+        }
     }
 
     /** /clear — 直接调 SessionManager，不经过 MessageBus（避免等待永不来的 _stream_end） */
