@@ -717,80 +717,72 @@ public class CliChannel {
     }
 
     private void printBanner() {
-        // ANSI 颜色
-        final String R = "\033[0m";       // 重置
-        final String B = "\033[1m";       // 粗体
-        final String D = "\033[2m";       // 暗色
+        final String R = "\033[0m";
+        final String B = "\033[1m";
+        final String D = "\033[2m";
+        final String MAGENTA = "\033[38;5;201m";
         final String CYAN = "\033[38;5;51m";
         final String GREEN = "\033[38;5;82m";
-        final String YELLOW = "\033[38;5;220m";
-        final String MAGENTA = "\033[38;5;201m";
         final String BLUE = "\033[38;5;75m";
-        final String ORANGE = "\033[38;5;208m";
         final String GRAY = "\033[38;5;242m";
 
-        // ═══════════ ASCII Art Logo ═══════════
-        System.out.println("  " + B + MAGENTA + "███╗   ██╗ █████╗ ███╗   ██╗" + R);
-        System.out.println("  " + B + MAGENTA + "████╗  ██║██╔══██╗████╗  ██║" + R);
-        System.out.println("  " + B + CYAN   + "██╔██╗ ██║███████║██╔██╗ ██║" + R);
-        System.out.println("  " + B + CYAN   + "██║╚██╗██║██╔══██║██║╚██╗██║" + R);
-        System.out.println("  " + B + GREEN  + "██║ ╚████║██║  ██║██║ ╚████║" + R);
-        System.out.println("  " + B + GREEN  + "╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═══╝" + R);
-        System.out.println("  " + " ".repeat(10) + D + "— AI Programming Agent —" + R);
-        System.out.println();
+        final int W = 54;
 
-        // ── 顶部装饰线 ──
-        System.out.println(GRAY + "  ╭" + "─".repeat(50) + "╮" + R);
+        // 辅助：打印框内一行（自动对齐右侧边框）
+        Runnable sep = () -> System.out.println(GRAY + "  │" + " ".repeat(W) + "│" + R);
 
-        // ── 版本行 ──
-        System.out.println("  │   " + B + "my-nanobot" + R
-                + GRAY + "  v2.3.0" + R
-                + GRAY + "  基于 Java 的 AI Agent 编程助手" + R + " ".repeat(4) + "│");
-        System.out.println("  │" + " ".repeat(50) + "│");
+        System.out.println(GRAY + "  ╭" + "─".repeat(W) + "╮" + R);
 
-        // ── 状态行：模型 + 目录 ──
+        // ── ASCII Art Logo ──
+        boxLine(W, "  " + B + MAGENTA + "███╗   ██╗ █████╗ ███╗   ██╗" + R,GRAY);
+        boxLine(W, "  " + B + MAGENTA + "████╗  ██║██╔══██╗████╗  ██║" + R,GRAY);
+        boxLine(W, "  " + B + CYAN   + "██╔██╗ ██║███████║██╔██╗ ██║" + R,GRAY);
+        boxLine(W, "  " + B + CYAN   + "██║╚██╗██║██╔══██║██║╚██╗██║" + R,GRAY);
+        boxLine(W, "  " + B + GREEN  + "██║ ╚████║██║  ██║██║ ╚████║" + R,GRAY);
+        boxLine(W, "  " + B + GREEN  + "╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═══╝" + R,GRAY);
+        boxLine(W, "      " + D + "— AI Programming Agent —" + R,GRAY);
+        sep.run();
+
+        boxLine(W, "  " + B + "my-nanobot" + R + GRAY + "  v2.3.0  基于 Java 的 AI Agent 编程助手" + R,GRAY);
+        sep.run();
+
+        // ── 模型 + 目录 ──
         String model = "deepseek-chat";
-        try {
-            var cfg = NanobotRunner.getConfig();
-            if (cfg != null) model = cfg.getAgents().getDefaults().getModel();
-        } catch (Exception ignored) {}
-        String ws = System.getProperty("nanobot.workspace",
-                System.getProperty("user.dir", "."));
-        // 截断过长的路径
-        if (ws.length() > 42) ws = "..." + ws.substring(ws.length() - 39);
-        System.out.println("  │   " + B + "模型:" + R + " " + BLUE + model + R
-                + GRAY + "  │  📁 " + ws + R + " ".repeat(Math.max(0, 5 - ws.length() + (ws.length() > 42 ? 0 : 0))) + "│");
+        try { var cfg = NanobotRunner.getConfig(); if (cfg != null) model = cfg.getAgents().getDefaults().getModel(); } catch (Exception ignored) {}
+        String ws = System.getProperty("nanobot.workspace", System.getProperty("user.dir", "."));
+        if (ws.length() > 38) ws = "..." + ws.substring(ws.length() - 35);
+        boxLine(W, "  " + B + "模型:" + R + " " + BLUE + model + R + GRAY + "  │  📁 " + ws + R,GRAY);
+        sep.run();
 
-        System.out.println("  │" + " ".repeat(50) + "│");
-
-        // ── 上次会话提示 ──
+        // ── 上次会话 ──
         try {
             var sm = NanobotRunner.getSessionManager();
             if (sm != null) {
                 var sessions = sm.listSessionDetails();
                 if (!sessions.isEmpty()) {
                     var last = sessions.get(0);
-                    String time = java.time.format.DateTimeFormatter
-                            .ofPattern("MM-dd HH:mm")
+                    String time = java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm")
                             .withZone(java.time.ZoneId.systemDefault())
                             .format(java.time.Instant.ofEpochMilli(last.lastModified()));
-                    System.out.println("  │   " + GRAY + "上次会话: " + last.key()
-                            + " (" + last.messageCount() + " 条消息, " + time + ")" + R + " ".repeat(Math.max(0, 5)) + "│");
-                    System.out.println("  │   " + GRAY + "输入 " + R + B + "/resume" + R + GRAY + " 恢复，或直接开始对话" + R + " ".repeat(10) + "│");
-                    System.out.println("  │" + " ".repeat(50) + "│");
+                    boxLine(W, "  " + GRAY + "上次: " + last.key() + " (" + last.messageCount() + " 条, " + time + ")" + R,GRAY);
+                    boxLine(W, "  " + GRAY + "输入 " + R + B + "/resume" + R + GRAY + " 恢复，或直接开始对话" + R,GRAY);
+                    sep.run();
                 }
             }
         } catch (Exception ignored) {}
 
-        // ── 命令提示行 ──
-        System.out.println("  │   "
-                + B + "/help" + R + GRAY + " 命令  ·  " + R
-                + B + "@文件" + R + GRAY + " 引用  ·  " + R
-                + B + "Esc" + R + GRAY + " 中断回复" + R + " ".repeat(14) + "│");
-        System.out.println("  │" + " ".repeat(50) + "│");
+        // ── 命令提示 ──
+        boxLine(W, "  " + B + "/help" + R + GRAY + " 命令  ·  " + R + B + "@文件" + R + GRAY + " 引用  ·  " + R + B + "Esc" + R + GRAY + " 中断回复" + R,GRAY);
 
-        // ── 底部 ──
-        System.out.println("  ╰" + "─".repeat(50) + "╯" + R);
+        System.out.println(GRAY + "  ╰" + "─".repeat(W) + "╯" + R);
         System.out.println();
+    }
+
+    /** 打印框内一行：内容靠左，右侧自动补齐灰色边框 */
+    private static void boxLine(int boxWidth, String content, String grayColor) {
+        // 去掉 ANSI 转义序列计算可见长度
+        String visible = content.replaceAll("\033\\[[0-9;]*m", "");
+        int pad = boxWidth - visible.length();
+        System.out.println(grayColor + "  │" + content + (pad > 0 ? " ".repeat(pad) : "") + "│" + "\033[0m");
     }
 }
