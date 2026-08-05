@@ -161,7 +161,12 @@ public class CliChannel {
             BlockingQueue<OutboundMessage> oldQueue = this.subscriberQueue;
             this.subscriberQueue = messageBus.subscribeToOutbound(sessionKey);
             if (oldQueue != null) messageBus.unsubscribeFromOutbound(this.sessionId, oldQueue);
-            this.sessionId = sessionKey;
+            // safe key (cli_xxx) → 去掉 channel 前缀，还原原始 sessionId
+            // 否则 getSessionKey() 会再次加 channel: → 生成新目录
+            String channelPrefix = "cli_";
+            this.sessionId = sessionKey.startsWith(channelPrefix)
+                    ? sessionKey.substring(channelPrefix.length())
+                    : sessionKey;
             System.out.println("会话已切换至: " + sessionKey + "，历史上下文将在下一条消息中恢复");
         }));
     }
