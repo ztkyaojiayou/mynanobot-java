@@ -16,4 +16,4 @@ if !NEED_BUILD!==1 (
     pushd "%SCRIPT_DIR%" && call mvn package -Dmaven.test.skip=true -q && popd
 )
 
-pushd "%SCRIPT_DIR%" && java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "%JAR%" %*
+pushd "%SCRIPT_DIR%" && java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "%JAR%" --workspace "%CD%" %*

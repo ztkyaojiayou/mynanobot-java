@@ -37,17 +37,19 @@ public class NanobotCliApplication {
 
         java.util.List<String> merged = new java.util.ArrayList<>();
         if (!hasWorkspace) {
-            merged.add("--agents.defaults.workspace=" + System.getProperty("user.dir"));
+            // 用系统属性传递原始工作目录（ConfigLoader 不认 Spring Boot CLI 参数）
+            System.setProperty("nanobot.workspace", System.getProperty("user.dir"));
         }
+
         merged.add("--logging.config=classpath:logback-cli.xml");
         merged.add("--spring.main.banner-mode=off");
         merged.add("--spring.profiles.active=cli");
         merged.add("--spring.main.web-application-type=none"); // CLI 无需 Web 服务器
 
-        // --workspace / -w → Spring Boot 属性格式
+        // --workspace / -w → 系统属性（优先级最高，ConfigLoader 读取）
         for (int i = 0; i < args.length; i++) {
             if (("--workspace".equals(args[i]) || "-w".equals(args[i])) && i + 1 < args.length) {
-                merged.add("--agents.defaults.workspace=" + args[++i]);
+                System.setProperty("nanobot.workspace", args[++i]);
             } else {
                 merged.add(args[i]);
             }

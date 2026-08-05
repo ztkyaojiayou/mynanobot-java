@@ -547,9 +547,17 @@ public class Config {
 
     /**
      * 获取完整的工作空间路径。
-     * 相对路径基于 user.dir（用户启动 nanobot 的当前目录）解析。
+     *
+     * 优先级：系统属性 nanobot.workspace > YAML 配置 > 当前目录
+     * 系统属性由 CLI 启动脚本通过 -Dnanobot.workspace 或 NanobotCliApplication 设置。
      */
     public String getWorkspacePath() {
+        // ① 系统属性最高优先级（CLI --workspace / -Dnanobot.workspace）
+        String sysProp = System.getProperty("nanobot.workspace");
+        if (sysProp != null && !sysProp.isBlank()) {
+            return java.nio.file.Paths.get(sysProp).toAbsolutePath().normalize().toString();
+        }
+        // ② YAML 配置
         String path = agents.getDefaults().getWorkspace();
         if (path.startsWith("~")) {
             path = System.getProperty("user.home") + path.substring(1);

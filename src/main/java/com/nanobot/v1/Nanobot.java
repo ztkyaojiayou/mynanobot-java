@@ -186,7 +186,7 @@ public class Nanobot {
 
         // Shell 工具
         if (config.getTools().getExec().isEnable()) {
-            toolRegistry.register(new ExecTool());
+            toolRegistry.register(new ExecTool(new java.io.File(config.getWorkspacePath())));
         }
         
         // Web 工具（联网查询）

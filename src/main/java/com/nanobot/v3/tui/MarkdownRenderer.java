@@ -124,15 +124,15 @@ public final class MarkdownRenderer {
         return sb.toString();
     }
 
-    /** 处理单行 delta（标题仅本行开头有效） */
+    /** 处理单行 delta（标题仅本行开头有效，去掉 # 标记符保留正文） */
     private static String renderStreamingLine(String s) {
-        // 流式标题
+        // 流式标题 — 用 stripHeadingMarker 去掉 # 前缀，与 render() 行为一致
         if (s.startsWith("###") && !s.startsWith("####")) {
-            s = BOLD + PURPLE + s + RESET;
+            s = BOLD + PURPLE + stripHeadingMarker(s, 3) + RESET;
         } else if (s.startsWith("##") && !s.startsWith("###")) {
-            s = BOLD + CYAN + s + RESET;
+            s = BOLD + CYAN + stripHeadingMarker(s, 2) + RESET;
         } else if (s.startsWith("#") && !s.startsWith("##")) {
-            s = BOLD + GREEN + s + RESET;
+            s = BOLD + GREEN + stripHeadingMarker(s, 1) + RESET;
         }
 
         s = BOLD_PATTERN.matcher(s).replaceAll(BOLD + "$1" + RESET);

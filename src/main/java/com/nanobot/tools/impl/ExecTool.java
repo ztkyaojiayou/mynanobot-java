@@ -24,8 +24,60 @@ import java.util.concurrent.TimeUnit;
  * - timeout: 超时时间，秒（可选，默认 60）
  */
 public class ExecTool implements Tool {
-    
+
     private static final ObjectMapper mapper = new ObjectMapper();
+
+    private final java.io.File workspace;
+
+    /** 当前是否运行在 Windows */
+    private static final boolean IS_WINDOWS =
+            System.getProperty("os.name", "").toLowerCase().contains("win");
+
+    /**
+     * Unix → Windows 命令转换表。
+     * 仅映射语义等价、参数兼容的纯查看类命令（非破坏性）。
+     * AI 模型常输出 Unix 风格命令（pwd/ls/cat），在 Windows cmd 中直接执行会失败。
+     */
+    private static final Map<String, String> UNIX_TO_WIN = Map.ofEntries(
+            Map.entry("pwd", "cd"),
+            Map.entry("ls", "dir"),
+            Map.entry("cat", "type"),
+            Map.entry("clear", "cls"),
+            Map.entry("which", "where"),
+            Map.entry("cp", "copy"),
+            Map.entry("mv", "move"),
+            Map.entry("rm", "del"),
+            Map.entry("touch", "type nul >"),
+            Map.entry("wc", "find /c")
+    );
+
+    public ExecTool() {
+        this.workspace = null; // 继承 JVM 工作目录
+    }
+
+    public ExecTool(java.io.File workspace) {
+        this.workspace = workspace;
+    }
+
+    /** 将 Unix 命令转换为 Windows 等价命令（仅在 Windows 平台生效） */
+    static String translateCommand(String command) {
+        if (!IS_WINDOWS || command == null || command.isBlank()) return command;
+        String trimmed = command.trim();
+        // 获取第一个空白前的 token 作为命令名
+        String baseCmd;
+        int firstSpace = trimmed.indexOf(' ');
+        if (firstSpace > 0) {
+            baseCmd = trimmed.substring(0, firstSpace);
+        } else {
+            baseCmd = trimmed;
+        }
+        String winCmd = UNIX_TO_WIN.get(baseCmd);
+        if (winCmd != null) {
+            String args = firstSpace > 0 ? trimmed.substring(firstSpace) : "";
+            return winCmd + args;
+        }
+        return command;
+    }
     
     @Override
     public String getName() {
@@ -35,6 +87,8 @@ public class ExecTool implements Tool {
     @Override
     public String getDescription() {
         return "Execute a system command and return its output. "
+             + "On Windows, common Unix commands are auto-translated "
+             + "(pwd→cd, ls→dir, cat→type, clear→cls, rm→del, cp→copy, mv→move, touch→type nul >). "
              + "Default timeout 120s, max 600s. "
              + "For long-running commands, increase the timeout parameter.";
     }
@@ -71,7 +125,13 @@ public class ExecTool implements Tool {
             }
             
             try {
+                // Windows 上自动转换 Unix 命令（pwd→cd, ls→dir, ...）
+                command = translateCommand(command);
+
                 ProcessBuilder pb = new ProcessBuilder();
+                if (workspace != null) {
+                    pb.directory(workspace);
+                }
                 // 根据命令类型选择 Shell：PowerShell 用 -Command，其余用 cmd /c
                 String cmd = command.toLowerCase().trim();
                 if (cmd.startsWith("powershell ") || cmd.startsWith("powershell\t")) {

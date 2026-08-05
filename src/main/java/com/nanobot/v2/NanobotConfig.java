@@ -129,7 +129,9 @@ public class NanobotConfig {
     @Bean
     public PathGuard pathGuard(Config config) {
         String workspace = config.getWorkspacePath();
-        return new PathGuard(workspace);
+        PathGuard guard = new PathGuard(workspace);
+        guard.setRestrictToWorkspace(config.getTools().isRestrictToWorkspace());
+        return guard;
     }
 
     /**
@@ -251,7 +253,7 @@ public class NanobotConfig {
 
         // ── Shell ──
         if (config.getTools().getExec().isEnable()) {
-            toolRegistry.register(new ExecTool());
+            toolRegistry.register(new ExecTool(new java.io.File(config.getWorkspacePath())));
         }
 
         // ── Web ──

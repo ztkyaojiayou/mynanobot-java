@@ -12,4 +12,5 @@ if [[ ! -f "$JAR" ]] || [[ -n "$(find "$SCRIPT_DIR/src/main/java" -name '*.java'
     (cd "$SCRIPT_DIR" && mvn package -Dmaven.test.skip=true -q)
 fi
 
-cd "$SCRIPT_DIR" && java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "$JAR" "$@"
+ORIG_DIR="$PWD"
+cd "$SCRIPT_DIR" && java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "$JAR" --workspace "$ORIG_DIR" "$@"

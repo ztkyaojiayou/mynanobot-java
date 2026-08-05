@@ -154,10 +154,20 @@ public class PermissionManager {
 
         // Step 4: 模式判定（仅在无规则匹配时生效）
         if (!mode.allowsTool(tool)) {
-            String reason = String.format("Tool '%s' is not allowed in %s mode (isReadOnly=%s)",
-                    tool.getName(), mode.name(), tool.isReadOnly());
-            logger.info("Tool blocked by mode: {}", reason);
-            return PermissionResult.denied(reason, "mode:" + mode.name());
+            // DEFAULT 模式 + 有交互处理器 → 写工具走用户确认流程，不直接拒绝
+            if (mode == PermissionMode.DEFAULT && interactiveHandler != null && !tool.isReadOnly()) {
+                boolean allowed = interactiveHandler.requestConfirmation(
+                        tool, params, "执行此操作需要确认");
+                if (!allowed) {
+                    return PermissionResult.denied("用户取消了操作", "user:deny");
+                }
+                // 用户确认 → 跳过模式限制，继续执行
+            } else {
+                String reason = String.format("Tool '%s' is not allowed in %s mode (isReadOnly=%s)",
+                        tool.getName(), mode.name(), tool.isReadOnly());
+                logger.info("Tool blocked by mode: {}", reason);
+                return PermissionResult.denied(reason, "mode:" + mode.name());
+            }
         }
 
         return PermissionResult.allowed();
