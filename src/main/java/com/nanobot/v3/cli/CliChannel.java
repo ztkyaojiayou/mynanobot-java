@@ -92,12 +92,8 @@ public class CliChannel {
 
     private static Scanner createUtf8Scanner() {
         try {
-            if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
-                try { new ProcessBuilder("cmd.exe", "/c", "chcp 65001 >nul").inheritIO().start().waitFor(2, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception ignored) {}
-            }
             return new Scanner(System.in, StandardCharsets.UTF_8);
         } catch (Exception e) {
-            logger.warn("UTF-8 Scanner 创建失败，回退默认编码: {}", e.getMessage());
             return new Scanner(System.in);
         }
     }
@@ -158,12 +154,14 @@ public class CliChannel {
         }
         this.appContext = appContext;
 
-        // 初始化 JLine 终端（跨平台 Esc 检测，使用 /dev/tty 或 CONIN$，不干扰 Scanner）
+        // JLine 终端（仅非 Windows 初始化，Windows 下为 null）
         Terminal t = null;
-        try {
-            t = TerminalBuilder.builder().build();
-        } catch (IOException e) {
-            logger.error("终端初始化失败，Esc 中断不可用: {}", e.getMessage());
+        if (!System.getProperty("os.name", "").toLowerCase().contains("win")) {
+            try {
+                t = TerminalBuilder.builder().build();
+            } catch (Exception e) {
+                logger.debug("终端初始化失败: {}", e.getMessage());
+            }
         }
         this.terminal = t;
 
