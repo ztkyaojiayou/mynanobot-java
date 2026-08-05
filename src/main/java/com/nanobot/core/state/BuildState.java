@@ -61,6 +61,8 @@ public class BuildState implements AgentState {
 
         // 1. 身份信息注入
         appendIdentity(systemPrompt, currentDate);
+        // 1.5. 工作目录注入（恢复历史会话时，防止旧路径污染）
+        appendWorkspace(systemPrompt);
         // 2. 联网搜索开关
         appendSearchHint(systemPrompt, useSearch);
         // 3. 长期记忆注入（Dream — 从过往对话中提取的相关记忆）
@@ -111,6 +113,13 @@ public class BuildState implements AgentState {
                     今天是""" + currentDate + "，这是真实日期。训练数据中日期已过时。\n"
                     + "涉及日期/星期/时间的回答必须以这个日期为准。\n\n");
         }
+    }
+
+    /** 注入工作目录，防止恢复历史会话时旧路径污染 AI 判断 */
+    private void appendWorkspace(StringBuilder sb) {
+        sb.append("【当前工作目录】").append(workspacePath).append("\n");
+        sb.append("所有文件操作、命令执行默认在此目录下进行。");
+        sb.append("历史会话中的旧路径可能已不再适用，优先使用此目录。\n\n");
     }
 
     private static void appendSearchHint(StringBuilder sb, boolean useSearch) {
