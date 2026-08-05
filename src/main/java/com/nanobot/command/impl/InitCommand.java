@@ -89,9 +89,12 @@ public class InitCommand implements Command {
         return false;
     }
 
-    /** 解析项目根目录：向上查找 pom.xml，回退到 user.dir */
+    /** 解析项目根目录：优先用 workspace，回退到 user.dir */
     private Path resolveProjectRoot() {
-        Path dir = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
+        String ws = System.getProperty("nanobot.workspace");
+        Path dir = (ws != null && !ws.isBlank())
+                ? Path.of(ws).toAbsolutePath().normalize()
+                : Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
 
         // 向上查找构建文件（pom.xml / build.gradle / package.json）
         for (Path d = dir; d != null && d.getNameCount() > 0; d = d.getParent()) {
