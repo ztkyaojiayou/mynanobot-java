@@ -89,14 +89,14 @@ public class InitCommand implements Command {
         return false;
     }
 
-    /** 解析项目根目录：优先用 workspace，回退到 user.dir */
+    /** 解析项目根目录：workspace 就是项目根，无需向上查找 */
     private Path resolveProjectRoot() {
         String ws = System.getProperty("nanobot.workspace");
-        Path dir = (ws != null && !ws.isBlank())
-                ? Path.of(ws).toAbsolutePath().normalize()
-                : Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
-
-        // 向上查找构建文件（pom.xml / build.gradle / package.json）
+        if (ws != null && !ws.isBlank()) {
+            return Path.of(ws).toAbsolutePath().normalize();
+        }
+        // 回退到 user.dir 并向上查找构建文件
+        Path dir = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
         for (Path d = dir; d != null && d.getNameCount() > 0; d = d.getParent()) {
             if (Files.exists(d.resolve("pom.xml"))
                     || Files.exists(d.resolve("build.gradle"))
@@ -104,7 +104,6 @@ public class InitCommand implements Command {
                 return d;
             }
         }
-        // 回退
         return dir;
     }
 
