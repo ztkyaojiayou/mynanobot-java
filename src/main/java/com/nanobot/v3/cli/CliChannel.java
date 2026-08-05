@@ -157,6 +157,16 @@ public class CliChannel {
         }
         this.terminal = t;
 
+        // ── 终端能力检测：dumb 终端 / Win CMD 下自动降级纯文本 ──
+        if (t == null || "dumb".equalsIgnoreCase(t.getType())
+                || "dumb-color".equalsIgnoreCase(t.getType())) {
+            TerminalStyle.disable();
+            logger.info("检测到 dumb 终端 (type={})，ANSI 颜色已关闭",
+                    t != null ? t.getType() : "null");
+        } else {
+            logger.info("终端就绪: type={}, ANSI 颜色已启用", t.getType());
+        }
+
         // 初始化命令注册中心
         var registry = NanobotRunner.getToolRegistry();
         this.cmdCtx = new CommandContext(registry, registry != null ? registry.getPermissionManager() : null, agentLoop, sessionId, appContext::close);

@@ -11,17 +11,23 @@ public final class MarkdownRenderer {
 
     private MarkdownRenderer() {}
 
-    // ═══════════ ANSI 样式 ═══════════
-    private static final String RESET  = "\033[0m";
-    private static final String BOLD   = "\033[1m";
-    private static final String ITALIC = "\033[3m";
-    private static final String UNDERLINE = "\033[4m";
-    private static final String PURPLE = "\033[38;5;99m";
-    private static final String CYAN   = "\033[38;5;80m";
-    private static final String GREEN  = "\033[38;5;78m";
-    private static final String YELLOW = "\033[38;5;214m";
-    private static final String GRAY   = "\033[38;5;242m";
-    private static final String DARK   = "\033[48;5;236m";
+    // ═══════════ ANSI 样式（TerminalStyle.disable() 后自动清空）═══════════
+    private static String RESET  = "\033[0m";
+    private static String BOLD   = "\033[1m";
+    private static String ITALIC = "\033[3m";
+    private static String UNDERLINE = "\033[4m";
+    private static String PURPLE = "\033[38;5;99m";
+    private static String CYAN   = "\033[38;5;80m";
+    private static String GREEN  = "\033[38;5;78m";
+    private static String YELLOW = "\033[38;5;214m";
+    private static String GRAY   = "\033[38;5;242m";
+    private static String DARK   = "\033[48;5;236m";
+
+    /** TerminalStyle.disable() 调用后同步关闭 MarkdownRenderer 的 ANSI */
+    public static void disableAnsi() {
+        RESET = ""; BOLD = ""; ITALIC = ""; UNDERLINE = "";
+        PURPLE = ""; CYAN = ""; GREEN = ""; YELLOW = ""; GRAY = ""; DARK = "";
+    }
 
     private static final Pattern BOLD_PATTERN   = Pattern.compile("\\*\\*(.+?)\\*\\*");
     private static final Pattern ITALIC_PATTERN = Pattern.compile("(?<![*])\\*(.+?)\\*(?![*])");
