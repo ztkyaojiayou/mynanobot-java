@@ -473,14 +473,19 @@ public class CliChannel {
         return rawPath.replaceAll("[,;:'\"!?)\\]}]+$", "");
     }
 
-    /** ② 展开 ~ 为用户主目录，解析相对路径为绝对路径并规范化 */
+    /** ② 展开 ~ 为用户主目录，解析相对路径为 workspace 绝对路径并规范化 */
     private static Path expandAndResolvePath(String rawPath) {
         String expanded = rawPath.startsWith("~")
                 ? rawPath.replaceFirst("^~", System.getProperty("user.home", "~"))
                 : rawPath;
         Path path = Paths.get(expanded);
         if (!path.isAbsolute()) {
-            path = Paths.get(System.getProperty("user.dir", ".")).resolve(path);
+            // 使用 workspace 作为基准（而非 user.dir — pushd 会污染）
+            String ws = System.getProperty("nanobot.workspace");
+            Path base = (ws != null && !ws.isBlank())
+                    ? Paths.get(ws)
+                    : Paths.get(System.getProperty("user.dir", "."));
+            path = base.resolve(path);
         }
         return path.toAbsolutePath().normalize();
     }

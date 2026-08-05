@@ -167,7 +167,6 @@ public class BuildState implements AgentState {
 
     private void appendPlanMode(StringBuilder sb) {
         if (!planModeSupplier.getAsBoolean()) return;
-        String cwd = System.getProperty("user.dir", ".");
         sb.append("""
 
                 ⚠️ 你当前处于 **规划模式（Plan Mode）**。关键规则：
@@ -190,7 +189,7 @@ public class BuildState implements AgentState {
                 【注意】用户在当前阶段只想看到计划，不想看到具体代码！
                 等用户输入 /plan approve 之后你才能开始写代码。
 
-                【工作目录】""" + cwd + """
+                【工作目录】""" + workspacePath + """
                 探索建议：先调用 list_dir 了解目录结构。
                 """);
     }
