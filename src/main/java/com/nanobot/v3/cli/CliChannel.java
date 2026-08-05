@@ -218,7 +218,12 @@ public class CliChannel {
     /** 渲染单条流式消息到控制台，返回更新后的 firstDeltaTime */
     private long renderStreamMessage(OutboundMessage msg, long firstDeltaTime) {
         if (msg.isToolCall()) {
-            System.out.print("\n  " + TerminalStyle.dim("⚙ " + msg.getContent()) + " ");
+            int idx = msg.getMetadataInt("_tool_index", -1);
+            int total = msg.getMetadataInt("_tool_total", -1);
+            String counter = (idx >= 0 && total > 0)
+                    ? idx + "/" + total + " "
+                    : "";
+            System.out.print("\n  " + TerminalStyle.dim(counter + "⚙ " + msg.getContent()) + " ");
         } else if (msg.isSessionCleared()) {
             if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
                 System.out.println();
@@ -256,22 +261,19 @@ public class CliChannel {
     /** ③ 主输入循环 */
     private void runInputLoop() {
         while (true) {
-            System.out.print("> ");
+            System.out.print(buildPrompt());
             System.out.flush();
             synchronized (scanner) { if (!scanner.hasNextLine()) break; }
             String line = readLine().trim();
             if (line.isEmpty()) continue;
             if (line.startsWith("/")) {
                 String cmdName = extractCmdName(line);
-                // 内置命令（不依赖 CommandRegistry）
                 if ("clear".equals(cmdName)) { handleClear(); continue; }
                 if ("exit".equals(cmdName) || "q".equals(cmdName) || "quit".equals(cmdName)) { handleExit(); return; }
-                // 注册的命令（/help, /mode, /init, /resume 等）
                 if (commands.isRegistered(cmdName)) {
                     commands.execute(cmdCtx, line);
                     continue;
                 }
-                // 未知命令
                 System.out.println(TerminalStyle.warn("未知命令: " + line + "（输入 /help 查看可用命令）"));
                 continue;
             }
@@ -346,6 +348,34 @@ public class CliChannel {
                 }
             });
         }
+    }
+
+    /** 构建带状态信息的输入提示符 */
+    private String buildPrompt() {
+        StringBuilder sb = new StringBuilder();
+        try {
+            var pm = cmdCtx.permissionManager();
+            if (pm != null) {
+                var mode = pm.getMode();
+                // 模式指示器
+                String indicator = switch (mode) {
+                    case PLAN -> TerminalStyle.YELLOW + TerminalStyle.B + " 📋 PLAN " + TerminalStyle.R;
+                    case ACCEPT_EDITS -> TerminalStyle.GREEN + " ✏️  EDIT " + TerminalStyle.R;
+                    case BYPASS -> TerminalStyle.MAGENTA + TerminalStyle.B + " ⚡ BYPASS " + TerminalStyle.R;
+                    default -> "";
+                };
+                // Plan 模式额外警告
+                if (mode == com.nanobot.security.PermissionMode.PLAN) {
+                    sb.append(indicator);
+                } else if (!indicator.isEmpty()) {
+                    sb.append(indicator);
+                } else {
+                    // DEFAULT 模式无特殊标签，简洁
+                }
+            }
+        } catch (Exception ignored) {}
+        sb.append(TerminalStyle.B).append("> ").append(TerminalStyle.R);
+        return sb.toString();
     }
 
     /** 从输入行提取命令名（去掉 / 前缀，取第一个空格前 token 小写） */
