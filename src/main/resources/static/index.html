@@ -541,6 +541,8 @@
     let useSearch = false, isNewSession = true;
     let currentStreamingEl = null, currentStreamingContent = '';
     let lastUserMessage = '';
+    let pendingUserMsg = ''; // 当前轮的用户消息（bot 渲染前暂存）
+    const userMsgForBot = {}; // botIdx → 触发该 bot 的用户消息内容
     let backendMsgIdx = 0; // 与后端消息列表对齐的 user+bot 混合下标
 
     // ═══ 会话列表 ═══
@@ -590,6 +592,7 @@
             const data = await res.json();
             const container = document.getElementById('messages');
             container.innerHTML = '';
+            backendMsgIdx = 0; // 切换会话重置下标
             if (!data.messages || !data.messages.length) {
                 container.innerHTML = '<div class="empty-chat">准备好了，随时开始</div>';
             } else {
@@ -654,11 +657,13 @@
         const div = document.createElement('div');
         div.className = 'message ' + (type === 'user' ? 'user-message' : 'bot-message');
         if (type === 'bot') {
-            backendMsgIdx++; // bot 占下标
-            const idx = backendMsgIdx - 1; // 转为 0-based 对齐后端 messages 列表
+            backendMsgIdx++;
+            const idx = backendMsgIdx - 1;
+            userMsgForBot[idx] = pendingUserMsg || lastUserMessage; // 记下触发该 bot 的用户消息
             div.innerHTML = `<div class="avatar">N</div><div class="content"><div class="message-content" style="font-size:16px;line-height:1.8">${md2html(content)}</div><div class="msg-actions"><button onclick="copyMsg(this)">📋 复制</button><button onclick="regenerateMsgAt(${idx})">🔄 重新生成</button></div></div>`;
         } else {
-            backendMsgIdx++; // user 也占下标
+            backendMsgIdx++;
+            pendingUserMsg = content; // 记住本轮用户消息
             div.innerHTML = `<div class="bubble">${escHtml(content)}</div>`;
         }
         wrap.appendChild(div);
@@ -840,10 +845,7 @@
             .catch(e => addMsg('bot', '连接失败: ' + e.message));
     }
 
-    /** 重新生成指定位置（用于历史 bot 消息的 🔄） */
     function regenerateMsgAt(idx) {
-        console.log('regenerateMsgAt idx=' + idx + ' type=' + typeof idx);
-        if (!idx && idx !== 0) { console.warn('regenerateMsgAt: idx is falsy, falling back to boolean'); return regenerateMsg(); }
         if (currentStreamingEl) { currentStreamingEl.closest('.message').remove(); currentStreamingEl = null; }
         currentStreamingEl = null; currentStreamingContent = '';
         const msgs = document.getElementById('messages');
@@ -854,7 +856,8 @@
                 found = true; el.remove();
             }
         });
-        const body = JSON.stringify({channel:'http',sessionId,content:lastUserMessage,useSearch,
+        const userMsg = userMsgForBot[idx] || lastUserMessage;
+        const body = JSON.stringify({channel:'http',sessionId,content:userMsg,useSearch,
             streamMode:true, requestId: Date.now()+'-'+Math.random().toString(36), _regenerate: idx});
         fetch('/api/chat/stream', {method:'POST',headers:{'Content-Type':'application/json','Accept':'text/event-stream'},body})
             .then(res => readStream(res.body.getReader()))
