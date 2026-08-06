@@ -84,6 +84,11 @@ public class CliChannel {
     /** thinking spinner 运行中 */
     private volatile boolean thinking;
 
+    /** 上一轮 token 用量（用于 prompt 显示） */
+    private volatile int lastTokens = -1;
+    /** 当前模型名 */
+    private String modelName = "?";
+
     /**
      * 共享 Scanner — 强制 UTF-8 解码，解决 Win CMD GBK 乱码.
      * 所有 scanner 操作必须通过 {@link #readLine()} 同步访问.
@@ -148,6 +153,7 @@ public class CliChannel {
         this.messageBus = NanobotRunner.getMessageBus();
         this.agentLoop = NanobotRunner.getAgentLoop();
         this.sessionId = initialSessionId != null ? initialSessionId : String.valueOf(System.currentTimeMillis());
+        try { var c = NanobotRunner.getConfig(); if (c != null) modelName = c.getAgents().getDefaults().getModel(); } catch (Exception ignored) {}
         // 初始化订阅队列（若 MessageBus 未就绪则延迟到 start()）
         if (messageBus != null) {
             this.subscriberQueue = messageBus.subscribeToOutbound(sessionId);
@@ -279,6 +285,7 @@ public class CliChannel {
                 if (tokens > 0) stats.append(" · ").append(tokens).append(" tokens");
                 if (iterations > 0) stats.append(" · ").append(iterations).append(" tool calls");
                 if (stats.length() > 0) System.out.println(TerminalStyle.dim(stats.toString().trim()));
+                if (tokens > 0) lastTokens = tokens;
                 currentRequestId = null;
                 return 0;
             }
@@ -410,19 +417,28 @@ public class CliChannel {
 
     /** 构建带状态指示的输入提示符 */
     private String buildPrompt() {
+        StringBuilder sb = new StringBuilder();
+        // 模式指示
         try {
             var pm = cmdCtx.permissionManager();
             if (pm != null) {
                 var mode = pm.getMode();
                 if (mode == com.nanobot.security.PermissionMode.PLAN)
-                    return TerminalStyle.YELLOW + TerminalStyle.B + " [PLAN] " + TerminalStyle.R + TerminalStyle.B + "> " + TerminalStyle.R;
-                if (mode == com.nanobot.security.PermissionMode.ACCEPT_EDITS)
-                    return TerminalStyle.GREEN + " [EDIT] " + TerminalStyle.R + TerminalStyle.B + "> " + TerminalStyle.R;
-                if (mode == com.nanobot.security.PermissionMode.BYPASS)
-                    return TerminalStyle.MAGENTA + TerminalStyle.B + " [BYPASS] " + TerminalStyle.R + TerminalStyle.B + "> " + TerminalStyle.R;
+                    sb.append(TerminalStyle.YELLOW).append(TerminalStyle.B).append("[PLAN] ").append(TerminalStyle.R);
+                else if (mode == com.nanobot.security.PermissionMode.ACCEPT_EDITS)
+                    sb.append(TerminalStyle.GREEN).append("[EDIT] ").append(TerminalStyle.R);
+                else if (mode == com.nanobot.security.PermissionMode.BYPASS)
+                    sb.append(TerminalStyle.MAGENTA).append(TerminalStyle.B).append("[BYPASS] ").append(TerminalStyle.R);
             }
         } catch (Exception ignored) {}
-        return "> ";
+        // 模型 + token
+        sb.append(TerminalStyle.dim(modelName));
+        if (lastTokens > 0) {
+            String ts = lastTokens >= 1000 ? String.format("%.1fK", lastTokens / 1000.0) : String.valueOf(lastTokens);
+            sb.append(TerminalStyle.dim(" " + ts + "t"));
+        }
+        sb.append(TerminalStyle.dim(" ")).append(TerminalStyle.B).append("> ").append(TerminalStyle.R);
+        return sb.toString();
     }
 
     private void showHistory() {
