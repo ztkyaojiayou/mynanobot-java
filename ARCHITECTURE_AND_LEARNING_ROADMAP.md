@@ -3771,6 +3771,115 @@ HookManager.runHooks(POST_TOOL_USE)      ← 自动记录工具耗时
 
 ---
 
+### 5.25 配置架构 — 统一层叠加载链 ★
+
+文件：`config/` + `identity/` + `rules/` + `skill/` + `memory/`。
+
+**5.25.1 设计哲学**
+
+所有配置遵循**单一优先级链**，参考 Claude Code 的 `env > CLI > project > global > default` 模式：
+
+```
+高优先级
+  ↑  CLI 参数 (--workspace, --model)
+  ↑  环境变量 (DEEPSEEK_API_KEY, NANOBOT_API_KEY)
+  ↑  workspace/.nanobot/        ← 项目专属
+  ↑  ~/.nanobot/                ← 用户全局
+  ↑  classpath:config/           ← jar 出厂默认
+低优先级
+```
+
+每个配置模块独立走这条链，但共享同一套优先级逻辑。
+
+**5.25.2 ConfigLoader — config.yaml 加载链**
+
+```java
+// ConfigLoader.load() — 统一入口
+① Paths.get(workspace, ".nanobot", "config.yaml")   // 项目专属
+② ~/.nanobot/config.yaml                            // 用户全局
+③ ./config.yaml (cwd)                               // 开发/命令行兼容
+④ classpath:config/config.yaml                      // jar 内置默认
+```
+
+每条链上找到第一个存在的文件即停止。`NanobotCliApplication.main()` 在 Spring 启动前通过 `System.setProperty("nanobot.workspace", ...)` 注入 workspace，确保 ConfigLoader 能读到。
+
+**5.25.3 mergeSecretKeys — API Key 加载链**
+
+密钥和配置分离设计（`.gitignore` 排除 `secret.yaml`）：
+
+```java
+// ① 环境变量（最高优先级，绕过所有文件查找）
+DEEPSEEK_API_KEY  → deepseek provider
+OPENAI_API_KEY    → openai provider
+NANOBOT_API_KEY   → deepseek provider（向后兼容）
+
+// ② 文件查找（env var 都为空时）
+workspace/.nanobot/secret.yaml  → ~/.nanobot/secret.yaml  → fileDir/secret.yaml  → classpath
+```
+
+解决了 `chcp` 子进程无法改变父 CMD 编码页的坑之后，最终用 `Charset.defaultCharset()` 自动匹配控制台编码，并用 `~/.nanobot/secret.yaml` 作为跨 IDE/CMD/WT 的统一密钥位置。
+
+**5.25.4 其他模块的加载链**
+
+```
+模块              workspace          ~/.nanobot         classpath         兜底
+─────────────────────────────────────────────────────────────────────────────────
+SOUL/IDENTITY     ✅ ①                ✅ ②                ✅ ③             硬编码
+Rule              ✅ ① (NANOBOT.md)   ✅ ②                ✗                无
+Skill             ✅ ①                ✅ ②                ✗                无
+Hook              ✅ ① (via config)   ✅ ② (via config)   ✅ ③ (via config) 无
+Memory            ✅ ① (runtime)      ✗                   ✗                无
+Session           ✅ ① (runtime)      ✗                   ✗                无
+```
+
+**5.25.5 application.yml 的定位**
+
+```
+application.yml              config.yaml
+─────────────────           ─────────────
+Spring Boot 层               nanobot 业务层
+server.port: 8080            agents.defaults.model: deepseek-chat
+spring.mvc.async...          providers.deepseek.apiBase
+logging.level...             tools.exec.enable: true
+                             hooks.enabled: true
+```
+
+`application.yml` 只管 Spring Boot 自身的配置（端口、日志、MVC 超时），nanobot 所有业务配置全部在 `config.yaml` 中。2026-08 重构清除了 `application.yml` 中 40 行无 Java 绑定的 `nanobot.security` 死代码。
+
+**5.25.6 IdentityManager — 双模式身份**
+
+CLI 和 Web 共享同一个 `IdentityManager`，但 `buildCliSystemPrompt()` 和 `buildDefaultSystemPrompt()` 走不同分支：
+
+```
+isCliMode() (检测 spring.profiles.active=cli)
+  ├─ true  → buildCliSystemPrompt()    ← 编程 Agent（类 Claude Code）
+  └─ false → buildDefaultSystemPrompt() ← 通用助手（SOUL.md 驱动）
+```
+
+CLI 模式硬编码编程 Agent 身份，不依赖 SOUL.md 文件；Web 模式从文件链加载。
+
+**5.25.7 终端能力降级（独立于配置链）**
+
+```
+os.name 含 "win" && WT_SESSION=空 → TerminalStyle.disable()
+  └─ 所有 ANSI 常量置空，Unicode 框线 → ASCII
+  └─ 独立渲染分支，不修改业务逻辑
+```
+
+这是唯一不遵循"优先级链"的设计——它是二态的（开/关），依赖 OS 能力而非用户配置。
+
+**5.25.8 关键设计决策**
+
+| 决策 | 为什么 |
+|------|--------|
+| 系统属性传 workspace 而非 Spring CLI 参数 | `ConfigLoader.load()` 独立于 Spring 容器，不认 `--agents.defaults.workspace=...` |
+| `~/.nanobot/` 兜底 classpath 默认 | 无论从哪种环境启动（CMD/WT/IDEA/Linux），总能找到出厂默认 |
+| API Key 与 config 分离 | `secret.yaml` 不入 git，环境变量覆盖文件，一劳永逸 |
+| CLI 身份硬编码不走文件 | 编程 Agent 身份不应被用户 SOUL.md 意外覆盖 |
+| Windows 全系纯文本 | `chcp` 无法跨进程生效，不如一刀切稳定 |
+
+---
+
 ## 六、主流 AI 开发框架全景对比
 
 > **阅读目标**：理解 Nanobot 在 Java AI 开发生态中的位置，建立从"库 → 框架 → Agent 运行时 → Agent 终端产品"的层次认知。
