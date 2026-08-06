@@ -841,10 +841,16 @@
             if (found) { el.remove(); return; }
             if (el.classList.contains('bot-message') && el.querySelector('[onclick*="regenerateMsgAt(' + idx + ')"]')) {
                 found = true;
-                userMsg = el.getAttribute('data-user-msg') || userMsg; // 从 DOM 取对应提问
+                userMsg = el.getAttribute('data-user-msg') || userMsg;
                 el.remove();
             }
         });
+        // 仅删后续 bot 消息，保留 user 消息在 DOM
+        for (let i = msgsEl.children.length - 1; i >= 0; i--) {
+            const el = msgsEl.children[i];
+            if (el.classList.contains('bot-message')) { el.remove(); found = true; }
+            else break; // 遇到 user 消息停止
+        }
         const body = JSON.stringify({channel:'http',sessionId,content:userMsg,useSearch,
             streamMode:true, requestId: Date.now()+'-'+Math.random().toString(36), _regenerate: idx});
         fetch('/api/chat/stream', {method:'POST',headers:{'Content-Type':'application/json','Accept':'text/event-stream'},body})

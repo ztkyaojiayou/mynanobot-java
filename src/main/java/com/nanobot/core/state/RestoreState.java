@@ -39,8 +39,12 @@ public class RestoreState implements AgentState {
             List<Map<String, Object>> msgs = ctx.getMessages();
             if (regenVal instanceof Number) {
                 int idx = ((Number) regenVal).intValue();
-                while (msgs.size() > idx) msgs.remove(msgs.size() - 1);
-                logger.info("Regenerate@{}: cropped {} messages, kept {}", idx, msgs.size() - idx, msgs.size());
+                System.err.println("[REGEN] idx=" + idx + " before=" + msgs.size());
+                while (msgs.size() > idx) {
+                    System.err.println("[REGEN]   del[" + (msgs.size()-1) + "]=" + msgs.get(msgs.size()-1).get("role"));
+                    msgs.remove(msgs.size() - 1);
+                }
+                System.err.println("[REGEN] after=" + msgs.size());
             } else {
                 if (!msgs.isEmpty() && "assistant".equals(msgs.get(msgs.size() - 1).get("role"))) {
                     msgs.remove(msgs.size() - 1);
