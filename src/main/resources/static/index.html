@@ -836,20 +836,18 @@
         currentStreamingEl = null; currentStreamingContent = '';
         const msgsEl = document.getElementById('messages');
         let userMsg = lastUserMessage;
-        let found = false;
-        [...msgsEl.children].forEach(el => {
-            if (found) { el.remove(); return; }
+        let targetIdx = -1;
+        // 第一步：找到目标 bot 的位置，记下 data-user-msg
+        [...msgsEl.children].forEach((el, i) => {
             if (el.classList.contains('bot-message') && el.querySelector('[onclick*="regenerateMsgAt(' + idx + ')"]')) {
-                found = true;
+                targetIdx = i;
                 userMsg = el.getAttribute('data-user-msg') || userMsg;
-                el.remove();
             }
         });
-        // 仅删后续 bot 消息，保留 user 消息在 DOM
-        for (let i = msgsEl.children.length - 1; i >= 0; i--) {
-            const el = msgsEl.children[i];
-            if (el.classList.contains('bot-message')) { el.remove(); found = true; }
-            else break; // 遇到 user 消息停止
+        if (targetIdx < 0) return;
+        // 第二步：删掉目标 bot 及之后的所有 DOM（后面的对话已经没意义了）
+        while (msgsEl.children.length > targetIdx) {
+            msgsEl.removeChild(msgsEl.lastChild);
         }
         const body = JSON.stringify({channel:'http',sessionId,content:userMsg,useSearch,
             streamMode:true, requestId: Date.now()+'-'+Math.random().toString(36), _regenerate: idx});
