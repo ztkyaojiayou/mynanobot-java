@@ -29,7 +29,8 @@ cp target/nanobot-cli.jar "$DIST_DIR/nanobot.jar"
 cat > "$DIST_DIR/nanobot" << 'SCRIPT'
 #!/bin/bash
 DIR="$(cd "$(dirname "$0")" && pwd)"
-java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "$DIR/nanobot.jar" "$@"
+ORIG_DIR="$PWD"
+cd "$DIR" && java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "$DIR/nanobot.jar" --workspace "$ORIG_DIR" "$@"
 SCRIPT
 chmod +x "$DIST_DIR/nanobot"
 
@@ -37,7 +38,7 @@ chmod +x "$DIST_DIR/nanobot"
 cat > "$DIST_DIR/nanobot.bat" << 'BAT'
 @echo off
 set DIR=%~dp0
-java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "%DIR%nanobot.jar" %*
+java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "%DIR%nanobot.jar" --workspace "%CD%" %*
 BAT
 
 # 默认配置文件模板
@@ -45,32 +46,42 @@ cp src/main/resources/config/config.yaml "$DIST_DIR/config.yaml"
 
 # README
 cat > "$DIST_DIR/README.txt" << 'README'
-Nanobot CLI - AI Agent Programming Assistant
-============================================
+Nanobot CLI - AI Programming Agent
+===================================
 
 REQUIREMENTS
-  - JDK 17+
+  JDK 17+
 
-SETUP
-  1. Set your API key in config.yaml
-  2. Add this directory to PATH:
-       Windows: set PATH=%PATH%;C:\tools\nanobot
-       Linux:   export PATH=/opt/nanobot:$PATH
+QUICK START
+  1. Set API key (choose one):
+     a) Env var:  export DEEPSEEK_API_KEY=sk-xxx  (recommended)
+     b) Global:   mkdir ~/.nanobot
+                  echo "providers:"  > ~/.nanobot/secret.yaml
+                  echo "  deepseek:" >> ~/.nanobot/secret.yaml
+                  echo "    apiKey: sk-xxx" >> ~/.nanobot/secret.yaml
+     c) Local:    edit config.yaml
 
-USAGE
-  cd /your-project
-  nanobot              # start CLI in current directory
-  nanobot -w /path     # specify workspace
-  /init                # analyze project, generate NANOBOT.md
-  /help                # list all commands
-  /exit                # quit
+  2. Add this directory to PATH
+
+  3. Run:
+     cd /your-project
+     nanobot
+     > Hello!
 
 COMMANDS
-  /exit /q /quit       Exit
-  /clear               Clear context
+  /help                List all commands
+  /history             Show input history
+  !!                   Repeat last command
+  !N                   Repeat Nth command
   /mode plan|default   Switch permission mode
+  /plan approve        Approve plan, start coding
   /init                Generate NANOBOT.md
-  /help                Show help
+  /resume              List/resume past sessions
+  /clear               Clear context
+  /exit /q             Quit
+
+  Esc                  Cancel current AI response
+  @path/to/file.java  Inject file content
 README
 
 echo "[3/3] Done!"
@@ -83,4 +94,3 @@ echo "They only need to:"
 echo "  1. Set apiKey in config.yaml"
 echo "  2. Add nanobot/ to PATH"
 echo "  3. Run: nanobot"
-chmod +x "$SCRIPT_DIR/scripts/build-dist.sh"
