@@ -225,7 +225,10 @@ public class ConfigLoader {
             }
 
             // 合并 secret.yaml（独立管理的 API Key 文件，不提交 Git）
-            mergeSecretKeys(path.getParent(), config);
+            // 相对路径可能 getParent()=null → 用绝对路径确保能找到同目录的 secret.yaml
+            Path configDir = path.getParent();
+            if (configDir == null) configDir = path.toAbsolutePath().getParent();
+            mergeSecretKeys(configDir, config);
 
             // 应用环境变量覆盖
             config = applyEnvironmentOverrides(config);
