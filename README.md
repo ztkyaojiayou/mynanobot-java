@@ -178,16 +178,18 @@ scripts\nanobot.bat
 
 | 特性 | 说明 |
 |------|------|
-| **CLI 终端交互** | 类 Claude Code 体验，JLine 终端 + Markdown 流式渲染 |
-| **Plan Mode** | `/plan` 进入规划模式（只读出计划）→ `/plan approve` 审批执行 |
-| **17 个内置工具** | 文件读写、代码搜索、Shell 执行、Web 搜索、任务追踪、子 Agent 等 |
-| **MCP 支持** | Model Context Protocol 标准化工具接入，支持 stdio 和 HTTP |
-| **4 级权限** | PLAN / DEFAULT / ACCEPT_EDITS / BYPASS，交互式确认 (1/2/3) |
-| **会话管理** | 持久化会话历史、重命名、恢复（Web 界面 + CLI 命令） |
-| **State 模式引擎** | 7 状态 Agent Loop，每个状态独立处理器 |
-| **Provider 策略工厂** | 按模型名自动匹配 LLM 提供商（DeepSeek / OpenAI / 兼容） |
-| **记忆系统** | 长期记忆 (Dream) + 历史压缩 (Consolidator) + 项目记忆 (NANOBOT.md) |
-| **三大模式** | V1 独立 / V2 Spring Boot / V3 CLI，共享核心引擎 |
+| **CLI 终端交互** | 类 Claude Code 体验，Markdown 流式渲染 + 代码语法高亮 |
+| **终端自适应** | CMD 纯文本 / Windows Terminal + Linux + macOS 彩色双栏 |
+| **工具调用着色** | exec=红 read=绿 write=橙 web=蓝，一目了然 |
+| **Token 用量** | 每轮结束显示耗时+token数，prompt 显示模型名和用量 |
+| **Plan Mode** | `/plan` 进入只读规划 → `/plan approve` 审批执行 |
+| **17 个内置工具** | 文件读写、代码搜索、Shell 执行、Web 搜索、任务追踪、子 Agent |
+| **MCP 支持** | Model Context Protocol，支持 stdio / HTTP / SSE 三种传输 |
+| **4 级权限** | PLAN / DEFAULT / ACCEPT_EDITS / BYPASS + 交互确认 (1/2/3) |
+| **会话管理** | 持久化 + 恢复 + Web 管理界面 |
+| **7 状态引擎** | Agent Loop State 模式，每个状态独立处理器 |
+| **记忆系统** | Dream 长期记忆 + Consolidator 上下文压缩 + NANOBOT.md |
+| **三入口** | V3 CLI / V2 Spring Boot / V1 独立，共享核心引擎 |
 
 ---
 
@@ -240,7 +242,10 @@ src/main/java/com/nanobot/
 
 | 命令 | 功能 |
 |------|------|
-| `/help` | 列出所有命令 |
+| `/help` | 列出所有命令（彩色格式化） |
+| `/history` | 查看输入历史 |
+| `!!` | 重复上一条命令 |
+| `!N` | 重复第 N 条历史命令 |
 | `/init` | 分析项目生成 NANOBOT.md |
 | `/plan` (或 `/mode plan`) | 进入规划模式（只读分析出计划） |
 | `/plan approve` | 审批计划，切换到执行模式 |
@@ -256,31 +261,40 @@ src/main/java/com/nanobot/
 
 ## 配置
 
-项目默认配置在 `src/main/resources/config/config.yaml`，可通过 `~/.nanobot/config.yaml` 覆盖。
+所有配置遵循统一优先级链：`环境变量 > workspace/.nanobot/ > ~/.nanobot/ > classpath 默认`
+
+**API Key**（三选一）：
+
+```bash
+export DEEPSEEK_API_KEY=sk-xxx              # ① 环境变量（推荐）
+# 或
+mkdir ~/.nanobot && echo "providers: ..."   # ② ~/.nanobot/secret.yaml
+# 或编辑 config.yaml 的 apiKey 字段         # ③ 项目本地
+```
+
+**config.yaml**（业务配置）：
 
 ```yaml
 agents:
   defaults:
-    model: "deepseek-chat"      # ProviderFactory 自动匹配 Provider
+    model: "deepseek-chat"
     maxTokens: 8192
     temperature: 0.7
-    maxToolIterations: 100
 
 providers:
   deepseek:
-    apiKey: ""                  # 留空则读 DEEPSEEK_API_KEY 环境变量
+    apiKey: ""        # 留空，走环境变量或 secret.yaml
     apiBase: "https://api.deepseek.com"
-  openai:
-    apiKey: ""                  # 留空则读 OPENAI_API_KEY 环境变量
 
 tools:
   exec:
-    enable: true                # 生产环境建议关闭
+    enable: true
+    timeout: 60       # 前台命令超时；后台服务用 background: true
   web:
     enable: true
-    search:
-      provider: "baidu_web"
 ```
+
+`application.yml` 只管 Spring Boot 层（端口、日志），nanobot 业务配置全在 `config.yaml`。
 
 ---
 
