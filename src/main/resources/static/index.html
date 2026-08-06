@@ -654,11 +654,11 @@
         const div = document.createElement('div');
         div.className = 'message ' + (type === 'user' ? 'user-message' : 'bot-message');
         if (type === 'bot') {
-            backendMsgIdx++;
-            const idx = backendMsgIdx;
+            backendMsgIdx++; // bot 占下标
+            const idx = backendMsgIdx - 1; // 转为 0-based 对齐后端 messages 列表
             div.innerHTML = `<div class="avatar">N</div><div class="content"><div class="message-content" style="font-size:16px;line-height:1.8">${md2html(content)}</div><div class="msg-actions"><button onclick="copyMsg(this)">📋 复制</button><button onclick="regenerateMsgAt(${idx})">🔄 重新生成</button></div></div>`;
         } else {
-            backendMsgIdx++;
+            backendMsgIdx++; // user 也占下标
             div.innerHTML = `<div class="bubble">${escHtml(content)}</div>`;
         }
         wrap.appendChild(div);
