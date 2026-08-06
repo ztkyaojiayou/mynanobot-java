@@ -827,10 +827,17 @@
     function regenerateMsg() { regenerateMsgAt(msgIndex); }  // 最后一条
 
     function regenerateMsgAt(idx) {
-        // 移除当前流式元素
         if (currentStreamingEl) { currentStreamingEl.closest('.message').remove(); currentStreamingEl = null; }
         currentStreamingEl = null; currentStreamingContent = '';
-        // 后端 RestoreState 检测 _regenerate 标记 → 删掉该 bot 消息及之后所有消息
+        // 移除 DOM 中 idx 及之后的所有 bot 消息
+        const msgs = document.getElementById('messages');
+        let found = false;
+        [...msgs.children].forEach(el => {
+            if (found) { el.remove(); return; }
+            if (el.classList.contains('bot-message') && el.querySelector('[onclick*="regenerateMsgAt(' + idx + ')"]')) {
+                found = true; el.remove();
+            }
+        });
         const body = JSON.stringify({channel:'http',sessionId,content:lastUserMessage,useSearch,
             streamMode:true, requestId: Date.now()+'-'+Math.random().toString(36), _regenerate: idx});
         fetch('/api/chat/stream', {method:'POST',headers:{'Content-Type':'application/json','Accept':'text/event-stream'},body})
