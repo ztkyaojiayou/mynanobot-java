@@ -842,6 +842,8 @@
 
     /** 重新生成指定位置（用于历史 bot 消息的 🔄） */
     function regenerateMsgAt(idx) {
+        console.log('regenerateMsgAt idx=' + idx + ' type=' + typeof idx);
+        if (!idx && idx !== 0) { console.warn('regenerateMsgAt: idx is falsy, falling back to boolean'); return regenerateMsg(); }
         if (currentStreamingEl) { currentStreamingEl.closest('.message').remove(); currentStreamingEl = null; }
         currentStreamingEl = null; currentStreamingContent = '';
         const msgs = document.getElementById('messages');
