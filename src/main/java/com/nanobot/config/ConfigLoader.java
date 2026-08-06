@@ -267,14 +267,14 @@ public class ConfigLoader {
 
         // 3. 用户主目录 ~/.nanobot/secret.yaml（全局兜底，不受 cwd 影响）
         Path globalSecret = Paths.get(System.getProperty("user.home", "."), ".nanobot", "secret.yaml");
-        logger.info("  check[3] {} -> {}", globalSecret, Files.exists(globalSecret));
+        System.err.println("  check[3] " + globalSecret + " -> " + Files.exists(globalSecret));
         if (Files.exists(globalSecret)) { mergeFromFile(globalSecret, config); return; }
 
-        // 4. 项目根目录向上查找（从 cwd 向上翻，兼容 IDEA 多级工作目录）
+        // 4. 从 cwd 向上遍历目录树，直到根
         Path probe = cwd;
         while (probe != null && probe.getNameCount() > 0) {
             Path f = probe.resolve("secret.yaml");
-            logger.info("  check[4] {} -> {}", f, Files.exists(f));
+            System.err.println("  check[4] " + f + " -> " + Files.exists(f));
             if (Files.exists(f)) { mergeFromFile(f, config); return; }
             probe = probe.getParent();
         }
@@ -285,11 +285,11 @@ public class ConfigLoader {
             if (is != null) {
                 Config secret = load(is);
                 applySecretKeys(secret, config);
-                logger.info("  check[5] classpath:config/secret.yaml -> found");
+                System.err.println("  check[5] classpath:config/secret.yaml -> found");
                 return;
             }
         } catch (IOException ignored) {}
-        logger.warn("  No secret.yaml found in any location!");
+        System.err.println("  [FAIL] No secret.yaml found in any location!");
     }
 
     private static void mergeFromFile(Path file, Config config) {
