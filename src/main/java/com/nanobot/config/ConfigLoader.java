@@ -251,7 +251,7 @@ public class ConfigLoader {
             if (Files.exists(f)) { mergeFromFile(f, config); return; }
         }
 
-        // 2. 工作目录下的 secret.yaml / config/secret.yaml
+        // 2. 工作目录下的 secret.yaml / config/secret.yaml / src/main/resources/...
         Path cwd = Paths.get("").toAbsolutePath();
         for (String sub : new String[]{"secret.yaml", "config/secret.yaml",
                 "src/main/resources/config/secret.yaml"}) {
@@ -259,7 +259,11 @@ public class ConfigLoader {
             if (Files.exists(f)) { mergeFromFile(f, config); return; }
         }
 
-        // 3. classpath 中的 config/secret.yaml
+        // 3. 用户主目录 ~/.nanobot/secret.yaml（全局兜底，不受 cwd 影响）
+        Path globalSecret = Paths.get(System.getProperty("user.home", "."), ".nanobot", "secret.yaml");
+        if (Files.exists(globalSecret)) { mergeFromFile(globalSecret, config); return; }
+
+        // 4. classpath 中的 config/secret.yaml
         try (InputStream is = ConfigLoader.class.getClassLoader()
                 .getResourceAsStream("config/secret.yaml")) {
             if (is != null) {
