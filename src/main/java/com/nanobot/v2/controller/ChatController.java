@@ -227,7 +227,7 @@ public class ChatController {
         metadata.put("requestId", requestId);
         metadata.put("streamMode", true);
         metadata.put("useSearch", request.isUseSearch());
-        if (request.isRegenerate()) metadata.put("_regenerate", true);
+        if (request.getRegenerate() != null) metadata.put("_regenerate", request.getRegenerate()); // Boolean 或 Integer，RestoreState 自行判断类型
 
         // 构建入站消息（senderId 使用 sessionId，因为 API 通道没有独立的发送者 ID）
         InboundMessage message = InboundMessage.builder()
@@ -269,6 +269,6 @@ public class ChatController {
         private boolean streamMode;
         private String requestId;
         @JsonProperty("_regenerate")
-        private boolean regenerate;
+        private Object regenerate; // Number=指定位置, Boolean=true=最后一条, null=不重新生成
     }
 }
