@@ -360,13 +360,16 @@ public class CliChannel {
         var registry = NanobotRunner.getToolRegistry();
         if (registry == null || registry.getPermissionManager() == null) return;
 
-        // 当前 CLI 会话级别的"信任"标记（仅对本次进程有效）
         var trusted = new java.util.concurrent.atomic.AtomicBoolean(false);
+        final Object confirmLock = new Object(); // 防并发工具调用的确认框穿插
 
         registry.getPermissionManager().setInteractiveHandler((tool, params, reason) -> {
             if (trusted.get()) return true;
 
-            dialogActive = true;
+            synchronized (confirmLock) {
+                // 双重检查：等待锁期间可能已被其他线程信任
+                if (trusted.get()) return true;
+                dialogActive = true;
             try {
                 System.out.println();
                 System.out.println(TerminalStyle.ORANGE + TerminalStyle.B + "  [!] 工具调用确认" + TerminalStyle.R);
@@ -388,6 +391,7 @@ public class CliChannel {
                 return "1".equals(input);
             } finally {
                 dialogActive = false;
+            }
             }
         });
     }
