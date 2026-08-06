@@ -1570,6 +1570,97 @@ AgentRunner 在以下任一条件满足时停止循环：
     ▼ RESPOND: 发送响应给用户
 ```
 
+#### 5.1.6 流式回调机制（StreamResponseCallback）
+
+**完整数据流：从用户输入到屏幕逐字输出**
+
+```
+用户输入 "帮我写代码"
+     │
+     ▼
+┌─ 第1步: 入队 ───────────────────────────────────────┐
+│ CliChannel.sendMessage() → messageBus.publishInbound()
+│ AgentLoop.messageExecutor.submit(processMessage)
+└──────────────────┬───────────────────────────────────┘
+                   ▼
+┌─ 第2步: doRun() 准备 onDelta 回调 ──────────────────┐
+│ 检查 streamResponseCallbacks: 有 CLI 的 callback? 有!
+│
+│ onDelta = delta -> {
+│     for (StreamResponseCallback cb : activeCallbacks)
+│         cb.onStreamData(sessionId, requestId, delta);
+│ };
+│ runner.run(context, messages, onDelta)
+└──────────────────┬───────────────────────────────────┘
+                   ▼
+┌─ 第3步: DeepSeek 逐字返回 → onDelta 逐字触发 ───────┐
+│ provider.chatStream(messages, tools, onDelta)
+│
+│ chunk "今天" → onDelta.accept("今天")
+│ chunk "天气" → onDelta.accept("天气")
+│
+│ 每次 accept → forEach(callbacks) → cb.onStreamData()
+└──────────────────┬───────────────────────────────────┘
+                   ▼
+┌─ 第4步: 各通道回调执行（谁注册谁收到）──────────────┐
+│ CLI:   System.out.print(renderMarkdown(delta))
+│ SSE:   emitter.send(SseEmitter.event().data(delta))
+│ WS:    session.sendText(JSON)
+└──────────────────┬───────────────────────────────────┘
+                   ▼
+┌─ 第5步: 流结束 ─────────────────────────────────────┐
+│ for (cb : activeCallbacks) cb.onStreamComplete(...)
+│ → TurnState.SAVE → TurnState.RESPOND → TurnState.DONE
+└──────────────────────────────────────────────────────┘
+```
+
+**为什么用回调列表而非直接返回 String？**
+
+流式是边生成边推送 → 用户感知延迟从 5 秒降到 200ms。`CopyOnWriteArrayList<StreamResponseCallback>` 支持多通道并发注册（CLI + SSE + WS 同时在线各收各的）。
+
+**为什么 sessionId/requestId 需要匹配？**
+
+多会话并发时，回调只处理匹配的那轮：
+
+```java
+if (chatId.equals(sid) && currentRequestId != null
+        && currentRequestId.equals(reqId)) {
+    System.out.print(content);  // 只打印自己这轮的
+}
+```
+
+同一 `sessionId` 下多轮对话各自有独立 `requestId`，AgentLoop 异步处理后回调只推给匹配轮次，防止串话。
+
+**为什么先 addCallback 再 publishInbound？**
+
+```java
+agentLoop.addStreamResponseCallback(callback);  // ← 先注册
+messageBus.publishInbound(message);             // ← 再发消息
+```
+
+倒过来会导致 doRun() 检查回调列表时还是空的，第一个 chunk 就丢了。
+
+**核心标识符**
+
+| 字段 | 含义 | 必填 |
+|------|------|:--:|
+| `channel` | `cli` / `api` / `websocket` | ✅ |
+| `senderId` | 用户标识 | ✅ |
+| `sessionId` | 对话 ID | ✅ |
+| `connectionId` | WS 连接 ID（路由） | ❌ |
+| `requestId` | 本轮 UUID（精确匹配） | ✅ |
+
+**涉及文件**
+
+| 文件 | 角色 |
+|------|------|
+| `AgentLoop.java` | 定义 `StreamResponseCallback`，创建 onDelta |
+| `AgentRunner.java` | onDelta → `provider.chatStream()` |
+| `DeepSeekProvider.java` | SSE 逐行读取，触发 `onDelta.accept()` |
+| `CliChannel.java` | CLI 回调 → `System.out.print()` |
+| `ChatController.java` | SSE 回调 → `emitter.send()` |
+| `NanobotWebSocketEndpoint.java` | WS 回调 → `session.sendText()` |
+
 ---
 
 ### 5.2 状态机流程（已重构为 State 模式）
