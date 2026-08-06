@@ -824,12 +824,26 @@
         }).catch(() => {});
     }
 
-    function regenerateMsg() { regenerateMsgAt(msgIndex); }  // 最后一条
+    /** 重新生成最后一条（boolean模式，不依赖下标） */
+    function regenerateMsg() {
+        if (currentStreamingEl) { currentStreamingEl.closest('.message').remove(); currentStreamingEl = null; }
+        currentStreamingEl = null; currentStreamingContent = '';
+        // 删 DOM 最后一条 bot
+        const msgs = [...document.getElementById('messages').children];
+        for (let i = msgs.length-1; i >= 0; i--) {
+            if (msgs[i].classList.contains('bot-message')) { msgs[i].remove(); break; }
+        }
+        const body = JSON.stringify({channel:'http',sessionId,content:lastUserMessage,useSearch,
+            streamMode:true, requestId: Date.now()+'-'+Math.random().toString(36), _regenerate: true});
+        fetch('/api/chat/stream', {method:'POST',headers:{'Content-Type':'application/json','Accept':'text/event-stream'},body})
+            .then(res => readStream(res.body.getReader()))
+            .catch(e => addMsg('bot', '连接失败: ' + e.message));
+    }
 
+    /** 重新生成指定位置（用于历史 bot 消息的 🔄） */
     function regenerateMsgAt(idx) {
         if (currentStreamingEl) { currentStreamingEl.closest('.message').remove(); currentStreamingEl = null; }
         currentStreamingEl = null; currentStreamingContent = '';
-        // 移除 DOM 中 idx 及之后的所有 bot 消息
         const msgs = document.getElementById('messages');
         let found = false;
         [...msgs.children].forEach(el => {
