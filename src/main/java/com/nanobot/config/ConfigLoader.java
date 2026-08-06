@@ -145,62 +145,62 @@ public class ConfigLoader {
      * 
      * @return 加载的配置
      */
+    /**
+     * 统一加载链：workspace/.nanobot/ > ~/.nanobot/ > cwd > classpath
+     *
+     * 每个来源的 config.yaml 找到后，通过 mergeSecretKeys 合并密钥，
+     * 再通过 mergeWithDefaults 补全缺失字段。
+     */
     public static Config load() {
-        // 尝试多个位置
+        // ① workspace/.nanobot/config.yaml（项目专属配置，最高优先级）
+        String ws = System.getProperty("nanobot.workspace");
+        if (ws != null && !ws.isBlank()) {
+            Path wsConfig = Paths.get(ws, ".nanobot", "config.yaml");
+            if (Files.exists(wsConfig)) {
+                logger.info("Loading from workspace: {}", wsConfig);
+                return load(wsConfig);
+            }
+        }
+
+        // ② ~/.nanobot/config.yaml（用户全局配置）
         Path userConfig = getUserConfigPath();
         if (Files.exists(userConfig)) {
+            logger.info("Loading from user home: {}", userConfig);
             return load(userConfig);
         }
-        
+
+        // ③ ./config.yaml（cwd — 开发/命令行兼容）
         Path localConfig = Paths.get(DEFAULT_CONFIG_FILE);
-        logger.info("ConfigLoader searching: {} (exists={}, absolute={})",
-                localConfig, Files.exists(localConfig), localConfig.toAbsolutePath());
         if (Files.exists(localConfig)) {
+            logger.info("Loading from cwd: {}", localConfig.toAbsolutePath());
             return load(localConfig);
         }
 
-        // 3. 工作区项目配置 .nanobot/config.yaml（workspace 级别）
-        Path nanobotConfig = Paths.get(".nanobot", "config.yaml");
-        if (Files.exists(nanobotConfig)) {
-            logger.info("Loading configuration from: {}", nanobotConfig);
-            Config config = load(nanobotConfig);
-            mergeSecretKeys(Paths.get("").toAbsolutePath(), config);
-            return config;
-        }
-
-        // 尝试从类路径加载主配置
+        // ④ classpath:config/config.yaml（jar 内置默认）
+        Config base = null;
         try (InputStream is = ConfigLoader.class.getClassLoader()
                 .getResourceAsStream(CLASSPATH_CONFIG)) {
             if (is != null) {
-                logger.info("Loading configuration from classpath: {}", CLASSPATH_CONFIG);
-                Config config = load(is);
-                mergeSecretKeys(Paths.get("").toAbsolutePath(), config); // 从工作目录读 secret.yaml
-                return config;
+                logger.info("Loading from classpath: {}", CLASSPATH_CONFIG);
+                base = load(is);
             }
         } catch (IOException e) {
             logger.warn("Failed to load classpath config", e);
         }
-
-        // 尝试从类路径加载默认配置
-        try (InputStream is = ConfigLoader.class.getClassLoader()
-                .getResourceAsStream(CLASSPATH_DEFAULT_CONFIG)) {
-            if (is != null) {
-                logger.info("Loading configuration from classpath: {}", CLASSPATH_DEFAULT_CONFIG);
-                Config config = load(is);
-                mergeSecretKeys(Paths.get("").toAbsolutePath(), config);
-                return config;
-            }
-        } catch (IOException e) {
-            logger.warn("Failed to load classpath default config", e);
+        if (base == null) {
+            logger.info("No config found, using defaults");
+            base = Config.createDefault();
+        } else {
+            // classpath 配置也需合并密钥
+            mergeSecretKeys(null, base);
         }
 
-        // 返回空配置
-        logger.info("No config file found, using default configuration");
-        Config config = Config.createDefault();
-        mergeSecretKeys(Paths.get("").toAbsolutePath(), config);
-        return config;
+        // 应用环境变量覆盖
+        base = applyEnvironmentOverrides(base);
+        configCache.put("_effective", base);
+        return base;
     }
-    
+
     /**
      * 从文件加载配置
      * 
@@ -243,61 +243,65 @@ public class ConfigLoader {
         }
     }
 
-    /** 从多个位置读取 secret.yaml 合并 API Key（不提交 Git） */
+    /**
+     * 密钥优先级：环境变量 > workspace/.nanobot/ > ~/.nanobot/ > 文件目录 > classpath
+     */
     private static void mergeSecretKeys(Path fileDir, Config config) {
-        System.err.println("[CONFIG] Searching secret.yaml: fileDir=" + fileDir
-                + " cwd=" + Paths.get("").toAbsolutePath()
-                + " user.home=" + System.getProperty("user.home"));
+        // ① 环境变量（最高优先级）
+        if (applyEnvApiKeys(config)) return;
 
-        // 1. 文件模式：config.yaml 所在目录下的 secret.yaml
-        if (fileDir != null) {
-            Path f = fileDir.resolve("secret.yaml");
-            System.err.println("  check[1] " + f + " -> " + Files.exists(f));
-            if (Files.exists(f)) { mergeFromFile(f, config); return; }
-        }
+        // ② workspace/.nanobot/secret.yaml
+        if (applyWorkspaceSecret(config)) return;
 
-        // 2. 工作目录下的 secret.yaml / config/secret.yaml / src/main/resources/...
-        Path cwd = Paths.get("").toAbsolutePath();
-        for (String sub : new String[]{"secret.yaml", "config/secret.yaml",
-                "src/main/resources/config/secret.yaml"}) {
-            Path f = cwd.resolve(sub);
-            System.err.println("  check[2] " + f + " -> " + Files.exists(f));
-            if (Files.exists(f)) { mergeFromFile(f, config); return; }
-        }
-
-        // 3. nanobot 工作目录下的 secret.yaml（启动脚本传的 --workspace / nanobot.workspace 系统属性）
-        String ws = System.getProperty("nanobot.workspace");
-        if (ws != null && !ws.isBlank()) {
-            Path wsSecret = Paths.get(ws, "secret.yaml");
-            System.err.println("  check[3] workspace " + wsSecret + " -> " + Files.exists(wsSecret));
-            if (Files.exists(wsSecret)) { mergeFromFile(wsSecret, config); return; }
-        }
-
-        // 4. 用户主目录 ~/.nanobot/secret.yaml（全局兜底，不受 cwd 影响）
-        Path globalSecret = Paths.get(System.getProperty("user.home", "."), ".nanobot", "secret.yaml");
-        System.err.println("  check[5] " + globalSecret + " -> " + Files.exists(globalSecret));
+        // ③ ~/.nanobot/secret.yaml（用户全局）
+        Path globalDir = Paths.get(System.getProperty("user.home", "."), ".nanobot");
+        Path globalSecret = globalDir.resolve("secret.yaml");
         if (Files.exists(globalSecret)) { mergeFromFile(globalSecret, config); return; }
 
-        // 5. 从 cwd 向上遍历目录树，直到根
-        Path probe = cwd;
-        while (probe != null && probe.getNameCount() > 0) {
-            Path f = probe.resolve("secret.yaml");
-            System.err.println("  check[5] " + f + " -> " + Files.exists(f));
+        // ④ config.yaml 所在目录（fileDir 可能为 null）
+        if (fileDir != null) {
+            Path f = fileDir.resolve("secret.yaml");
             if (Files.exists(f)) { mergeFromFile(f, config); return; }
-            probe = probe.getParent();
         }
 
-        // 6. classpath 中的 config/secret.yaml
+        // ⑤ classpath 内置 secret.yaml（默认空模板）
         try (InputStream is = ConfigLoader.class.getClassLoader()
                 .getResourceAsStream("config/secret.yaml")) {
             if (is != null) {
-                Config secret = load(is);
-                applySecretKeys(secret, config);
-                System.err.println("  check[6] classpath:config/secret.yaml -> found");
-                return;
+                applySecretKeys(load(is), config);
             }
         } catch (IOException ignored) {}
-        System.err.println("  [FAIL] No secret.yaml found in any location!");
+    }
+
+    private static boolean applyEnvApiKeys(Config config) {
+        boolean found = false;
+        String deepseekKey = System.getenv("DEEPSEEK_API_KEY");
+        if (deepseekKey != null && !deepseekKey.isBlank()) {
+            config.getProviders().getDeepseek().setApiKey(deepseekKey);
+            logger.info("Using API key from DEEPSEEK_API_KEY env");
+            found = true;
+        }
+        String openaiKey = System.getenv("OPENAI_API_KEY");
+        if (openaiKey != null && !openaiKey.isBlank()) {
+            config.getProviders().getOpenai().setApiKey(openaiKey);
+            logger.info("Using API key from OPENAI_API_KEY env");
+            found = true;
+        }
+        String nanobotKey = System.getenv("NANOBOT_API_KEY");
+        if (nanobotKey != null && !nanobotKey.isBlank()) {
+            config.getProviders().getDeepseek().setApiKey(nanobotKey);
+            logger.info("Using API key from NANOBOT_API_KEY env");
+            found = true;
+        }
+        return found;
+    }
+
+    private static boolean applyWorkspaceSecret(Config config) {
+        String ws = System.getProperty("nanobot.workspace");
+        if (ws == null || ws.isBlank()) return false;
+        Path f = Paths.get(ws, ".nanobot", "secret.yaml");
+        if (Files.exists(f)) { mergeFromFile(f, config); return true; }
+        return false;
     }
 
     private static void mergeFromFile(Path file, Config config) {
