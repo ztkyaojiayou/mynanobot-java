@@ -824,11 +824,10 @@
         if (!lastUserMessage) { console.warn('regenerate: no lastUserMessage'); return; }
         // 移除当前流式元素（如果正在流式输出）
         if (currentStreamingEl) { currentStreamingEl.closest('.message').remove(); currentStreamingEl = null; }
-        // 直接上一条用户消息重新发送
-        const content = lastUserMessage;
-        addMsg('user', content);
         currentStreamingEl = null; currentStreamingContent = '';
-        const body = JSON.stringify({channel:'http',sessionId,content,useSearch,streamMode:true,requestId: Date.now()+'-'+Math.random().toString(36)});
+        // 不发重复用户消息，后端 RestoreState 检测 _regenerate 标记 → 删掉上条 assistant 回复
+        const body = JSON.stringify({channel:'http',sessionId,content:lastUserMessage,useSearch,
+            streamMode:true, requestId: Date.now()+'-'+Math.random().toString(36), _regenerate: true});
         fetch('/api/chat/stream', {method:'POST',headers:{'Content-Type':'application/json','Accept':'text/event-stream'},body})
             .then(res => readStream(res.body.getReader()))
             .catch(e => addMsg('bot', '连接失败: ' + e.message));

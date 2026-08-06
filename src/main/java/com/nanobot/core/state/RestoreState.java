@@ -32,10 +32,22 @@ public class RestoreState implements AgentState {
             logger.debug("No history found for session: {}", sessionKey);
         }
 
-        String content = ctx.getMessage().getContent();
-        if (content != null && !content.isBlank()) {
-            ctx.addUserMessage(content);
-            logger.debug("Added user message: {} chars", content.length());
+        // ── 重新生成：删掉上一条 assistant 回复 → LLM 基于原问题重新回答 ──
+        boolean regenerate = ctx.getMessage().getMetadata() != null
+                && Boolean.TRUE.equals(ctx.getMessage().getMetadata().get("_regenerate"));
+        if (regenerate) {
+            List<Map<String, Object>> msgs = ctx.getMessages();
+            if (!msgs.isEmpty() && "assistant".equals(msgs.get(msgs.size() - 1).get("role"))) {
+                msgs.remove(msgs.size() - 1);
+                logger.info("Regenerate: removed last assistant message (total={})", msgs.size());
+            }
+            // 不追加新用户消息——上一轮的用户消息已在历史中
+        } else {
+            String content = ctx.getMessage().getContent();
+            if (content != null && !content.isBlank()) {
+                ctx.addUserMessage(content);
+                logger.debug("Added user message: {} chars", content.length());
+            }
         }
 
         logger.info("Total messages in context: {}", ctx.getMessages().size());
