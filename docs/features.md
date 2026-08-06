@@ -7,6 +7,7 @@
 ## 目录
 
 1. [权限控制模块](#1-权限控制模块)
+2. [CLI 交互体验模块](#2-cli-交互体验模块)
 
 ---
 
@@ -35,8 +36,10 @@ PreToolUse Hook → Guards → Rules → Mode → Execute
 |:--:|------|------|:--:|
 | 1 | **Hook** | PreToolUse 钩子链，可 deny/allow/modify/passthrough | — |
 | 2 | **Guards** | PathGuard / CommandGuard / NetworkGuard | ❌ 永远执行 |
-| 3 | **Rules** | deny → ask → allow 优先级链 | ✅ 无匹配时跳过 |
-| 4 | **Mode** | PLAN / DEFAULT / ACCEPT_EDITS / BYPASS | — |
+| 3 | **Rules** | deny → ask → allow 优先级链。ASK 触发 CLI 确认弹框 | ✅ 无匹配时跳过 |
+| 4 | **Mode** | PLAN / DEFAULT* / ACCEPT_EDITS / BYPASS | — |
+
+> DEFAULT 模式：有交互处理器时，非只读工具走确认流程（非直接拒绝），解决了"写工具永远被拒"的问题。确认框输出受 `confirmLock` 保护，防止并行工具调用时弹框穿插。
 
 ### 1.3 包结构
 
@@ -114,9 +117,9 @@ guard.validateUrl("http://192.168.1.1/admin");        // → SecurityException (
 
 | 模式 | 读工具 | 文件编辑 | Shell | 用途 |
 |------|:--:|:--:|:--:|------|
-| `PLAN` | ✅ | ❌ | ❌ | 代码探索/审查 |
-| `DEFAULT` | ✅ | ❌ | ❌ | 日常开发 |
-| `ACCEPT_EDITS` | ✅ | ✅ | ❌ | 信任编码 |
+| `PLAN` | ✅ | ❌ | ❌ | 代码探索/出计划 |
+| `DEFAULT` | ✅ | 确认后放行 | 确认后放行 | 日常开发（CLI 弹框确认） |
+| `ACCEPT_EDITS` | ✅ | ✅ | 确认后放行 | 信任编码 |
 | `BYPASS` | ✅ | ✅ | ✅ | 自动化工作流 |
 
 #### RuleEngine — 规则引擎
@@ -148,58 +151,29 @@ hooks.register(ctx -> {
 
 ### 1.5 配置参考
 
-```yaml
-nanobot:
-  security:
-    mode: default     # plan | default | accept_edits | bypass
+所有安全组件通过 `NanobotConfig.java` 以 Spring Bean 方式创建，不可通过外部配置文件覆盖（守卫规则为硬编码，确保安全基线）。权限模式通过 `/mode` CLI 命令实时切换。
 
-    path-guard:
-      workspace: "."
-      extra-allowed-dirs: []
-
-    command-guard:
-      deny-patterns:
-        - "rm\\s+-rf\\s+/"
-        - "sudo\\b"
-        - "mkfs\\."
-        - "diskpart"
-        - "dd\\s+if="
-        - "shutdown|reboot|halt"
-      allow-patterns:
-        - "^(ls|dir|cat|type|echo|find)\\s"
-        - "^git\\s+(status|diff|log|branch|show)"
-        - "^(mvn|gradle|npm|node|python|java|javac)\\s"
-
-    network-guard:
-      blocked-cidrs:
-        - "10.0.0.0/8"
-        - "172.16.0.0/12"
-        - "192.168.0.0/16"
-        - "127.0.0.0/8"
-        - "169.254.0.0/16"
-        - "100.64.0.0/10"
-        - "172.17.0.0/16"
-      allowed-domains: []
-      blocked-domains: []
-
-    rules:
-      - type: deny
-        tool-pattern: "exec"
-        param-name: "command"
-        value-pattern: "rm -rf.*"
-        reason: "递归删除被安全策略禁止"
-      - type: allow
-        tool-pattern: "exec"
-        param-name: "command"
-        value-pattern: "git status"
-        reason: null
-
-  channels:
-    acl:
-      websocket:
-        enabled: true
-        allow-from: []    # 空列表 = 拒绝所有
+```java
+// NanobotConfig.java — 安全 Bean 创建
+@Bean public PathGuard pathGuard(Config config) {
+    PathGuard guard = new PathGuard(config.getWorkspacePath());
+    guard.setRestrictToWorkspace(config.getTools().isRestrictToWorkspace());
+    return guard;
+}
+@Bean public CommandGuard commandGuard() { return CommandGuard.withDefaults(); }
+@Bean public NetworkGuard networkGuard() { return NetworkGuard.withDefaults(); }
+@Bean public PermissionManager permissionManager(...) {
+    RuleEngine ruleEngine = new RuleEngine();
+    ruleEngine.addRule(RuleType.ASK, "exec", null, null, "Shell 命令执行需要您的确认");
+    return PermissionManager.builder()
+        .mode(PermissionMode.DEFAULT).pathGuard(...).commandGuard(...)
+        .ruleEngine(ruleEngine).build();
+}
 ```
+
+权限模式通过 `/mode` CLI 命令实时切换，或通过 `PermissionManager.setMode()` 编程切换。
+
+> 注：`application.yml` 中曾有一份 `nanobot.security` 配置块（2026-08 已删除），因为无 Java 代码绑定，为死代码。安全配置的正确入口是 `NanobotConfig.java` 的 Bean 定义。
 
 ### 1.6 集成点
 
@@ -228,6 +202,85 @@ hooks.register(ctx -> {
     return PreToolUseResult.passthrough();
 });
 ```
+
+---
+
+## 2. CLI 交互体验模块
+
+**实现日期**: 2026-08-05 ~ 2026-08-06
+**参考来源**: Claude Code CLI
+**状态**: ✅ 已完成
+
+### 2.1 概述
+
+V3 CLI 模式（类 Claude Code）的终端交互层，包括彩色渲染、命令支持、权限确认、终端适配。核心设计：**双分支渲染**（ANSI 彩色 vs CMD 纯文本），共享同一套业务逻辑。
+
+### 2.2 包结构
+
+```
+com.nanobot.v3.tui
+├── TerminalStyle.java       # ANSI 颜色常量 + 降级过滤器
+└── MarkdownRenderer.java    # Markdown → ANSI 渲染（标题/粗体/代码高亮）
+```
+
+### 2.3 组件详解
+
+#### TerminalStyle — 统一样式入口
+
+所有 CLI 输出颜色的**唯一来源**。`disable()` 将所有 ANSI 常量置空 → CMD 下自动降级纯文本。
+
+```java
+// 正常终端
+System.out.println(TerminalStyle.RED + "✗" + TerminalStyle.R + " 错误");
+// CMD (disable后) → "✗ 错误"  (无颜色)
+
+TerminalStyle.error("失败");   // "✗ 失败" (红色/CMD纯文本)
+TerminalStyle.success("成功"); // "✓ 成功"
+TerminalStyle.warn("注意");    // "! 注意"
+```
+
+内置：`filter()`（ANSI 去除 + Unicode 框线→ASCII）、`toolColor()`（工具类别→颜色映射）。
+
+#### MarkdownRenderer — 终端 Markdown 渲染
+
+支持：`# 标题`（紫/青/绿）、`**粗体**`、`*斜体*`、`` `行内代码` ``、`` ```代码块``` ``（灰色背景 + 语法高亮）。
+
+语法高亮覆盖：Java、JSON、YAML、Bash/Shell、SQL、XML/HTML。CMD 下全部降级为灰色背景无颜色。
+
+### 2.4 CLI 命令
+
+| 命令 | 说明 | 实现 |
+|------|------|------|
+| `/exit` `/q` | 退出 | 内置 |
+| `/clear` | 清上下文 | 内置 |
+| `/help` | 所有命令 | `HelpCommand` (彩色格式化) |
+| `/history` | 输入历史 | 内置（含 `!!` `!N`） |
+| `/mode` `/plan` | 权限模式 | `ModeCommand` |
+| `/init` | 生成 NANOBOT.md | `InitCommand` |
+| `/resume` | 历史会话 | `ResumeCommand` |
+
+### 2.5 终端适配
+
+```
+os.name + WT_SESSION
+  ├─ 非 Windows    → ANSI + JLine + 彩色双栏 banner
+  ├─ WT_SESSION=有  → ANSI + 无JLine + 彩色双栏 banner（Windows Terminal）
+  └─ WT_SESSION=无  → 纯文本 + 无JLine + ASCII banner（CMD）
+```
+
+终端检测在 `CliChannel` 构造函数中完成，`TerminalStyle.disable()` 一次性切换全局面板。CMD 下所有输出经 `filter()` 兜底：去 ANSI + Unicode框线→ASCII + 特殊符号→纯文本。
+
+### 2.6 其他交互特性
+
+| 特性 | 说明 |
+|------|------|
+| Thinking spinner | `| / - \` ASCII 帧动画，delta 到达时停止 |
+| 工具调用着色 | exec=红, read=绿, write=橙, web=蓝, mcp=紫 |
+| Token 用量 | prompt 显示 `deepseek-chat 1.2Kt >` |
+| 模式指示 | `[PLAN]` `[EDIT]` `[BYPASS]` 标记在 prompt |
+| 确认框 | `confirmLock` 防并发穿插，`[1]`绿 `[2]`青 `[3]`红 |
+| 后台命令 | `exec background=true` 启动长期服务 |
+| Unix 命令转换 | `pwd→cd` `ls→dir` `cat→type` 等 Windows 自动翻译 |
 
 ---
 
