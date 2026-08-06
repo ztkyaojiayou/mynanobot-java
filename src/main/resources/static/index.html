@@ -682,52 +682,7 @@
                 headers: {'Content-Type':'application/json','Accept':'text/event-stream'},
                 body: JSON.stringify({channel:'http',sessionId,content,useSearch,streamMode:true,requestId: Date.now()+'-'+Math.random().toString(36)})
             });
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder();
-            let buf = '';
-            let eventData = '';
-            let eventType = '';
-            while (true) {
-                const {done,value} = await reader.read();
-                if (value) { buf += decoder.decode(value,{stream:!done}); }
-                const lines = buf.split('\n');
-                buf = !done && buf[buf.length-1]!=='\n' ? lines.pop() : '';
-                for (const l of lines) {
-                    if (l.startsWith('event:')) {
-                        eventType = l.substring(6).trim();
-                    } else if (l.startsWith('data:')) {
-                        const d = l.substring(5).replace(/^ /,'');
-                        if (d==='[DONE]') { currentStreamingEl = null; break; }
-                        eventData += (eventData ? '\n' : '') + d;
-                    } else if (l === '' && (eventData || eventType)) {
-                        if (eventType === 'clear') {
-                            document.getElementById('messages').innerHTML = '';
-                            addMsg('bot', eventData || '会话已清除。');
-                            eventType = ''; eventData = '';
-                            continue;
-                        }
-                        if (eventData) {
-                            if (!currentStreamingEl) { currentStreamingEl = createStreamEl(); currentStreamingContent = ''; }
-                            currentStreamingContent += eventData;
-                            currentStreamingEl.innerHTML = md2html(currentStreamingContent);
-                            // 首帧内容就绪 → 显示消息（之前 createStreamEl 以 display:none 挂载防闪烁）
-                            currentStreamingEl.closest('.message').style.display = '';
-                            const msgs = document.getElementById('messages');
-                            msgs.scrollTop = msgs.scrollHeight;
-                        }
-                        eventType = ''; eventData = '';
-                    }
-                }
-                if (done) {
-                    if (eventData) {
-                        if (!currentStreamingEl) { currentStreamingEl = createStreamEl(); currentStreamingContent = ''; }
-                        currentStreamingContent += eventData;
-                        currentStreamingEl.innerHTML = md2html(currentStreamingContent);
-                        currentStreamingEl.closest('.message').style.display = '';
-                    }
-                    currentStreamingEl = null; break;
-                }
-            }
+            await readStream(res.body.getReader());
         } catch(e) {
             addMsg('bot', '连接失败: ' + e.message);
         }
@@ -866,12 +821,42 @@
     }
 
     function regenerateMsg() {
-        if (!lastUserMessage) return;
+        if (!lastUserMessage) { console.warn('regenerate: no lastUserMessage'); return; }
         // 移除当前流式元素（如果正在流式输出）
         if (currentStreamingEl) { currentStreamingEl.closest('.message').remove(); currentStreamingEl = null; }
-        // 将上一条用户消息设为输入内容并重新发送
-        document.getElementById('inputMessage').value = lastUserMessage;
-        sendMessage();
+        // 直接上一条用户消息重新发送
+        const content = lastUserMessage;
+        addMsg('user', content);
+        currentStreamingEl = null; currentStreamingContent = '';
+        const body = JSON.stringify({channel:'http',sessionId,content,useSearch,streamMode:true,requestId: Date.now()+'-'+Math.random().toString(36)});
+        fetch('/api/chat/stream', {method:'POST',headers:{'Content-Type':'application/json','Accept':'text/event-stream'},body})
+            .then(res => readStream(res.body.getReader()))
+            .catch(e => addMsg('bot', '连接失败: ' + e.message));
+    }
+
+    async function readStream(reader) {
+        const decoder = new TextDecoder(); let buf='', eventData='', eventType='';
+        try {
+            while (true) {
+                const {done,value} = await reader.read();
+                if (value) buf += decoder.decode(value,{stream:!done});
+                const lines = buf.split('\n');
+                buf = !done && buf[buf.length-1]!=='\n' ? lines.pop() : '';
+                for (const l of lines) {
+                    if (l.startsWith('event:')) eventType = l.substring(6).trim();
+                    else if (l.startsWith('data:')) {
+                        const d = l.substring(5).replace(/^ /,'');
+                        if (d==='[DONE]') { currentStreamingEl = null; return; }
+                        eventData += (eventData?'\n':'') + d;
+                    } else if (l === '' && (eventData||eventType)) {
+                        if (eventType==='clear') { document.getElementById('messages').innerHTML=''; addMsg('bot',eventData||'会话已清除。'); eventType=''; eventData=''; continue; }
+                        if (eventData) { if(!currentStreamingEl){currentStreamingEl=createStreamEl();currentStreamingContent='';} currentStreamingContent+=eventData; currentStreamingEl.innerHTML=md2html(currentStreamingContent); currentStreamingEl.closest('.message').style.display=''; document.getElementById('messages').scrollTop=document.getElementById('messages').scrollHeight; }
+                        eventType=''; eventData='';
+                    }
+                }
+                if (done) { if(eventData){if(!currentStreamingEl){currentStreamingEl=createStreamEl();currentStreamingContent='';}currentStreamingContent+=eventData;currentStreamingEl.innerHTML=md2html(currentStreamingContent);currentStreamingEl.closest('.message').style.display='';} currentStreamingEl=null; return; }
+            }
+        } catch(e) { if (!currentStreamingEl) addMsg('bot','连接失败: '+e.message); }
     }
 
     // ═══ Textarea 自适应高度 + 快捷键 ═══
