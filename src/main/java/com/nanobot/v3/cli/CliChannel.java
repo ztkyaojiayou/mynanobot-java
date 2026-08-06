@@ -154,9 +154,13 @@ public class CliChannel {
         }
         this.appContext = appContext;
 
-        // JLine 终端（仅非 Windows 初始化，Windows 下为 null）
+        // ── 终端检测：CMD(纯文本) / Windows Terminal(彩色) / Unix(彩色) ──
+        boolean isWin = System.getProperty("os.name", "").toLowerCase().contains("win");
+        boolean isWinTerm = isWin && System.getenv("WT_SESSION") != null;
+
+        // JLine：CMD 跳过（会报 dumb terminal 警告），WT/Unix 正常初始化
         Terminal t = null;
-        if (!System.getProperty("os.name", "").toLowerCase().contains("win")) {
+        if (!isWin || isWinTerm) {
             try {
                 t = TerminalBuilder.builder().build();
             } catch (Exception e) {
@@ -165,13 +169,13 @@ public class CliChannel {
         }
         this.terminal = t;
 
-        // ── 终端能力检测：Windows → 纯文本，其他 → ANSI 彩色 ──
-        if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
+        // ANSI：CMD 关闭，WT/Unix 启用
+        if (isWin && !isWinTerm) {
             TerminalStyle.disable();
-            logger.info("Windows 终端，ANSI 颜色已关闭（纯文本模式）");
+            logger.info("CMD 终端，ANSI 颜色已关闭（纯文本模式）");
         } else {
-            logger.info("Unix 终端 (jline={})，ANSI 颜色已启用",
-                    t != null ? t.getType() : "null");
+            logger.info("终端就绪 (wt={}, jline={})，ANSI 颜色已启用",
+                    isWinTerm, t != null ? t.getType() : "null");
         }
 
         // 初始化命令注册中心
