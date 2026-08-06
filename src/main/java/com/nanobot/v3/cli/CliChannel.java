@@ -250,7 +250,12 @@ public class CliChannel {
             int idx = msg.getMetadataInt("_tool_index", -1);
             int total = msg.getMetadataInt("_tool_total", -1);
             String counter = (idx >= 0 && total > 0) ? idx + "/" + total + " " : "";
-            System.out.print("\n  " + TerminalStyle.dim(counter + "* " + msg.getContent()) + " ");
+            // 提取工具名并着色：content 格式 "🔧 toolName"
+            String tn = msg.getContent();
+            // 去掉 emoji/空格前缀取工具名
+            tn = tn.replaceAll("^[^a-zA-Z]+", "");
+            System.out.print("\n  " + TerminalStyle.dim(counter)
+                    + TerminalStyle.toolColor(tn) + tn + TerminalStyle.R + " ");
         } else if (msg.isSessionCleared()) {
             if (currentRequestId != null && currentRequestId.equals(msg.getRequestId())) {
                 System.out.println();

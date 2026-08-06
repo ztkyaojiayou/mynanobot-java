@@ -153,6 +153,22 @@ public final class TerminalStyle {
         return replaceBoxChars(stripAnsi(text));
     }
 
+    // ═══════ 工具颜色映射 ═══════
+
+    /** 根据工具名返回对应颜色（写入/执行/只读/网络/系统各有区分） */
+    public static String toolColor(String toolName) {
+        if (toolName == null) return GRAY;
+        return switch (toolName) {
+            case "exec" -> RED + B;
+            case "write_file", "edit_file" -> ORANGE + B;
+            case "read_file", "list_dir", "glob", "grep" -> GREEN;
+            case "web_search", "web_fetch" -> BLUE;
+            case "task_create", "task_update", "task_list",
+                 "spawn", "spawn_check", "use_skill" -> CYAN;
+            default -> toolName.startsWith("mcp_") ? MAGENTA : GRAY;
+        };
+    }
+
     // ═══════ 静态方法 ═══════
 
     public static String success(String msg) { return P_OK + msg; }
