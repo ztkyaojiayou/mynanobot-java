@@ -16,17 +16,22 @@ public final class MarkdownRenderer {
     private static String BOLD   = "\033[1m";
     private static String ITALIC = "\033[3m";
     private static String UNDERLINE = "\033[4m";
-    private static String PURPLE = "\033[38;5;99m";
-    private static String CYAN   = "\033[38;5;80m";
-    private static String GREEN  = "\033[38;5;78m";
-    private static String YELLOW = "\033[38;5;214m";
-    private static String GRAY   = "\033[38;5;242m";
-    private static String DARK   = "\033[48;5;236m";
+    private static String PURPLE  = "\033[38;5;99m";
+    private static String CYAN    = "\033[38;5;80m";
+    private static String GREEN   = "\033[38;5;78m";
+    private static String YELLOW  = "\033[38;5;214m";
+    private static String ORANGE  = "\033[38;5;208m";
+    private static String MAGENTA = "\033[38;5;201m";
+    private static String BLUE    = "\033[38;5;75m";
+    private static String GRAY    = "\033[38;5;242m";
+    private static String DARK    = "\033[48;5;236m";
 
     /** TerminalStyle.disable() 调用后同步关闭 MarkdownRenderer 的 ANSI */
     public static void disableAnsi() {
         RESET = ""; BOLD = ""; ITALIC = ""; UNDERLINE = "";
-        PURPLE = ""; CYAN = ""; GREEN = ""; YELLOW = ""; GRAY = ""; DARK = "";
+        PURPLE = ""; CYAN = ""; GREEN = ""; YELLOW = "";
+        ORANGE = ""; MAGENTA = ""; BLUE = "";
+        GRAY = ""; DARK = "";
     }
 
     private static final Pattern BOLD_PATTERN   = Pattern.compile("\\*\\*(.+?)\\*\\*");
@@ -66,8 +71,7 @@ public final class MarkdownRenderer {
             }
 
             if (inCodeBlock) {
-                // 代码行：灰色背景
-                sb.append(DARK).append(" ").append(fixWidth(line, width - 2))
+                sb.append(DARK).append(" ").append(fixWidth(highlightLine(line, lang), width - 2))
                         .append(" ").append(RESET).append("\n");
                 continue;
             }
@@ -145,6 +149,67 @@ public final class MarkdownRenderer {
         s = ITALIC_PATTERN.matcher(s).replaceAll(ITALIC + "$1" + RESET);
         s = CODE_PATTERN.matcher(s).replaceAll(GRAY + DARK + "$1" + RESET);
         return s;
+    }
+
+    // ════════════════════════ 代码高亮 ════════════════════════
+
+    private static final Pattern KW_JAVA = Pattern.compile(
+            "\\b(public|private|protected|class|interface|enum|extends|implements|"
+            + "static|final|abstract|synchronized|volatile|transient|native|strictfp|"
+            + "void|int|long|double|float|boolean|char|byte|short|"
+            + "if|else|for|while|do|switch|case|default|break|continue|return|throw|throws|try|catch|finally|"
+            + "new|this|super|import|package|null|true|false|instanceof|assert|record|sealed|permits|yield|var)\\b");
+    private static final Pattern KW_SQL = Pattern.compile(
+            "\\b(?i)(SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TABLE|INTO|VALUES|"
+            + "SET|AND|OR|NOT|NULL|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AS|ORDER|BY|GROUP|HAVING|LIMIT|"
+            + "DISTINCT|COUNT|SUM|AVG|MAX|MIN|PRIMARY|KEY|FOREIGN|INDEX|UNIQUE|DEFAULT|CHECK|BETWEEN|LIKE|IN|EXISTS)\\b");
+    private static final Pattern KW_BASH = Pattern.compile(
+            "\\b(echo|cd|ls|cat|grep|sed|awk|curl|wget|git|mvn|npm|docker|java|javac|python|node|"
+            + "export|source|chmod|chown|mkdir|rm|cp|mv|find|tar|gzip|ssh|scp|sudo|apt|brew|pip|"
+            + "if|then|else|elif|fi|for|while|do|done|case|esac|function|return|exit|set|unset|local)\\b");
+    private static final Pattern STRING_PAT = Pattern.compile(
+            "\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'");
+    private static final Pattern COMMENT_PAT = Pattern.compile(
+            "//.*$|/\\*.*?\\*/|#.*$|--.*$");
+    private static final Pattern NUMBER_PAT = Pattern.compile(
+            "\\b\\d+\\.?\\d*[fFlLdD]?\\b");
+
+    /** 对单行代码应用语法高亮 */
+    private static String highlightLine(String line, String lang) {
+        if (lang.isEmpty()) return line;
+        String l = lang.toLowerCase();
+
+        // 关键字
+        if (l.equals("java") || l.equals("kotlin") || l.equals("scala")) {
+            line = KW_JAVA.matcher(line).replaceAll(ORANGE + "$1" + RESET);
+            line = Pattern.compile("@\\w+").matcher(line).replaceAll(YELLOW + "$0" + RESET);
+        } else if (l.equals("sql")) {
+            line = KW_SQL.matcher(line).replaceAll(BLUE + "$1" + RESET);
+        } else if (l.equals("bash") || l.equals("sh") || l.equals("shell") || l.equals("zsh")) {
+            line = KW_BASH.matcher(line).replaceAll(GREEN + "$1" + RESET);
+        } else if (l.equals("xml") || l.equals("html") || l.equals("xhtml")) {
+            line = Pattern.compile("</?\\w+[^>]*/?>").matcher(line).replaceAll(BLUE + "$0" + RESET);
+            line = Pattern.compile("\\w+=\"[^\"]*\"").matcher(line).replaceAll(CYAN + "$0" + RESET);
+        }
+
+        // 通用：字符串、注释、数字
+        line = STRING_PAT.matcher(line).replaceAll(GREEN + "$0" + RESET);
+        if (l.equals("bash") || l.equals("sh") || l.equals("yaml") || l.equals("yml") || l.equals("python") || l.equals("rb")) {
+            line = COMMENT_PAT.matcher(line).replaceAll(GRAY + "$0" + RESET);
+        }
+        if (!l.equals("json")) { // JSON 数字不额外着色
+            line = NUMBER_PAT.matcher(line).replaceAll(MAGENTA + "$0" + RESET);
+        }
+        // JSON key 着色
+        if (l.equals("json")) {
+            line = Pattern.compile("\"\\w+\"\\s*:").matcher(line).replaceAll(CYAN + "$0" + RESET);
+        }
+        // YAML key 着色
+        if (l.equals("yaml") || l.equals("yml")) {
+            line = Pattern.compile("^\\s*\\w+:").matcher(line).replaceAll(CYAN + "$0" + RESET);
+        }
+
+        return line;
     }
 
     private static String fixWidth(String s, int w) {
