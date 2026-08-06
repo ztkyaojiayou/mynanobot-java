@@ -542,7 +542,6 @@
     let currentStreamingEl = null, currentStreamingContent = '';
     let lastUserMessage = '';
     let pendingUserMsg = ''; // 当前轮的用户消息（bot 渲染前暂存）
-    const userMsgForBot = {}; // botIdx → 触发该 bot 的用户消息内容
     let backendMsgIdx = 0; // 与后端消息列表对齐的 user+bot 混合下标
 
     // ═══ 会话列表 ═══
@@ -659,11 +658,12 @@
         if (type === 'bot') {
             backendMsgIdx++;
             const idx = backendMsgIdx - 1;
-            userMsgForBot[idx] = pendingUserMsg || lastUserMessage; // 记下触发该 bot 的用户消息
+            const umsg = pendingUserMsg || lastUserMessage;
+            div.setAttribute('data-user-msg', escHtml(umsg));
             div.innerHTML = `<div class="avatar">N</div><div class="content"><div class="message-content" style="font-size:16px;line-height:1.8">${md2html(content)}</div><div class="msg-actions"><button onclick="copyMsg(this)">📋 复制</button><button onclick="regenerateMsgAt(${idx})">🔄 重新生成</button></div></div>`;
         } else {
             backendMsgIdx++;
-            pendingUserMsg = content; // 记住本轮用户消息
+            pendingUserMsg = content;
             div.innerHTML = `<div class="bubble">${escHtml(content)}</div>`;
         }
         wrap.appendChild(div);
@@ -708,9 +708,10 @@
     function createStreamEl() {
         backendMsgIdx++;
         const idx = backendMsgIdx - 1;
-        userMsgForBot[idx] = lastUserMessage; // 记下触发流式 bot 的用户消息
+        const umsg = lastUserMessage;
         const div = document.createElement('div');
         div.className = 'message bot-message';
+        div.setAttribute('data-user-msg', escHtml(umsg));
         div.innerHTML = '<div class="avatar">N</div><div class="content"><div class="message-content" style="font-size:16px;line-height:1.8"></div><div class="msg-actions"><button onclick="copyMsg(this)">📋 复制</button><button onclick="regenerateMsgAt(' + idx + ')">🔄 重新生成</button></div></div>';
         const contentEl = div.querySelector('.message-content');
         div.style.display = 'none';
@@ -829,34 +830,20 @@
         }).catch(() => {});
     }
 
-    /** 重新生成最后一条（boolean模式，不依赖下标） */
-    function regenerateMsg() {
-        if (currentStreamingEl) { currentStreamingEl.closest('.message').remove(); currentStreamingEl = null; }
-        currentStreamingEl = null; currentStreamingContent = '';
-        // 删 DOM 最后一条 bot
-        const msgs = [...document.getElementById('messages').children];
-        for (let i = msgs.length-1; i >= 0; i--) {
-            if (msgs[i].classList.contains('bot-message')) { msgs[i].remove(); break; }
-        }
-        const body = JSON.stringify({channel:'http',sessionId,content:lastUserMessage,useSearch,
-            streamMode:true, requestId: Date.now()+'-'+Math.random().toString(36), _regenerate: true});
-        fetch('/api/chat/stream', {method:'POST',headers:{'Content-Type':'application/json','Accept':'text/event-stream'},body})
-            .then(res => readStream(res.body.getReader()))
-            .catch(e => addMsg('bot', '连接失败: ' + e.message));
-    }
-
     function regenerateMsgAt(idx) {
         if (currentStreamingEl) { currentStreamingEl.closest('.message').remove(); currentStreamingEl = null; }
         currentStreamingEl = null; currentStreamingContent = '';
-        const msgs = document.getElementById('messages');
+        const msgsEl = document.getElementById('messages');
+        let userMsg = lastUserMessage;
         let found = false;
-        [...msgs.children].forEach(el => {
+        [...msgsEl.children].forEach(el => {
             if (found) { el.remove(); return; }
             if (el.classList.contains('bot-message') && el.querySelector('[onclick*="regenerateMsgAt(' + idx + ')"]')) {
-                found = true; el.remove();
+                found = true;
+                userMsg = el.getAttribute('data-user-msg') || userMsg; // 从 DOM 取对应提问
+                el.remove();
             }
         });
-        const userMsg = userMsgForBot[idx] || lastUserMessage;
         const body = JSON.stringify({channel:'http',sessionId,content:userMsg,useSearch,
             streamMode:true, requestId: Date.now()+'-'+Math.random().toString(36), _regenerate: idx});
         fetch('/api/chat/stream', {method:'POST',headers:{'Content-Type':'application/json','Accept':'text/event-stream'},body})
