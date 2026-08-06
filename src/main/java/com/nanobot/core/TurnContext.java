@@ -379,6 +379,11 @@ public class TurnContext {
     /** Defensive copy. */
     public List<Map<String, Object>> getMessages() { return new ArrayList<>(messages); }
 
+    /** 裁剪消息列表：删除从 index 起的所有消息(含 index)。用于重新生成。 */
+    public void trimMessagesFrom(int index) {
+        while (messages.size() > index) messages.remove(messages.size() - 1);
+    }
+
     /** Defensive copy. */
     public List<Map<String, Object>> getToolResults() { return new ArrayList<>(toolResults); }
 
