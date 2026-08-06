@@ -1,5 +1,6 @@
 package com.nanobot.v2.controller;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.nanobot.NanobotRunner;
 import com.nanobot.bus.MessageBus;
 import com.nanobot.bus.InboundMessage;
@@ -226,6 +227,7 @@ public class ChatController {
         metadata.put("requestId", requestId);
         metadata.put("streamMode", true);
         metadata.put("useSearch", request.isUseSearch());
+        if (request.isRegenerate()) metadata.put("_regenerate", true);
 
         // 构建入站消息（senderId 使用 sessionId，因为 API 通道没有独立的发送者 ID）
         InboundMessage message = InboundMessage.builder()
@@ -266,5 +268,7 @@ public class ChatController {
         private boolean useSearch;
         private boolean streamMode;
         private String requestId;
+        @JsonProperty("_regenerate")
+        private boolean regenerate;
     }
 }
