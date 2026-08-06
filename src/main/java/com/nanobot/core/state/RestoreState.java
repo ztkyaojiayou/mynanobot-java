@@ -40,7 +40,7 @@ public class RestoreState implements AgentState {
             if (regenVal instanceof Number) {
                 int idx = ((Number) regenVal).intValue();
                 while (msgs.size() > idx) msgs.remove(msgs.size() - 1);
-                logger.info("Regenerate@{}: cropped to {} messages", idx, msgs.size());
+                logger.debug("Regenerate@{}: cropped to {} messages", idx, msgs.size());
             } else {
                 if (!msgs.isEmpty() && "assistant".equals(msgs.get(msgs.size() - 1).get("role"))) {
                     msgs.remove(msgs.size() - 1);

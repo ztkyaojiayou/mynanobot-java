@@ -173,9 +173,7 @@ public class ConfigLoader {
         Path localConfig = Paths.get(DEFAULT_CONFIG_FILE);
         if (Files.exists(localConfig)) {
             logger.info("Loading from cwd: {}", localConfig.toAbsolutePath());
-            Config c = load(localConfig);
-            System.err.println("[CONFIG] cwd load done: deepseek=" + c.getProviders().getDeepseek().getApiKey().substring(0, Math.min(8, c.getProviders().getDeepseek().getApiKey().length())) + "... isConfigured=" + c.getProviders().getDeepseek().isConfigured());
-            return c;
+            return load(localConfig);
         }
 
         // ④ classpath:config/config.yaml（jar 内置默认）
@@ -309,9 +307,8 @@ public class ConfigLoader {
     private static void mergeFromFile(Path file, Config config) {
         try {
             Config secret = parse(Files.readString(file), file.toString());
-            System.err.println("[CONFIG] mergeFromFile " + file + " deepseek=" + (secret.getProviders().getDeepseek().getApiKey().length() > 0 ? "HAS_KEY" : "EMPTY"));
             applySecretKeys(secret, config);
-            System.err.println("[CONFIG] after apply: deepseek isConfigured=" + config.getProviders().getDeepseek().isConfigured());
+            logger.debug("Merged API keys from {}", file);
         } catch (IOException e) {
             logger.warn("Failed to read {}: {}", file, e.getMessage());
         }
