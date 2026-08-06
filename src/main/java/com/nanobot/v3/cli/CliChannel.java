@@ -96,17 +96,9 @@ public class CliChannel {
     private Scanner scanner = createUtf8Scanner();
 
     private static Scanner createUtf8Scanner() {
-        // Windows: 切控制台代码页到 UTF-8 (65001)，否则中文输入 GBK→UTF-8 乱码
-        if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
-            try {
-                new ProcessBuilder("cmd.exe", "/c", "chcp 65001 > nul").start().waitFor(3, java.util.concurrent.TimeUnit.SECONDS);
-            } catch (Exception ignored) {}
-        }
-        try {
-            return new Scanner(System.in, StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            return new Scanner(System.in);
-        }
+        // 使用系统原生编码（Win CMD=GBK, Unix=UTF-8）
+        // chcp 65001 只能改子进程，无法改变用户 CMD 窗口 → 不强行切 UTF-8
+        return new Scanner(System.in, java.nio.charset.Charset.defaultCharset());
     }
 
     private String readLine() {
