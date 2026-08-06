@@ -574,6 +574,7 @@
     function newSession() {
         sessionId = 'web-' + Date.now();
         isNewSession = true;
+        backendMsgIdx = 0; // 重置消息下标
         document.getElementById('messages').innerHTML = '<div class="empty-chat">准备好了，随时开始</div>';
         document.getElementById('currentSessionName').textContent = '新对话';
         loadSessions();
