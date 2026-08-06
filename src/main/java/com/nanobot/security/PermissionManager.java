@@ -181,12 +181,15 @@ public class PermissionManager {
      * @throws SecurityException 如果被任何守卫拦截
      */
     public void checkGuards(String toolName, Map<String, Object> params) {
-        // PathGuard：文件类工具
+        // PathGuard：文件类工具（与 ToolRegistry.applyGuards 行为一致）
         if (isFileTool(toolName) && pathGuard != null) {
             String pathParam = (String) params.get("path");
-            if (pathParam != null) {
-                pathGuard.resolvePath(pathParam);
-            }
+            if (pathParam == null) pathParam = (String) params.get("basePath"); // GlobTool
+            java.nio.file.Path resolved = pathGuard.resolvePath(
+                    pathParam != null ? pathParam : ".");
+            // 回写解析后的绝对路径，否则工具内 Paths.get(".") 基于 user.dir
+            params.put("path", resolved.toString());
+            if (params.containsKey("basePath")) params.put("basePath", resolved.toString());
         }
         // CommandGuard：Shell 执行工具
         if (isShellTool(toolName) && commandGuard != null) {
