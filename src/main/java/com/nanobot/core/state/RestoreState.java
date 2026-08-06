@@ -35,18 +35,21 @@ public class RestoreState implements AgentState {
         // ── 重新生成：删掉指定位置起的所有后续消息 → LLM 基于原问题重新回答 ──
         Object regenVal = ctx.getMessage().getMetadata() != null
                 ? ctx.getMessage().getMetadata().get("_regenerate") : null;
+        System.err.println("[RESTORE] _regenerate=" + regenVal + " type=" + (regenVal != null ? regenVal.getClass().getSimpleName() : "null") + " msgs=" + ctx.getMessages().size());
         if (regenVal != null) {
             List<Map<String, Object>> msgs = ctx.getMessages();
             if (regenVal instanceof Number) {
-                // 指定位置：删除该 bot 消息及之后的所有消息
                 int idx = ((Number) regenVal).intValue();
-                while (msgs.size() > idx) msgs.remove(msgs.size() - 1);
-                logger.info("Regenerate@{}: removed {} messages, kept {}", idx, msgs.size() - idx, msgs.size());
+                System.err.println("[RESTORE] removing from idx=" + idx + " (was size=" + msgs.size() + ")");
+                while (msgs.size() > idx) {
+                    Map<String, Object> removed = msgs.remove(msgs.size() - 1);
+                    System.err.println("[RESTORE]   removed[" + (msgs.size()) + "] role=" + removed.get("role"));
+                }
+                System.err.println("[RESTORE] after crop: size=" + msgs.size());
             } else {
-                // 仅最后一条（向后兼容）
                 if (!msgs.isEmpty() && "assistant".equals(msgs.get(msgs.size() - 1).get("role"))) {
                     msgs.remove(msgs.size() - 1);
-                    logger.info("Regenerate: removed last assistant (total={})", msgs.size());
+                    System.err.println("[RESTORE] removed last assistant (total=" + msgs.size() + ")");
                 }
             }
             // 不追加新用户消息——原问题已在历史中
