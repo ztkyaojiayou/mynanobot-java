@@ -317,7 +317,7 @@ tools:
 
 | 文档 | 说明 |
 |------|------|
-| `ARCHITECTURE_AND_LEARNING_ROADMAP.md` | 完整架构 + AI 概念演进 + 学习路线 |
+| `项目架构和学习手册.md` | 完整架构 + AI 概念演进 + 学习路线 |
 | `docs/deployment.md` | 启动、部署、配置架构 |
 | `docs/features.md` | 权限控制 + CLI 交互模块 |
 | `docs/线上问题总结.md` | 19 个历史 bug 分析 + 修复 |
@@ -347,7 +347,7 @@ export PATH="$JAVA_HOME/bin:$PATH"
 
 这个项目**全程使用 Claude Code 构建**——从架构设计到代码实现到文档编写。它是 Agent-Driven Development 的实践产物。
 
-> 详见 [ARCHITECTURE_AND_LEARNING_ROADMAP.md § 三、Claude Code 实战指南](ARCHITECTURE_AND_LEARNING_ROADMAP.md)
+> 详见 [项目架构和学习手册.md § 三、Claude Code 实战指南](项目架构和学习手册.md)
 
 ---
 
