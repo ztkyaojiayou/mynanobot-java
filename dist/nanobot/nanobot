@@ -1,3 +1,0 @@
-#!/bin/bash
-DIR="$(cd "$(dirname "$0")" && pwd)"
-java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "$DIR/nanobot.jar" "$@"

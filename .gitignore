@@ -25,3 +25,4 @@ Thumbs.db
 # API 密钥文件（不提交）
 secret.yaml
 **/secret.yaml
+dist/
