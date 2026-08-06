@@ -245,9 +245,14 @@ public class ConfigLoader {
 
     /** 从多个位置读取 secret.yaml 合并 API Key（不提交 Git） */
     private static void mergeSecretKeys(Path fileDir, Config config) {
+        System.err.println("[CONFIG] Searching secret.yaml: fileDir=" + fileDir
+                + " cwd=" + Paths.get("").toAbsolutePath()
+                + " user.home=" + System.getProperty("user.home"));
+
         // 1. 文件模式：config.yaml 所在目录下的 secret.yaml
         if (fileDir != null) {
             Path f = fileDir.resolve("secret.yaml");
+            System.err.println("  check[1] " + f + " -> " + Files.exists(f));
             if (Files.exists(f)) { mergeFromFile(f, config); return; }
         }
 
@@ -256,22 +261,35 @@ public class ConfigLoader {
         for (String sub : new String[]{"secret.yaml", "config/secret.yaml",
                 "src/main/resources/config/secret.yaml"}) {
             Path f = cwd.resolve(sub);
+            System.err.println("  check[2] " + f + " -> " + Files.exists(f));
             if (Files.exists(f)) { mergeFromFile(f, config); return; }
         }
 
         // 3. 用户主目录 ~/.nanobot/secret.yaml（全局兜底，不受 cwd 影响）
         Path globalSecret = Paths.get(System.getProperty("user.home", "."), ".nanobot", "secret.yaml");
+        logger.info("  check[3] {} -> {}", globalSecret, Files.exists(globalSecret));
         if (Files.exists(globalSecret)) { mergeFromFile(globalSecret, config); return; }
 
-        // 4. classpath 中的 config/secret.yaml
+        // 4. 项目根目录向上查找（从 cwd 向上翻，兼容 IDEA 多级工作目录）
+        Path probe = cwd;
+        while (probe != null && probe.getNameCount() > 0) {
+            Path f = probe.resolve("secret.yaml");
+            logger.info("  check[4] {} -> {}", f, Files.exists(f));
+            if (Files.exists(f)) { mergeFromFile(f, config); return; }
+            probe = probe.getParent();
+        }
+
+        // 5. classpath 中的 config/secret.yaml
         try (InputStream is = ConfigLoader.class.getClassLoader()
                 .getResourceAsStream("config/secret.yaml")) {
             if (is != null) {
                 Config secret = load(is);
                 applySecretKeys(secret, config);
-                logger.debug("Merged API keys from classpath:config/secret.yaml");
+                logger.info("  check[5] classpath:config/secret.yaml -> found");
+                return;
             }
         } catch (IOException ignored) {}
+        logger.warn("  No secret.yaml found in any location!");
     }
 
     private static void mergeFromFile(Path file, Config config) {
