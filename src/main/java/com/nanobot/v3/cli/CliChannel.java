@@ -311,11 +311,6 @@ public class CliChannel {
             System.out.flush();
             synchronized (scanner) { if (!scanner.hasNextLine()) break; }
             String line = readLine().trim();
-            // DEBUG: 打印编码信息
-            if (!line.isEmpty()) {
-                System.out.println("[DEBUG] charset=" + java.nio.charset.Charset.defaultCharset().name()
-                        + " line.length=" + line.length() + " line=[" + line + "]");
-            }
             if (line.isEmpty()) continue;
 
             // ── 历史快捷操作 ──
