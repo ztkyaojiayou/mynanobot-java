@@ -301,8 +301,31 @@ tools:
 
 ## 文档
 
-- **[ARCHITECTURE_AND_LEARNING_ROADMAP.md](ARCHITECTURE_AND_LEARNING_ROADMAP.md)** — 完整架构说明 + AI 概念演进 + Claude Code 实战 + 学习路线
-- `docs/` 目录 — 部署文档、StreamResponseCallback 详解等
+| 文档 | 说明 |
+|------|------|
+| `ARCHITECTURE_AND_LEARNING_ROADMAP.md` | 完整架构 + AI 概念演进 + 学习路线 |
+| `docs/deployment.md` | 启动、部署、配置架构 |
+| `docs/features.md` | 权限控制 + CLI 交互模块 |
+| `docs/线上问题总结.md` | 19 个历史 bug 分析 + 修复 |
+| `NANOBOT.md` | 项目编码约定（AI 自动加载） |
+
+### 常见问题
+
+**编译错误 "无效的目标发行版: 17"**
+```bash
+export JAVA_HOME="D:/devSoftWare/jdk17/jdk-17.0.19+10"
+export PATH="$JAVA_HOME/bin:$PATH"
+```
+
+**SSE 流式超时** — Spring MVC 异步超时已配 300s，若仍有问题检查 `application.yml` 中 `spring.mvc.async.request-timeout`。
+
+**CMD 中文输入乱码** — 已修复（`Charset.defaultCharset()` 自动匹配控制台编码）。若仍出现，手动 `chcp 65001` 切 UTF-8 代码页。
+
+### 前端布局（Web 模式）
+
+- 左侧 260px 侧边栏：新聊天 + 历史会话列表 + 清空
+- 右侧主面板：标题栏 + 消息画布 (max-width 768px) + 底部固定输入栏
+- 多行 textarea，Enter 发送 / Shift+Enter 换行
 
 ---
 
