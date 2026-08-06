@@ -265,27 +265,35 @@ public class ConfigLoader {
             if (Files.exists(f)) { mergeFromFile(f, config); return; }
         }
 
-        // 3. 用户主目录 ~/.nanobot/secret.yaml（全局兜底，不受 cwd 影响）
+        // 3. nanobot 工作目录下的 secret.yaml（启动脚本传的 --workspace / nanobot.workspace 系统属性）
+        String ws = System.getProperty("nanobot.workspace");
+        if (ws != null && !ws.isBlank()) {
+            Path wsSecret = Paths.get(ws, "secret.yaml");
+            System.err.println("  check[3] workspace " + wsSecret + " -> " + Files.exists(wsSecret));
+            if (Files.exists(wsSecret)) { mergeFromFile(wsSecret, config); return; }
+        }
+
+        // 4. 用户主目录 ~/.nanobot/secret.yaml（全局兜底，不受 cwd 影响）
         Path globalSecret = Paths.get(System.getProperty("user.home", "."), ".nanobot", "secret.yaml");
-        System.err.println("  check[3] " + globalSecret + " -> " + Files.exists(globalSecret));
+        System.err.println("  check[5] " + globalSecret + " -> " + Files.exists(globalSecret));
         if (Files.exists(globalSecret)) { mergeFromFile(globalSecret, config); return; }
 
-        // 4. 从 cwd 向上遍历目录树，直到根
+        // 5. 从 cwd 向上遍历目录树，直到根
         Path probe = cwd;
         while (probe != null && probe.getNameCount() > 0) {
             Path f = probe.resolve("secret.yaml");
-            System.err.println("  check[4] " + f + " -> " + Files.exists(f));
+            System.err.println("  check[5] " + f + " -> " + Files.exists(f));
             if (Files.exists(f)) { mergeFromFile(f, config); return; }
             probe = probe.getParent();
         }
 
-        // 5. classpath 中的 config/secret.yaml
+        // 6. classpath 中的 config/secret.yaml
         try (InputStream is = ConfigLoader.class.getClassLoader()
                 .getResourceAsStream("config/secret.yaml")) {
             if (is != null) {
                 Config secret = load(is);
                 applySecretKeys(secret, config);
-                System.err.println("  check[5] classpath:config/secret.yaml -> found");
+                System.err.println("  check[6] classpath:config/secret.yaml -> found");
                 return;
             }
         } catch (IOException ignored) {}
