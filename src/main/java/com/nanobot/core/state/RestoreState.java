@@ -32,16 +32,24 @@ public class RestoreState implements AgentState {
             logger.debug("No history found for session: {}", sessionKey);
         }
 
-        // ── 重新生成：删掉上一条 assistant 回复 → LLM 基于原问题重新回答 ──
-        boolean regenerate = ctx.getMessage().getMetadata() != null
-                && Boolean.TRUE.equals(ctx.getMessage().getMetadata().get("_regenerate"));
-        if (regenerate) {
+        // ── 重新生成：删掉指定位置起的所有后续消息 → LLM 基于原问题重新回答 ──
+        Object regenVal = ctx.getMessage().getMetadata() != null
+                ? ctx.getMessage().getMetadata().get("_regenerate") : null;
+        if (regenVal != null) {
             List<Map<String, Object>> msgs = ctx.getMessages();
-            if (!msgs.isEmpty() && "assistant".equals(msgs.get(msgs.size() - 1).get("role"))) {
-                msgs.remove(msgs.size() - 1);
-                logger.info("Regenerate: removed last assistant message (total={})", msgs.size());
+            if (regenVal instanceof Number) {
+                // 指定位置：删除该 bot 消息及之后的所有消息
+                int idx = ((Number) regenVal).intValue();
+                while (msgs.size() > idx) msgs.remove(msgs.size() - 1);
+                logger.info("Regenerate@{}: removed {} messages, kept {}", idx, msgs.size() - idx, msgs.size());
+            } else {
+                // 仅最后一条（向后兼容）
+                if (!msgs.isEmpty() && "assistant".equals(msgs.get(msgs.size() - 1).get("role"))) {
+                    msgs.remove(msgs.size() - 1);
+                    logger.info("Regenerate: removed last assistant (total={})", msgs.size());
+                }
             }
-            // 不追加新用户消息——上一轮的用户消息已在历史中
+            // 不追加新用户消息——原问题已在历史中
         } else {
             String content = ctx.getMessage().getContent();
             if (content != null && !content.isBlank()) {
