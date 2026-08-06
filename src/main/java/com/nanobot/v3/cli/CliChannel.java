@@ -854,7 +854,7 @@ public class CliChannel {
         println(GRAY + "  ┏" + "━".repeat(leftW) + (doubleCol ? "┳" + "━".repeat(28) : "") + "┓" + R);
 
         // ═══ Logo 行 ═══
-        println(padR("  ┃  " + B + CYAN + "⚡ NANO-BOT" + R + GRAY + "  v2.3.0 — AI Programming Agent" + R, leftW, GRAY, doubleCol, D + "🛠  编程搭档" + R));
+        println(padR("  ┃  " + B + CYAN + "NANO-BOT" + R + GRAY + "  v2.3.0 — AI Programming Agent" + R, leftW, GRAY, doubleCol, D + "[ 编程搭档 ]" + R));
 
         // ═══ 分隔 ═══
         println(GRAY + "  ┣" + "━".repeat(leftW) + (doubleCol ? "╋" + "━".repeat(28) : "") + "┫" + R);
@@ -863,7 +863,7 @@ public class CliChannel {
         println(padR("  ┃  " + B + "模型:" + R + " " + BLUE + model + R, leftW, GRAY, doubleCol, B + "/help" + R + GRAY + " 查看命令" + R));
 
         // ═══ 工作目录 ═══
-        println(padR("  ┃  " + GRAY + "📁 " + ws + R, leftW, GRAY, doubleCol, B + "/resume" + R + GRAY + " 恢复会话" + R));
+        println(padR("  ┃  " + GRAY + " ~ " + ws + R, leftW, GRAY, doubleCol, B + "/resume" + R + GRAY + " 恢复会话" + R));
 
         // ═══ 上次会话 ═══
         if (lastSession != null) {
