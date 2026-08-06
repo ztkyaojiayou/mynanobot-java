@@ -154,13 +154,13 @@ public class CliChannel {
         }
         this.appContext = appContext;
 
-        // ── 终端检测：CMD(纯文本) / Windows Terminal(彩色) / Unix(彩色) ──
+        // ── 终端检测：CMD(纯文本) / WT(彩色无JLine) / Unix(彩色+JLine) ──
         boolean isWin = System.getProperty("os.name", "").toLowerCase().contains("win");
         boolean isWinTerm = isWin && System.getenv("WT_SESSION") != null;
 
-        // JLine：CMD 跳过（会报 dumb terminal 警告），WT/Unix 正常初始化
+        // JLine：仅 Unix 初始化（Windows 统一跳过，避免 dumb terminal 警告）
         Terminal t = null;
-        if (!isWin || isWinTerm) {
+        if (!isWin) {
             try {
                 t = TerminalBuilder.builder().build();
             } catch (Exception e) {
@@ -169,13 +169,15 @@ public class CliChannel {
         }
         this.terminal = t;
 
-        // ANSI：CMD 关闭，WT/Unix 启用
+        // ANSI：仅 CMD 关闭，WT/Unix 启用
         if (isWin && !isWinTerm) {
             TerminalStyle.disable();
-            logger.info("CMD 终端，ANSI 颜色已关闭（纯文本模式）");
+            logger.info("CMD 终端，ANSI 已关闭");
+        } else if (isWinTerm) {
+            logger.info("Windows Terminal，ANSI 已启用（无 JLine）");
         } else {
-            logger.info("终端就绪 (wt={}, jline={})，ANSI 颜色已启用",
-                    isWinTerm, t != null ? t.getType() : "null");
+            logger.info("Unix 终端 (jline={})，ANSI 已启用",
+                    t != null ? t.getType() : "null");
         }
 
         // 初始化命令注册中心
@@ -844,7 +846,12 @@ public class CliChannel {
         String model = "deepseek-chat";
         try { var c = NanobotRunner.getConfig(); if (c != null) model = c.getAgents().getDefaults().getModel(); } catch (Exception ignored) {}
         String ws = System.getProperty("nanobot.workspace", System.getProperty("user.dir", "."));
-        if (ws.length() > leftW - 12) ws = "..." + ws.substring(ws.length() - (leftW - 15));
+        if (ws.length() > leftW - 12) {
+            int cut = ws.length() - (leftW - 15);
+            int sep = Math.max(ws.indexOf('\\', cut), ws.indexOf('/', cut));
+            if (sep >= 0 && sep < ws.length() - 1) cut = sep + 1;
+            ws = "..." + ws.substring(cut);
+        }
 
         // 上次会话
         String lastSession = null;
