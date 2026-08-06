@@ -706,13 +706,13 @@
     }
 
     function createStreamEl() {
+        backendMsgIdx++;
+        const idx = backendMsgIdx - 1;
+        userMsgForBot[idx] = lastUserMessage; // 记下触发流式 bot 的用户消息
         const div = document.createElement('div');
         div.className = 'message bot-message';
-        // 内联 font-size 兜底：确保在 CSS 计算完成前不会回退到浏览器默认大字体
-        div.innerHTML = '<div class="avatar">N</div><div class="content"><div class="message-content" style="font-size:16px;line-height:1.8"></div><div class="msg-actions"><button onclick="copyMsg(this)">📋 复制</button><button onclick="regenerateMsg()">🔄 重新生成</button></div></div>';
+        div.innerHTML = '<div class="avatar">N</div><div class="content"><div class="message-content" style="font-size:16px;line-height:1.8"></div><div class="msg-actions"><button onclick="copyMsg(this)">📋 复制</button><button onclick="regenerateMsgAt(' + idx + ')">🔄 重新生成</button></div></div>';
         const contentEl = div.querySelector('.message-content');
-        // 先用 display:none 挂载 → 等第一个 token 到达、填充内容后再显示，
-        // 避免空 DOM + 无样式时浏览器用默认字号渲染瞬间闪现
         div.style.display = 'none';
         document.getElementById('messages').appendChild(div);
         return contentEl;
