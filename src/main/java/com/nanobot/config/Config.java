@@ -185,6 +185,14 @@ public class Config {
         @JsonProperty("toolHintMaxLength")
         private int toolHintMaxLength = 40;
 
+        /** 工具执行超时时间（秒），超时自动重试 */
+        @JsonProperty("toolTimeoutSeconds")
+        private int toolTimeoutSeconds = 90;
+
+        /** 工具执行最大重试次数 */
+        @JsonProperty("maxToolRetries")
+        private int maxToolRetries = 3;
+
         /** 推理努力程度（low/medium/high） */
         @JsonProperty("reasoningEffort")
         private String reasoningEffort = null;

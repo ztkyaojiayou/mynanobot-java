@@ -224,6 +224,12 @@ public class AgentLoop implements AutoCloseable {
         if (hookManager != null) {
             this.runner.setHookManager(hookManager);
         }
+        // 把 AgentDefaults 里的工具级配置注入 runner（修复：此前 maxToolResultChars 等 setter 存在但无人调用，配置链路是断的）
+        Config.AgentDefaults defaults = config.getAgents().getDefaults();
+        this.runner.setMaxToolResultChars(defaults.getMaxToolResultChars());
+        this.runner.setToolHintMaxLength(defaults.getToolHintMaxLength());
+        this.runner.setToolTimeoutSeconds(defaults.getToolTimeoutSeconds());
+        this.runner.setMaxToolRetries(defaults.getMaxToolRetries());
         this.consolidator = null;  // 通过 setConsolidator() 注入
 
         // 初始化 State 处理器 (State 模式)

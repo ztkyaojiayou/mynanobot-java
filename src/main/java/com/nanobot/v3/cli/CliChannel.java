@@ -86,6 +86,9 @@ public class CliChannel {
     /** 交互对话框活跃中（权限确认/ask_user 等），CancelMonitor 暂停读终端 */
     private volatile boolean dialogActive;
 
+    /** 交互对话框（权限确认/ask_user）等待用户输入的总超时（秒）——超时自动拒绝/跳过，防永久假死 */
+    private static final int DIALOG_TIMEOUT_SECONDS = 300;
+
     /** 终端输入锁——CancelMonitor 和交互对话框共用，防抢 System.in */
     private final Object terminalLock = new Object();
 
@@ -149,14 +152,43 @@ public class CliChannel {
     /**
      * 交互对话框专用：从 JLine terminal.reader() 逐字符读 + 回显。
      * 与 CancelMonitor 共用 terminalLock，确保同一时刻只有一个读终端。
+     * <p>
+     * 支持总超时兜底（防"权限确认框无响应 → 永久假死"）：
+     * <ul>
+     *   <li>JLine：reader.read(200) 本身非阻塞，循环内检查 deadline</li>
+     *   <li>CMD/无终端：scanner.nextLine() 无限阻塞无法中断，改用 System.in 轮询</li>
+     * </ul>
+     *
+     * @param timeoutSec 超时秒数，&gt;0 时超时返回 null（调用方按"拒绝/跳过"处理）；&lt;=0 不限制
      */
-    private String readInteractiveLine() {
+    private String readInteractiveLine(int timeoutSec) {
+        long deadline = timeoutSec > 0 ? System.currentTimeMillis() + timeoutSec * 1000L : Long.MAX_VALUE;
         synchronized (terminalLock) {
-            if (terminal == null) return readLine();
+            if (terminal == null) {
+                // CMD/无终端：scanner.nextLine() 无限阻塞无法超时，改用 System.in 轮询
+                java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+                try {
+                    while (System.currentTimeMillis() < deadline) {
+                        if (System.in.available() > 0) {
+                            int ch = System.in.read();
+                            if (ch < 0) break; // EOF
+                            if (ch == '\r' || ch == '\n') break;
+                            buf.write(ch);
+                        } else {
+                            Thread.sleep(50);
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.warn("终端读取失败: {}", e.getMessage());
+                }
+                System.out.println();
+                if (buf.size() == 0) return null; // 无输入（超时或 EOF）
+                return new String(buf.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+            }
             NonBlockingReader reader = terminal.reader();
             StringBuilder sb = new StringBuilder();
             try {
-                while (true) {
+                while (System.currentTimeMillis() < deadline) {
                     int ch = reader.read(200);
                     if (ch < 0) continue;
                     if (ch == '\r' || ch == '\n') break;
@@ -168,6 +200,7 @@ public class CliChannel {
                 logger.warn("终端读取失败: {}", e.getMessage());
             }
             System.out.println();
+            if (sb.length() == 0) return null; // 超时或无输入
             return sb.toString();
         }
     }
@@ -568,7 +601,13 @@ public class CliChannel {
                             + TerminalStyle.CYAN + "[2] 之后都放行 " + TerminalStyle.R
                             + TerminalStyle.RED + "[3] 拒绝 " + TerminalStyle.R);
                     System.out.flush();
-                    String input = readInteractiveLine().trim();
+                    String input = readInteractiveLine(DIALOG_TIMEOUT_SECONDS);
+                    if (input == null) {
+                        // 超时兜底：自动拒绝，避免权限确认框无响应导致整轮卡死
+                        System.out.println("  " + TerminalStyle.warn("等待确认超时（" + DIALOG_TIMEOUT_SECONDS + "s），已自动拒绝。"));
+                        return false;
+                    }
+                    input = input.trim();
                     if ("2".equals(input)) {
                         trusted.set(true);
                         System.out.println("  " + TerminalStyle.success("已信任当前会话，后续不再询问。"));
@@ -597,7 +636,12 @@ public class CliChannel {
                     System.out.println("❓ " + question);
                     System.out.print("> ");
                     System.out.flush();
-                    return readInteractiveLine().trim();
+                    String answer = readInteractiveLine(DIALOG_TIMEOUT_SECONDS);
+                    if (answer == null) {
+                        // 超时兜底：返回占位文本，让 LLM 感知用户未回答，避免空串被当成"已回答"
+                        return "（用户等待超时未回答）";
+                    }
+                    return answer.trim();
                 } finally {
                     endDialog();
                 }

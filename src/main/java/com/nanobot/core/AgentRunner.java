@@ -702,11 +702,16 @@ public class AgentRunner implements AutoCloseable {
 
                 // 执行工具并设置超时
                 CompletableFuture<Object> toolFuture = registry.executeAsync(toolName, params);
-                Object result = toolFuture.get(toolTimeoutSeconds, java.util.concurrent.TimeUnit.SECONDS);
-
-                logger.info("Tool {} executed successfully (attempt {})", toolName, attempts);
-                return result;
-
+                try {
+                    Object result = toolFuture.get(toolTimeoutSeconds, java.util.concurrent.TimeUnit.SECONDS);
+                    logger.info("Tool {} executed successfully (attempt {})", toolName, attempts);
+                    return result;
+                } catch (java.util.concurrent.TimeoutException e) {
+                    // 超时后 cancel 底层任务，防止工具线程继续占用线程池（泄漏）。
+                    // cancel(true) 会中断任务线程；工具内部若响应中断（如 ExecTool waitFor）可立即释放。
+                    toolFuture.cancel(true);
+                    throw e;
+                }
             } catch (java.util.concurrent.TimeoutException e) {
                 lastException = e;
                 logger.warn("Tool {} timeout on attempt {}: {}", toolName, attempts, e.getMessage());
@@ -1055,6 +1060,16 @@ public class AgentRunner implements AutoCloseable {
 
     public void setToolHintMaxLength(int max) {
         this.toolHintMaxLength = max;
+    }
+
+    /** 设置工具执行超时时间（秒） */
+    public void setToolTimeoutSeconds(int seconds) {
+        this.toolTimeoutSeconds = seconds;
+    }
+
+    /** 设置工具执行最大重试次数 */
+    public void setMaxToolRetries(int retries) {
+        this.maxToolRetries = retries;
     }
 
     // ==================== 生命周期 ====================
