@@ -16,13 +16,13 @@ import java.nio.file.Path;
  * **文件格式**：
  * ```markdown
  * ---
- * name: my-nanocode
+ * name: nanocode
  * role: AI 助手
  * version: 1.0.0
  * ---
  * # 我的身份
  * 
- * 我是 my-nanocode，一个强大的 AI 助手。
+ * 我是 nanocode，一个强大的 AI 助手。
  * 
  * ## 我的使命
  * 帮助用户解决问题，提供有价值的信息和建议。
