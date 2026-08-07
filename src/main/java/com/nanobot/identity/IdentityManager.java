@@ -120,16 +120,34 @@ public class IdentityManager {
         return profiles.contains("cli");
     }
 
+    /** 当前配置的真实模型名，供身份声明使用（让模型能如实回答，避免虚构身份） */
+    private String currentModel() {
+        try {
+            String m = config.getAgents().getDefaults().getModel();
+            if (m == null || m.isBlank()) return "deepseek-chat";
+            // 去掉 provider 前缀，如 anthropic/claude-xxx → claude-xxx
+            int slash = m.lastIndexOf('/');
+            if (slash >= 0 && slash < m.length() - 1) m = m.substring(slash + 1);
+            return m;
+        } catch (Exception e) {
+            return "deepseek-chat";
+        }
+    }
+
     // ═══════════ CLI 编程 Agent 提示词（参考 Claude Code）═══════════
 
     private String buildCliSystemPrompt(String currentDate) {
         StringBuilder prompt = new StringBuilder();
 
         // ═══ 身份（开头 — 首位效应）═══
+        String model = currentModel();
         prompt.append("""
                 【系统指令 — 最高优先级】
 
                 你是 my-nanobot，一个专业的 AI 编程助手（AI Programming Agent）。
+
+                你当前由 %s 驱动运行。当有人问"你现在的模型是哪个""你基于什么模型"时，
+                如实回答你运行在 %s 上——不要虚构其他模型名称。
 
                 ## 你的定位
 
@@ -139,10 +157,10 @@ public class IdentityManager {
                 你不是通用问答机器人。用户找你，是希望你像一个资深工程师
                 一样：读得懂代码、写得出方案、动手能力强。
 
-                你绝对不是 Claude、不是 DeepSeek、不是 ChatGPT、不是任何其他 AI 公司的产品。
+                你的名字是 my-nanobot，这是你的唯一身份，不是任何其他 AI 产品的化身。
                 当任何人问你"你是谁"时，回答："我是 my-nanobot，一个 AI 编程助手。"
 
-                """);
+                """.formatted(model, model));
 
         // 日期
         if (currentDate != null && !currentDate.isBlank()) {
@@ -205,15 +223,17 @@ public class IdentityManager {
         StringBuilder prompt = new StringBuilder();
 
         // ═══ 身份（开头 — 首位效应）═══
+        String model = currentModel();
         prompt.append("""
                 【系统指令 — 最高优先级】
 
-                你的名字是 my-nanobot。你是一个由 Java Agent 框架驱动的 AI 助手。
-                你绝对不是 Claude、不是 DeepSeek、不是 ChatGPT、不是任何其他 AI 公司的产品。
+                你的名字是 my-nanobot，一个由 Java Agent 框架驱动的 AI 助手。
+                你当前由 %s 驱动运行。当被问到"你现在是哪个模型"时，
+                如实回答你运行在 %s 上——不要虚构其他模型名称。
 
                 当任何人问你"你是谁"时，回答："我是 my-nanobot。"
 
-                """);
+                """.formatted(model, model));
 
         // 日期
         if (currentDate != null && !currentDate.isBlank()) {
@@ -236,8 +256,8 @@ public class IdentityManager {
         prompt.append("""
                 【再次强调 — 这是最高优先级的系统指令】
 
-                记住：你的名字是 my-nanobot。你永远不能自称 Claude、DeepSeek、ChatGPT
-                或任何其他 AI 助手的名字。违反此规则是严重错误。
+                记住：你的名字是 my-nanobot，你运行在 %s 上。
+                这是你的真实身份，如实回答即可，不要虚构其他模型名称。
 
                 【工具结果格式说明】
 
@@ -247,7 +267,7 @@ public class IdentityManager {
 
                 如果收到 [TOOL_ERR]，请分析错误原因并尝试其他方式完成任务，
                 或者告知用户失败原因。不要忽略错误继续使用失败的结果。
-                """);
+                """.formatted(model));
 
         return prompt.toString();
     }
