@@ -1134,7 +1134,7 @@ public class CliChannel {
         println(GRAY + "  ┏" + "━".repeat(leftW) + (doubleCol ? "┳" + "━".repeat(28) : "") + "┓" + R);
 
         // ═══ Logo 行 ═══
-        println(padR("  ┃  " + B + CYAN + "NANO-BOT" + R + GRAY + "  v2.3.0 — AI Programming Agent" + R, leftW, GRAY, doubleCol, D + "[ 编程搭档 ]" + R));
+        println(padR("  ┃  " + B + CYAN + "NANO-CODE" + R + GRAY + "  v2.3.0 — AI Programming Agent" + R, leftW, GRAY, doubleCol, D + "[ 编程搭档 ]" + R));
 
         // ═══ 分隔 ═══
         println(GRAY + "  ┣" + "━".repeat(leftW) + (doubleCol ? "╋" + "━".repeat(28) : "") + "┫" + R);
@@ -1163,7 +1163,7 @@ public class CliChannel {
         String line = "+" + "-".repeat(bw) + "+";
 
         System.out.println(line);
-        System.out.println(padAscii("|  *** NANO-BOT v2.3.0 ***", bw));
+        System.out.println(padAscii("|  *** NANO-CODE v2.3.0 ***", bw));
         System.out.println(padAscii("|  AI Programming Agent", bw));
         System.out.println(padAscii("|", bw));
 
