@@ -456,8 +456,8 @@ public class ConfigLoader {
      * 应用环境变量覆盖
      * 
      * 环境变量格式：
-     * - NANOBOT_AGENTS__DEFAULTS__MODEL=anthropic/claude-opus-4
-     * - NANOBOT_PROVIDERS__ANTHROPIC__API_KEY=sk-xxx
+     * - NANOCODE_AGENTS__DEFAULTS__MODEL=anthropic/claude-opus-4
+     * - NANOCODE_PROVIDERS__ANTHROPIC__API_KEY=sk-xxx
      * 
      * 使用双下划线（__）表示嵌套结构。
      * 

@@ -72,10 +72,10 @@ class StreamCallbackLifecycleTest {
                 if (onDelta != null) {
                     onDelta.accept("Hello ");
                     onDelta.accept("from ");
-                    onDelta.accept("nanobot");
+                    onDelta.accept("nanocode");
                 }
                 var resp = com.nanocode.providers.LLMResponse.success(
-                        "Hello from nanobot", "stop", null);
+                        "Hello from nanocode", "stop", null);
                 return java.util.concurrent.CompletableFuture.completedFuture(resp);
             }
         };

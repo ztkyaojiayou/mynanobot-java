@@ -1,4 +1,4 @@
-# Nanobot-Java 功能文档
+# NanoCode-Java 功能文档
 
 > 本文档统一维护所有已实现功能的架构、使用方式和配置说明。新增功能请按模板追加到文末。
 
@@ -14,12 +14,12 @@
 ## 1. 权限控制模块
 
 **实现日期**: 2026-07-14
-**参考来源**: Nanobot (HKUDS/nanobot) 为主，Claude Code 为辅
+**参考来源**: NanoCode (HKUDS/nanobot) 为主，Claude Code 为辅
 **状态**: ✅ 已完成
 
 ### 1.1 概述
 
-为 nanobot-java 构建完整的纵深防御（Defense-in-Depth）权限控制体系。所有 Agent 工具调用在 `ToolRegistry.execute()` 中通过统一的检查管道进行安全校验。
+为 nanocode-java 构建完整的纵深防御（Defense-in-Depth）权限控制体系。所有 Agent 工具调用在 `ToolRegistry.execute()` 中通过统一的检查管道进行安全校验。
 
 ### 1.2 架构
 
@@ -44,7 +44,7 @@ PreToolUse Hook → Guards → Rules → Mode → Execute
 ### 1.3 包结构
 
 ```
-com.nanobot.security
+com.nanocode.security
 ├── PermissionMode.java          # 权限模式枚举
 ├── PermissionResult.java        # 检查结果
 ├── PermissionManager.java       # 权限编排器 (Builder模式)
@@ -69,7 +69,7 @@ com.nanobot.security
 
 #### PathGuard — 文件路径守卫
 
-**参考**: Nanobot `_resolve_path()`
+**参考**: NanoCode `_resolve_path()`
 
 统一所有 File Tool 的路径解析，确保不越出工作区。
 
@@ -87,9 +87,9 @@ Path safe = guard.resolvePath("../../../etc/passwd"); // → SecurityException
 
 #### CommandGuard — Shell 命令守卫
 
-**参考**: Nanobot `_guard_command()`
+**参考**: NanoCode `_guard_command()`
 
-**设计要点**: allowPatterns 优先于 denyPatterns（同 Nanobot PR #3594）。
+**设计要点**: allowPatterns 优先于 denyPatterns（同 NanoCode PR #3594）。
 
 ```java
 CommandGuard guard = CommandGuard.withDefaults();
@@ -102,7 +102,7 @@ guard.guard("rm -rf /");      // → SecurityException
 
 #### NetworkGuard — 网络/SSRF 守卫
 
-**参考**: Nanobot `validate_url_target()`
+**参考**: NanoCode `validate_url_target()`
 
 ```java
 NetworkGuard guard = NetworkGuard.withDefaults();
@@ -151,10 +151,10 @@ hooks.register(ctx -> {
 
 ### 1.5 配置参考
 
-所有安全组件通过 `NanobotConfig.java` 以 Spring Bean 方式创建，不可通过外部配置文件覆盖（守卫规则为硬编码，确保安全基线）。权限模式通过 `/mode` CLI 命令实时切换。
+所有安全组件通过 `NanoCodeConfig.java` 以 Spring Bean 方式创建，不可通过外部配置文件覆盖（守卫规则为硬编码，确保安全基线）。权限模式通过 `/mode` CLI 命令实时切换。
 
 ```java
-// NanobotConfig.java — 安全 Bean 创建
+// NanoCodeConfig.java — 安全 Bean 创建
 @Bean public PathGuard pathGuard(Config config) {
     PathGuard guard = new PathGuard(config.getWorkspacePath());
     guard.setRestrictToWorkspace(config.getTools().isRestrictToWorkspace());
@@ -173,15 +173,15 @@ hooks.register(ctx -> {
 
 权限模式通过 `/mode` CLI 命令实时切换，或通过 `PermissionManager.setMode()` 编程切换。
 
-> 注：`application.yml` 中曾有一份 `nanobot.security` 配置块（2026-08 已删除），因为无 Java 代码绑定，为死代码。安全配置的正确入口是 `NanobotConfig.java` 的 Bean 定义。
+> 注：`application.yml` 中曾有一份 `nanocode.security` 配置块（2026-08 已删除），因为无 Java 代码绑定，为死代码。安全配置的正确入口是 `NanoCodeConfig.java` 的 Bean 定义。
 
 ### 1.6 集成点
 
 | 集成点 | 文件 | 说明 |
 |--------|------|------|
 | **唯一切入点** | `ToolRegistry.execute()` | 所有工具调用必经之路，在此注入权限检查 |
-| **Spring Bean** | `NanobotConfig.java` | PathGuard/CommandGuard/NetworkGuard/PermissionManager 的 Bean 创建 |
-| **WebSocket ACL** | `NanobotWebSocketEndpoint.java` | 通道级访问控制检查 |
+| **Spring Bean** | `NanoCodeConfig.java` | PathGuard/CommandGuard/NetworkGuard/PermissionManager 的 Bean 创建 |
+| **WebSocket ACL** | `NanoCodeWebSocketEndpoint.java` | 通道级访问控制检查 |
 | **Config** | `Config.java` | ChannelAclConfig 及安全相关配置类 |
 
 ### 1.7 如何扩展
@@ -189,7 +189,7 @@ hooks.register(ctx -> {
 **添加新的守卫**:
 1. 在 `security/guard/` 下创建新守卫类
 2. 在 `PermissionManager.checkGuards()` 中注册
-3. 在 `NanobotConfig` 中创建 Bean
+3. 在 `NanoCodeConfig` 中创建 Bean
 
 **添加新的权限模式**:
 1. 在 `PermissionMode` 枚举中添加新值
@@ -218,7 +218,7 @@ V3 CLI 模式（类 Claude Code）的终端交互层，包括彩色渲染、命�
 ### 2.2 包结构
 
 ```
-com.nanobot.v3.tui
+com.nanocode.v3.tui
 ├── TerminalStyle.java       # ANSI 颜色常量 + 降级过滤器
 └── MarkdownRenderer.java    # Markdown → ANSI 渲染（标题/粗体/代码高亮）
 ```
@@ -256,7 +256,7 @@ TerminalStyle.warn("注意");    // "! 注意"
 | `/help` | 所有命令 | `HelpCommand` (彩色格式化) |
 | `/history` | 输入历史 | 内置（含 `!!` `!N`） |
 | `/mode` `/plan` | 权限模式 | `ModeCommand` |
-| `/init` | 生成 NANOBOT.md | `InitCommand` |
+| `/init` | 生成 NANOCODE.md | `InitCommand` |
 | `/resume` | 历史会话 | `ResumeCommand` |
 
 ### 2.5 终端适配

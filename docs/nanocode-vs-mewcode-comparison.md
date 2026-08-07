@@ -1,13 +1,13 @@
-# Nanobot-Java vs MewCode-Java 对比分析
+# NanoCode-Java vs MewCode-Java 对比分析
 
-> nanobot-java: 通用 AI Agent 框架，对标港大 nanobot
+> nanocode-java: 通用 AI Agent 框架，对标港大 nanobot
 > mewcode-java: 编程专用 Agent，对标 Claude Code CLI
 
 ---
 
 ## 一、概览
 
-| 维度 | nanobot-java | mewcode-java |
+| 维度 | nanocode-java | mewcode-java |
 |------|:--:|:--:|
 | 定位 | 通用 AI 助手 | 编程助手 (Claude Code 复刻) |
 | 文件数 | 101 | 103 |
@@ -22,24 +22,24 @@
 
 ### 🔧 工具系统
 
-| 功能 | nanobot | mewcode | 说明 |
+| 功能 | nanocode | mewcode | 说明 |
 |------|:--:|:--:|------|
 | 文件读写 | ✅ | ✅ | 双方都有 |
 | Shell 执行 | ✅ exec | ✅ BashTool | |
 | 文件编辑 | ✅ edit_file | ✅ EditFileTool | |
-| Web 搜索 | ✅ | ❌ | nanobot 独有 |
-| Web 抓取 | ✅ | ❌ | nanobot 独有 |
-| 时间获取 | ✅ | ❌ | nanobot 独有 |
+| Web 搜索 | ✅ | ❌ | nanocode 独有 |
+| Web 抓取 | ✅ | ❌ | nanocode 独有 |
+| 时间获取 | ✅ | ❌ | nanocode 独有 |
 | 子 Agent (spawn) | ✅ | ✅ AgentTool | 双方都有 |
 | Worktree 隔离 | ❌ | ✅ EnterWorktreeTool | mewcode 独有 |
 | 退出 Plan 模式 | ❌ | ✅ ExitPlanModeTool | mewcode 独有 |
 | 工具搜索 | ❌ | ✅ ToolSearchTool | mewcode 独有 |
-| @ToolDef 注解注册 | ✅ | ❌ | nanobot 独有 |
-| BuiltinTools | ✅ | ❌ | nanobot 独有 |
+| @ToolDef 注解注册 | ✅ | ❌ | nanocode 独有 |
+| BuiltinTools | ✅ | ❌ | nanocode 独有 |
 
 ### 🛡️ 安全/权限
 
-| 功能 | nanobot | mewcode |
+| 功能 | nanocode | mewcode |
 |------|:--:|:--:|
 | 权限模式 | ✅ 4种(PLAN/DEFAULT/ACCEPT_EDITS/BYPASS) | ✅ 3种 |
 | 路径守卫 | ✅ PathGuard | ❌ |
@@ -52,7 +52,7 @@
 
 ### 🤖 子 Agent/多 Agent
 
-| 功能 | nanobot | mewcode |
+| 功能 | nanocode | mewcode |
 |------|:--:|:--:|
 | 单子Agent spawn | ✅ AgentCoordinator + SimpleSubagent | ✅ AgentTool + SubAgentTaskManager |
 | 多Agent协作 (Team) | ❌ | ✅ TeamManager + Coordinator + Tmux |
@@ -62,7 +62,7 @@
 
 ### 📝 编码专用功能
 
-| 功能 | nanobot | mewcode |
+| 功能 | nanocode | mewcode |
 |------|:--:|:--:|
 | Plan 模式 | ✅ 通过 PermissionMode | ✅ 专用 PlanFile + PlanModePrompt |
 | 内容替换追踪 | ❌ | ✅ ContentReplacementState |
@@ -72,7 +72,7 @@
 
 ### 🎨 用户界面
 
-| 功能 | nanobot | mewcode |
+| 功能 | nanocode | mewcode |
 |------|:--:|:--:|
 | HTTP REST API | ✅ | ❌ |
 | SSE 流式 | ✅ | ❌ |
@@ -83,7 +83,7 @@
 
 ### 🧠 记忆/存储
 
-| 功能 | nanobot | mewcode |
+| 功能 | nanocode | mewcode |
 |------|:--:|:--:|
 | 会话持久化 | ✅ history.jsonl | ✅ FileHistory |
 | 长期记忆 | ✅ MemoryStore + Dream | ✅ HistoryStore |
@@ -92,7 +92,7 @@
 
 ### 🔌 扩展性
 
-| 功能 | nanobot | mewcode |
+| 功能 | nanocode | mewcode |
 |------|:--:|:--:|
 | MCP 协议 | ✅ 完整(8文件) | ✅ 基础(1文件) |
 | Skill 系统 | ✅ | ✅ |
@@ -107,7 +107,7 @@
 
 ### 架构哲学
 
-| 维度 | nanobot | mewcode |
+| 维度 | nanocode | mewcode |
 |------|------|------|
 | **消息模型** | 异步消息总线 (MessageBus + AgentLoop) | 同步直接调用 (Agent.run()) |
 | **状态管理** | 8 状态状态机 (RESTORE→...→DONE) | 循环迭代 (while loop) |
@@ -119,7 +119,7 @@
 ### 核心循环差异
 
 ```
-nanobot:                          mewcode:
+nanocode:                          mewcode:
                                   
 MessageBus.publishInbound()       Agent.run(task)
      │                                 │
@@ -136,7 +136,7 @@ processStates()                    循环: LLM → tool_calls → 执行 → 结
 ### 工具执行差异
 
 ```
-nanobot:                          mewcode:
+nanocode:                          mewcode:
                                   
 ToolRegistry.execute()            ToolRegistry.execute()
   → PermissionManager.check()       → PermissionChecker.check()
@@ -151,7 +151,7 @@ ToolRegistry.execute()            ToolRegistry.execute()
 ## 四、架构对比
 
 ```
-nanobot-java                           mewcode-java
+nanocode-java                           mewcode-java
 ═══════════════                        ═══════════════
 
 ┌──────────────┐                       ┌──────────────┐
@@ -185,7 +185,7 @@ nanobot-java                           mewcode-java
 
 ## 五、总结清单
 
-### mewcode 有而 nanobot 没有
+### mewcode 有而 nanocode 没有
 
 | 功能 | 优先级 | 说明 |
 |------|:--:|------|
@@ -193,11 +193,11 @@ nanobot-java                           mewcode-java
 | Git Worktree 隔离 | 🟡 中 | 编码 Agent 核心需求 |
 | Plan 模式专用实现 | 🟡 中 | PlanFile + PlanModePrompt |
 | Teams 多Agent协作 | 🟡 中 | FileMailBox + Tmux + Coordinator |
-| 子Agent 权限过滤 (ToolFilter) | 🟢 低 | nanobot 说了暂不需要 |
+| 子Agent 权限过滤 (ToolFilter) | 🟢 低 | nanocode 说了暂不需要 |
 | ContentReplacementState | 🟢 低 | 编码场景的结构化编辑追踪 |
 | ToolResultBudget | 🟢 低 | 工具结果 token 预算 |
 
-### nanobot 有而 mewcode 没有
+### nanocode 有而 mewcode 没有
 
 | 功能 | 说明 |
 |------|------|
@@ -212,7 +212,7 @@ nanobot-java                           mewcode-java
 
 ### 双方都值得向对方学习
 
-| nanobot → mewcode | mewcode → nanobot |
+| nanocode → mewcode | mewcode → nanocode |
 |------|------|
 | 安全模块 (Guards + Rules) | TUI 终端界面 |
 | @ToolDef 注解扫描 | Git Worktree 隔离 |

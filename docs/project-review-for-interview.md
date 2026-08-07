@@ -1,6 +1,6 @@
 # 项目总结文档
 
-> **项目定位**：从零自研的 Java 版 AI Agent 运行时基础设施（非 LangChain 套壳，无 SpringAI 框架），参考港大 Nanobot 架构
+> **项目定位**：从零自研的 Java 版 AI Agent 运行时基础设施（非 LangChain 套壳，无 SpringAI 框架），参考港大 NanoCode 架构
 > 并融合 Claude Code 设计理念。129 源文件，~27,000 行 Java 代码，通过 claude code + deepseek + vibe-coding 1 人独立完成。
 
 ---
@@ -93,7 +93,7 @@ RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE
 | **Builder 模式** | 复杂对象构建 | InboundMessage.builder() / OutboundMessage.builder() |
 | **门面模式** | LLM 多 Provider 适配 | `LLMProvider` 接口统一 DeepSeek/OpenAI |
 | **适配器模式** | MCP 工具包装 | `MCPToolWrapper` 将 MCP 协议适配为 Tool 接口 |
-| **单例/多例** | Spring Bean 管理组件生命周期 | `AgentLoopConfig` + `MessageBusConfig` + `NanobotConfig` |
+| **单例/多例** | Spring Bean 管理组件生命周期 | `AgentLoopConfig` + `MessageBusConfig` + `NanoCodeConfig` |
 | **模板方法模式** | 工具执行前后处理 | `ToolRegistry.execute()` 统一参数校验+权限+结果包装 |
 | **注册表模式** | 工具发现与注册 | `ToolRegistry` 注册/查找/执行 |
 
@@ -108,7 +108,7 @@ RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE
 
 | 工程维度 | 核心产出 | 价值 |
 |------|------|------|
-| 提示词工程 | 条件注入、首位+近因效应、NANOBOT.md、Skills 渐进式加载 | 证明理解 LLM 行为，不是写死 prompt |
+| 提示词工程 | 条件注入、首位+近因效应、NANOCODE.md、Skills 渐进式加载 | 证明理解 LLM 行为，不是写死 prompt |
 | 上下文工程 | 8 状态机、三层记忆、token 预算管理、自动压缩 | 证明理解 LLM 局限，有工程化方案 |
 | Harness 工程 | 异步消息总线、Fan-Out Pub-Sub、Hook/Guard/Rule/Mode 管道、并发工具执行 | 证明有系统设计能力，不是脚本级代码 |
 
@@ -172,7 +172,7 @@ AgentLoop-worker 线程（4 线程池）
 
 ```
 RESTORE → SessionManager.loadHistory()
-  从 .nanobot/sessions/{key}/history.jsonl 恢复历史，首次对话返回空
+  从 .nanocode/sessions/{key}/history.jsonl 恢复历史，首次对话返回空
 
 COMPACT → Consolidator.consolidate()
   token > contextWindowTokens × 90%? → LLM 总结 → system 替换 : 跳过
@@ -184,7 +184,7 @@ BUILD → BuildState.execute()      ★ 构建 System Prompt
   8 来源按序拼接：
     ① 身份+日期（首位效应）   ② SOUL+IDENTITY+USER
     ③ 联网搜索开关（条件注入） ④ Dream 长期记忆检索（关键词匹配 top 5）
-    ⑤ NANOBOT.md 项目记忆     ⑥ Skills 技能目录（渐进式加载第一层，~50 token）
+    ⑤ NANOCODE.md 项目记忆     ⑥ Skills 技能目录（渐进式加载第一层，~50 token）
     ⑦ Rules 规则注入           ⑧ 工具格式说明（近因效应）
   插入到 messages[0] 作为 system 消息
 
@@ -289,25 +289,25 @@ RespondState
 
 > 面试常见追问："你这个和 Claude Code 有什么区别？"
 
-| 维度 | Claude Code | Nanobot-Java | 对比分析 |
+| 维度 | Claude Code | NanoCode-Java | 对比分析 |
 |------|-------------|-------------|---------|
-| **消息模型** | 单会话单进程，用户输入 → 同步处理 → 输出 | 异步消息总线，多通道共享 AgentLoop | Claude Code 是单用户 CLI 工具，不需要消息队列；Nanobot 作为服务需要多通道并发 |
-| **流式输出** | 直接 stdout（单个消费者） | Fan-Out Pub-Sub（outboundQueue → Dispatcher 扇出 → SSE/CLI/WS 三通道） | Claude Code 一个终端就够；Nanobot 需要考虑多通道零拷贝分发 |
-| **工具注册** | 内置工具集（Bash/Read/Write/Edit/Glob/Grep/WebFetch/WebSearch/Task/Agent 等） | 18+ Tool 接口 + @ToolDef 注解扫描 + MCP 外部工具 | 接口设计相似，Nanobot 多了注解自动注册和 MCP 协议 |
-| **权限模型** | allow/deny 规则（allow 可被 deny 覆盖）+ permissionMode（default/acceptEdits/bypass/plan） | Hook → Guard×3 → RuleEngine → PermissionMode 四步管道 | Claude Code 更简洁（产品化），Nanobot 更多层（展示设计能力）。分层边界清晰，向外展示"如何设计可扩展安全模型" |
+| **消息模型** | 单会话单进程，用户输入 → 同步处理 → 输出 | 异步消息总线，多通道共享 AgentLoop | Claude Code 是单用户 CLI 工具，不需要消息队列；NanoCode 作为服务需要多通道并发 |
+| **流式输出** | 直接 stdout（单个消费者） | Fan-Out Pub-Sub（outboundQueue → Dispatcher 扇出 → SSE/CLI/WS 三通道） | Claude Code 一个终端就够；NanoCode 需要考虑多通道零拷贝分发 |
+| **工具注册** | 内置工具集（Bash/Read/Write/Edit/Glob/Grep/WebFetch/WebSearch/Task/Agent 等） | 18+ Tool 接口 + @ToolDef 注解扫描 + MCP 外部工具 | 接口设计相似，NanoCode 多了注解自动注册和 MCP 协议 |
+| **权限模型** | allow/deny 规则（allow 可被 deny 覆盖）+ permissionMode（default/acceptEdits/bypass/plan） | Hook → Guard×3 → RuleEngine → PermissionMode 四步管道 | Claude Code 更简洁（产品化），NanoCode 更多层（展示设计能力）。分层边界清晰，向外展示"如何设计可扩展安全模型" |
 | **Skills 加载** | 渐进式：System Prompt 注入目录 → LLM 决定 → 调 use_skill 工具 → 返回 SKILL.md 全文 | 完全对齐：BuildState 注入目录 + UseSkillTool 返回全文 | 100% 对齐，包括内置命令优先级 > 技能匹配 |
-| **Rules 机制** | YAML frontmatter + markdown 内容，System Prompt 每轮注入 | 同：.nanobot/rules/*.md 文件加载，BuildState 每轮注入 | 格式相同，但 Nanobot 支持项目级/用户级/内置三层优先级 |
-| **记忆系统** | CLAUDE.md 项目记忆 + 长期记忆（自动提取） | NANOBOT.md + Dream 全自动闭环（提取→节流→JSON解析→持久化→检索注入） | 理念一致，Nanobot 多了增量节流和 /remember 手动触发 |
-| **System Prompt** | Identity + CLAUDE.md + Rules + Skills catalog + Plan mode | 8 步流水线：身份+日期+SOUL+搜索+记忆+NANOBOT.md+技能目录+Rules+工具格式 | Nanobot 更显式（便于面试展示），Claude Code 更内聚 |
-| **子 Agent** | Task 工具 + 异步委派 | SpawnTool + AgentCoordinator（4 分配策略）+ inbox 文件通信 | 相似，Nanobot 多了策略模式和 inbox 异步 |
+| **Rules 机制** | YAML frontmatter + markdown 内容，System Prompt 每轮注入 | 同：.nanocode/rules/*.md 文件加载，BuildState 每轮注入 | 格式相同，但 NanoCode 支持项目级/用户级/内置三层优先级 |
+| **记忆系统** | CLAUDE.md 项目记忆 + 长期记忆（自动提取） | NANOCODE.md + Dream 全自动闭环（提取→节流→JSON解析→持久化→检索注入） | 理念一致，NanoCode 多了增量节流和 /remember 手动触发 |
+| **System Prompt** | Identity + CLAUDE.md + Rules + Skills catalog + Plan mode | 8 步流水线：身份+日期+SOUL+搜索+记忆+NANOCODE.md+技能目录+Rules+工具格式 | NanoCode 更显式（便于面试展示），Claude Code 更内聚 |
+| **子 Agent** | Task 工具 + 异步委派 | SpawnTool + AgentCoordinator（4 分配策略）+ inbox 文件通信 | 相似，NanoCode 多了策略模式和 inbox 异步 |
 | **上下文压缩** | /compact 命令 + 自动压缩 | Consolidator 自动触发（>90% budget）+ /compact 手动 | 几乎一样 |
 | **配置管理** | JSON/YAML 配置 + 环境变量 | ConfigLoader 合并 config.yaml + secret.yaml | 思路相同 |
-| **启动方式** | CLI 单进程 | V1 纯 Java / V2 Spring Boot Web / V3 Spring CLI 三种 | Nanobot 多了服务化能力 |
-| **权限确认** | 交互式 ask-user 弹窗 | CLI [1/2/3] 交互确认 + InteractiveHandler 接口 | Nanobot 更灵活（可注入不同交互实现） |
+| **启动方式** | CLI 单进程 | V1 纯 Java / V2 Spring Boot Web / V3 Spring CLI 三种 | NanoCode 多了服务化能力 |
+| **权限确认** | 交互式 ask-user 弹窗 | CLI [1/2/3] 交互确认 + InteractiveHandler 接口 | NanoCode 更灵活（可注入不同交互实现） |
 
 **关键差异总结**：
 - Claude Code 是**产品**（单用户 CLI），优化到极致简洁
-- Nanobot 是**基础设施**（多用户服务），展示架构设计广度
+- NanoCode 是**基础设施**（多用户服务），展示架构设计广度
 
 面试时可以这样表述："我参考了 Claude Code 的设计理念——Skills 渐进式加载、Rules 约束、权限确认——但作为 Java 服务化实现，我额外解决了多通道并发（Fan-Out Pub-Sub）、多版本架构（V1/V2/V3）、MCP 协议集成等 Claude Code 作为 CLI 产品不需要考虑的问题。这不是复制，是**理解和重构**。"
 
@@ -325,13 +325,13 @@ RespondState
 1. **Spring MVC 30s 超时截断**：Spring Boot 默认 `spring.mvc.async.request-timeout=30000`。SSE 长连接超过 30 秒被 Spring 自动关闭，前端 EventSource 不报错静默断连
 2. **僵尸 subscriberQueue 泄漏**：连接断开时 `onTimeout` 没调用 `unsubscribeFromOutbound()`，死 subscriberQueue 残留在 CopyOnWriteArrayList 中。Dispatcher 继续往里面塞消息，新请求的 subscriberQueue 被淹没
 3. **AgentLoop 单线程阻塞**：主循环是单 daemon 线程，`processMessage()` 同步等待 LLM 响应（5-30 秒）。这段时间内新消息堆积在 inboundQueue，消费延迟 = 排队消息数 × LLM 响应时间
-4. **双 AgentLoop 竞争消费**：这是最隐蔽的。NanobotConfig（Spring @Bean）和 NanobotRunner（ApplicationRunner.run()）各自独立创建了 AgentLoop 实例，两个实例共享同一个 MessageBus。AgentLoop A 处理了 SSE 的请求，但响应被 AgentLoop B 的 callback 匹配走——两个实例竞争消费同一队列，响应路由错乱
+4. **双 AgentLoop 竞争消费**：这是最隐蔽的。NanoCodeConfig（Spring @Bean）和 NanoCodeRunner（ApplicationRunner.run()）各自独立创建了 AgentLoop 实例，两个实例共享同一个 MessageBus。AgentLoop A 处理了 SSE 的请求，但响应被 AgentLoop B 的 callback 匹配走——两个实例竞争消费同一队列，响应路由错乱
 
 **方案**（5 项改动，逐层解决）：
 - `spring.mvc.async.request-timeout=300000`（5 分钟）→ 覆盖最长 LLM 调用窗口
 - `onTimeout`/`onCompletion`/`onError` 全部调用 `unsubscribeFromOutbound()` → 三路兜底防泄漏
 - 引入 `messageExecutor` 4 线程池 → `processMessage()` 异步提交，主循环只负责 `consumeInbound()` + `submit()`，恢复时间 < 1s
-- 消除 NanobotRunner 中的重复初始化 → 所有组件由 NanobotConfig 统一 `@Bean` 创建，`@Autowired` 注入，全应用唯一实例
+- 消除 NanoCodeRunner 中的重复初始化 → 所有组件由 NanoCodeConfig 统一 `@Bean` 创建，`@Autowired` 注入，全应用唯一实例
 - Fan-Out Pub-Sub 替代 callback 模式 → AgentLoop 零耦合消费者，彻底消灭响应路由错乱
 
 **面试价值**：这不是一个"改了某个配置就好了"的简单 bug，而是需要从现象逐层剥离直到找到根因的系统级问题。4 层根因分布在 Spring 框架配置、资源生命周期管理、线程模型设计、Bean 创建策略四个不同维度，体现了跨层次的系统诊断能力。
@@ -416,8 +416,8 @@ PreToolUse Hook → Guards(PathGuard/CommandGuard/NetworkGuard) → RuleEngine(d
 **背景**：CLI 交互式对话要求控制台只显示对话内容和 `>` 提示符，零条日志。这不是"把日志级别调成 WARN"那么简单。
 
 **难点**：系统有三重日志配置源，优先级互相覆盖：
-- `logback.xml`：硬编码 `<logger name="com.nanobot" level="DEBUG"/>`
-- `application.yml`：`logging.level.com.nanobot: DEBUG`
+- `logback.xml`：硬编码 `<logger name="com.nanocode" level="DEBUG"/>`
+- `application.yml`：`logging.level.com.nanocode: DEBUG`
 - Spring Boot `LoggingSystem`：在 ApplicationReadyEvent 时重新应用配置
 
 **6 次失败**：
@@ -432,7 +432,7 @@ PreToolUse Hook → Guards(PathGuard/CommandGuard/NetworkGuard) → RuleEngine(d
 
 ### 难点 6：DeepSeek 模型的身份偏差 —— 首位+近因效应对抗
 
-**背景**：DeepSeek-chat 模型训练数据中被标注为 "Claude by Anthropic"。即使系统提示词明确写"你是 my-nanobot"，模型仍回答"我是 Claude"。这不是 prompt 写错了，是训练数据中的偏差——参数中存储的 Claude 身份关联比系统提示词更强。
+**背景**：DeepSeek-chat 模型训练数据中被标注为 "Claude by Anthropic"。即使系统提示词明确写"你是 my-nanocode"，模型仍回答"我是 Claude"。这不是 prompt 写错了，是训练数据中的偏差——参数中存储的 Claude 身份关联比系统提示词更强。
 
 **难点**：这是一个 LLM 心理模型问题，不是代码问题。需要理解注意力机制——模型对 prompt 不同位置的注意力权重不同（早期 token 和最近 token 权重最高）。
 
@@ -476,12 +476,12 @@ implements Tool 模式（复杂工具）：
 
 **背景**：项目需要同时支持三种启动方式——纯 Java（无 Spring）、Spring Boot Web 服务、Spring Boot CLI。三者的依赖和配置完全不同，但核心代码不能重复。
 
-**难点**：Spring 的 `@SpringBootApplication` 默认扫描同包及子包的所有 `@Configuration`。如果 V2 和 V3 的配置互相可见，V2 启动 Web 服务器时会误创建 CLI 的 Bean，V3 启动 CLI 时会误启动 Tomcat。同时 `NanobotRunner` 要被 V2 和 V1 共享，但 V3 不能重复创建 AgentLoop。
+**难点**：Spring 的 `@SpringBootApplication` 默认扫描同包及子包的所有 `@Configuration`。如果 V2 和 V3 的配置互相可见，V2 启动 Web 服务器时会误创建 CLI 的 Bean，V3 启动 CLI 时会误启动 Tomcat。同时 `NanoCodeRunner` 要被 V2 和 V1 共享，但 V3 不能重复创建 AgentLoop。
 
 **方案**：包隔离 + Profile + 条件配置：
 - `v1/` `v2/` `v3/` 各自独立包，公共模块在父包
 - V3 用 `@Profile("cli")` 隔离，`spring.main.web-application-type=none` 禁止 Web 服务器
-- V2 的 `AgentLoopConfig`/`MessageBusConfig`/`NanobotConfig` 三配置类独立，各自管理自己的 Bean
+- V2 的 `AgentLoopConfig`/`MessageBusConfig`/`NanoCodeConfig` 三配置类独立，各自管理自己的 Bean
 - V1 完全不依赖 Spring，自建 HTTP 服务器 + 手动组装组件
 
 **成果**：三版本 16 个文件（5+8+3），核心 100+ 文件零版本耦合。加第四个版本（如 Discord Bot）只需新建包 + 引用核心模块。
@@ -619,7 +619,7 @@ implements Tool 模式（复杂工具）：
 | 会话持久化 | history.jsonl，JSONL 格式，按 sessionKey 隔离 |
 | Token 压缩 | Consolidator 自动触发 + `/compact` 手动触发 |
 | 长期记忆 | Dream 自动提取(5000字符节流) + `/remember` 手动触发 |
-| NANOBOT.md | `/init` 生成，BuildState 自动注入 system prompt |
+| NANOCODE.md | `/init` 生成，BuildState 自动注入 system prompt |
 | 技能目录注入 | BuildState 注入名称+描述（渐进式加载第一层） |
 | maxTurns/maxCost | 预算控制，超限自动停止 |
 
@@ -633,7 +633,7 @@ implements Tool 模式（复杂工具）：
 开发者只需配置 prompt + 调 API 即可获得回复——但无法理解 Agent 内部机制，
 也无法对 LLM 运行时有更深度的理解。
 
-于是决定使用 Java 从零实现一个生产级 Agent 运行时基础设施，参考港大开源项目 Nanobot 的核心架构
+于是决定使用 Java 从零实现一个生产级 Agent 运行时基础设施，参考港大开源项目 NanoCode 的核心架构
 （消息总线 + 状态机 + 工具系统），并融合 Claude Code 的安全模型和编程工具设计。
 
 ### T — Task（任务）
@@ -663,17 +663,17 @@ implements Tool 模式（复杂工具）：
 
 **代码重构与架构优化**：
 
-- 消除 NanobotConfig 与 NanobotRunner 的组件重复初始化（Config/LLMProvider/Dream/IdentityManager 各创建两次）
+- 消除 NanoCodeConfig 与 NanoCodeRunner 的组件重复初始化（Config/LLMProvider/Dream/IdentityManager 各创建两次）
 - AgentLoop 提取为独立配置类 `AgentLoopConfig`，与 `MessageBusConfig` 对齐
 - ProviderFactory/ToolScanner/HookLoader 消除不必要实例化，改为纯静态工具类
-- NanobotConfig.llmProvider() 改用 ProviderFactory 策略匹配，替代硬编码 DeepSeekProvider
+- NanoCodeConfig.llmProvider() 改用 ProviderFactory 策略匹配，替代硬编码 DeepSeekProvider
 - StreamResponseCallback 全面迁移到 Fan-Out Pub-Sub，AgentLoop 零耦合消费者
 - `/clear` 命令实现全通道事件通知（SSE/CLI/WS 同步清空）
 - sessionResponses 过期清理 daemon 线程，防止断连客户端内存泄漏
 
 **踩坑与修复**：
 
-- 双 AgentLoop 竞争消费问题 → NanobotConfig 统一 `@Bean` 创建
+- 双 AgentLoop 竞争消费问题 → NanoCodeConfig 统一 `@Bean` 创建
 - SSE 连接被 Spring MVC 30s 超时截断 → 配置 300s
 - AgentLoop 单线程阻塞 → 4 线程池异步消息处理
 - 日志配置被 YAML 和 logback.xml 多重覆盖 → `--logging.config` 从源头替换
@@ -765,7 +765,7 @@ implements Tool 模式（复杂工具）：
 ❷ SOUL + IDENTITY + USER 身份详情
 ❸ 联网搜索模式指令（条件注入：useSearch=false → 禁用 web_search）
 ❹ 长期记忆检索注入（Dream.retrieve(query, 5) → 关键词匹配+重要性排序）
-❺ NANOBOT.md 项目上下文 ★ 对标 CLAUDE.md
+❺ NANOCODE.md 项目上下文 ★ 对标 CLAUDE.md
 ❻ Skills 技能目录 ★ 渐进式加载第一层（仅名称+描述，~50 token）
 ❼ Rules 规则注入（RuleManager.getRulesPrompt()）
 ❽ 工具结果格式说明（近因效应）— [TOOL_OK]/[TOOL_ERR]
@@ -790,7 +790,7 @@ implements Tool 模式（复杂工具）：
 第一层: 短期记忆 — history.jsonl → RestoreState 加载 → messages[]
 第二层: 中期压缩 — Consolidator，token>90%budget → LLM 总结 → system 替换
 第三层: 长期记忆 — Dream 全自动闭环：提取→节流(5000字符)→JSON解析→MEMORY.md→检索注入
-              + NANOBOT.md 项目记忆 + TaskStore 任务追踪 + /compact + /remember 手动触发
+              + NANOCODE.md 项目记忆 + TaskStore 任务追踪 + /compact + /remember 手动触发
 ```
 
 ### 6.3 Harness 工程（Runtime Infrastructure）
@@ -828,7 +828,7 @@ DeepSeek SSE → onDelta.accept(delta)
 | 子 Agent | SpawnTool → AgentCoordinator | 4 种分配策略，同步+异步(inbox) |
 | 任务追踪 | TaskCreate/List/Update → TaskStore | JSON 文件持久化 |
 | MCP 协议 | MCPManager → StdioMCPClient/HttpMCPClient | stdio/sse/streamableHttp |
-| 技能系统 | SkillManager + use_skill 元工具 | .nanobot/skills/ 目录加载 + 渐进式激活 |
+| 技能系统 | SkillManager + use_skill 元工具 | .nanocode/skills/ 目录加载 + 渐进式激活 |
 | @ToolDef 注解 | ToolScanner 类路径扫描 | 方法级注解自动注册 |
 | LLM 多后端 | LLMProvider 接口 + ProviderFactory | DeepSeek + OpenAI 统一适配 |
 | Channel 适配 | MessageBus Fan-Out Pub-Sub | HTTP/SSE/WS/CLI 零重复代码 |
@@ -843,7 +843,7 @@ DeepSeek SSE → onDelta.accept(delta)
               │  System Prompt 8 步组装流水线            │
               │  首位+近因效应 → 对抗训练偏差             │
               │  Skills 渐进式加载（对标 Claude Code）    │
-              │  NANOBOT.md + Dream 记忆自动注入          │
+              │  NANOCODE.md + Dream 记忆自动注入          │
               └──────────────────┬──────────────────────┘
                                  │
               ┌──────────────────▼──────────────────────┐
@@ -1266,7 +1266,7 @@ CLI 终端                      HTTP API                     JVM 运行时
 
 ### 11.1 超时分层 —— 每层都有兜底，没有"无限等待"
 
-Agent 运行是多环节流水线：`用户输入 → LLM 请求 → 工具调用 → 流式返回`。任何一环无限阻塞都会卡死整轮对话。nanobot 采用**分层超时**：
+Agent 运行是多环节流水线：`用户输入 → LLM 请求 → 工具调用 → 流式返回`。任何一环无限阻塞都会卡死整轮对话。nanocode 采用**分层超时**：
 
 | 层级 | 位置 | 超时 | 说明 |
 |------|------|------|------|
@@ -1339,7 +1339,7 @@ private String readInteractiveLine(int timeoutSec) {
 
 ### 11.4 输入并发安全 —— 防止"两方读同一流"崩溃
 
-CLI 同时存在多条输入路径，nanobot 用**锁 + 标志位**保证不互相踩踏：
+CLI 同时存在多条输入路径，nanocode 用**锁 + 标志位**保证不互相踩踏：
 
 | 组件 | 职责 | 保护机制 |
 |------|------|----------|
@@ -1356,7 +1356,7 @@ CLI 同时存在多条输入路径，nanobot 用**锁 + 标志位**保证不互�
 
 ### 11.5 配置链路 —— 兜底要"接得上"
 
-稳定性设计必须真实生效。nanobot 曾有**配置断链**：`AgentRunner.setMaxToolResultChars()` 等 setter 存在但无人调用，配置里改了值不生效。
+稳定性设计必须真实生效。nanocode 曾有**配置断链**：`AgentRunner.setMaxToolResultChars()` 等 setter 存在但无人调用，配置里改了值不生效。
 
 修复：`AgentLoop` 构造 runner 后统一注入四个工具级配置：
 

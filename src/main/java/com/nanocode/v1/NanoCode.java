@@ -77,22 +77,22 @@ public class NanoCode {
         // 打印启动 Banner
         printBanner();
         
-        NanoCode nanobot = new NanoCode();
+        NanoCode nanocode = new NanoCode();
         
         try {
             // 解析命令行参数
             String configPath = parseArgs(args);
             
             // 初始化
-            nanobot.initialize(configPath);
+            nanocode.initialize(configPath);
             
             // 启动
-            nanobot.start();
+            nanocode.start();
             
             // 注册关闭钩子
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 logger.info("Shutting down...");
-                nanobot.stop();
+                nanocode.stop();
             }));
             
             // 主线程等待

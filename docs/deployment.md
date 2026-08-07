@@ -1,4 +1,4 @@
-# Nanobot 启动与部署
+# NanoCode 启动与部署
 
 ---
 
@@ -31,13 +31,13 @@ set PATH=D:\IdeaProjects\个人项目\ai-vibe-coding\nanobot-java\scripts;%PATH%
 ```bash
 # 在任意目录直接对话
 cd /my-project
-nanobot
+nanocode
 
 # 指定工作区
-nanobot -w /another-project
+nanocode -w /another-project
 
 # 恢复历史会话
-nanobot --resume cli_1784097347013
+nanocode --resume cli_1784097347013
 ```
 
 **CLI 命令**：
@@ -51,7 +51,7 @@ nanobot --resume cli_1784097347013
 | `!!` | 重复上一条命令 |
 | `!N` | 重复第 N 条历史命令 |
 | `/mode plan\|default\|accept_edits\|bypass` | 切换权限模式 |
-| `/init` | 分析项目生成 NANOBOT.md |
+| `/init` | 分析项目生成 NANOCODE.md |
 | `/resume` | 列出/恢复历史会话 |
 
 **终端支持**：
@@ -87,12 +87,12 @@ Web 端为通用 AI 助手身份，CLI 端为编程 Agent 身份。系统提示�
 bash scripts/build-dist.sh
 ```
 
-生成 `dist/nanobot/`：
+生成 `dist/nanocode/`：
 
 ```
-dist/nanobot/
-├── nanobot.jar     25MB  (fat JAR，自包含所有依赖)
-├── nanobot.bat          (Windows CMD 启动)
+dist/nanocode/
+├── nanocode.jar     25MB  (fat JAR，自包含所有依赖)
+├── nanocode.bat          (Windows CMD 启动)
 ├── nanobot              (Linux/Mac/Git Bash 启动)
 ├── config.yaml          配置模板（API Key 为空）
 └── README.txt           使用说明
@@ -110,20 +110,20 @@ dist/nanobot/
    set DEEPSEEK_API_KEY=sk-your-key-here
    
    # 方式二：全局配置文件
-   mkdir %USERPROFILE%\.nanobot
-   echo providers: > %USERPROFILE%\.nanobot\secret.yaml
-   echo   deepseek: >> %USERPROFILE%\.nanobot\secret.yaml
-   echo     apiKey: "sk-your-key-here" >> %USERPROFILE%\.nanobot\secret.yaml
+   mkdir %USERPROFILE%\.nanocode
+   echo providers: > %USERPROFILE%\.nanocode\secret.yaml
+   echo   deepseek: >> %USERPROFILE%\.nanocode\secret.yaml
+   echo     apiKey: "sk-your-key-here" >> %USERPROFILE%\.nanocode\secret.yaml
    
    # 方式三：项目本地配置
-   # 在 dist/nanobot/config.yaml 中填 apiKey
+   # 在 dist/nanocode/config.yaml 中填 apiKey
    ```
 
 3. **加 PATH**，把 `nanobot/` 目录加入系统 PATH
 
 ```bash
 cd /any-project
-nanobot
+nanocode
 ```
 
 ---
@@ -132,8 +132,8 @@ nanobot
 
 ```bash
 # CLI 模式（无端口，无限制）
-nanobot              # 当前目录
-nanobot -w /proj-a   # 指定目录
+nanocode              # 当前目录
+nanocode -w /proj-a   # 指定目录
 
 # Web 模式（需不同端口）
 ./scripts/start.sh --port 8080
@@ -151,8 +151,8 @@ nanobot -w /proj-a   # 指定目录
 ```
 高  CLI 参数 (--workspace, --model)
 ↑   环境变量 (DEEPSEEK_API_KEY)
-↑   workspace/.nanobot/        ← 项目专属
-↑   ~/.nanobot/                ← 用户全局
+↑   workspace/.nanocode/        ← 项目专属
+↑   ~/.nanocode/                ← 用户全局
 ↑   classpath:config/           ← jar 出厂默认
 低
 ```
@@ -161,8 +161,8 @@ nanobot -w /proj-a   # 指定目录
 
 ```yaml
 # 所在位置（优先级从高到低）：
-#   ① {workspace}/.nanobot/config.yaml  项目专属
-#   ② ~/.nanobot/config.yaml            用户全局
+#   ① {workspace}/.nanocode/config.yaml  项目专属
+#   ② ~/.nanocode/config.yaml            用户全局
 #   ③ ./config.yaml (cwd)              开发兼容
 #   ④ classpath:config/config.yaml      jar 内置（兜底）
 
@@ -188,19 +188,19 @@ tools:
 ### 4.3 secret.yaml（密钥，不入 git）
 
 ```yaml
-# 查找链：环境变量 > workspace/.nanobot/ > ~/.nanobot/ > config同目录 > classpath
+# 查找链：环境变量 > workspace/.nanocode/ > ~/.nanocode/ > config同目录 > classpath
 providers:
   deepseek:
     apiKey: "sk-xxx"   # 或设 DEEPSEEK_API_KEY 环境变量
 ```
 
-环境变量支持：`DEEPSEEK_API_KEY` / `OPENAI_API_KEY` / `NANOBOT_API_KEY`
+环境变量支持：`DEEPSEEK_API_KEY` / `OPENAI_API_KEY` / `NANOCODE_API_KEY`
 
 ### 4.4 身份文件
 
 ```
 SOUL.md / IDENTITY.md / USER.md
-  加载链：workspace/.nanobot/ > ~/.nanobot/ > classpath:config/ > 默认模板
+  加载链：workspace/.nanocode/ > ~/.nanocode/ > classpath:config/ > 默认模板
   CLI 模式硬编码编程 Agent prompt，不依赖文件
 ```
 
@@ -212,11 +212,11 @@ SOUL.md / IDENTITY.md / USER.md
 
 | 数据 | 存储位置 |
 |------|---------|
-| 会话历史 | `{workspace}/.nanobot/sessions/` |
-| 长期记忆 | `{workspace}/.nanobot/memory/MEMORY.md` |
-| Hook 配置 | `{workspace}/.nanobot/hooks/`（或 config.yaml 中配置） |
-| Skills | `{workspace}/.nanobot/skills/` |
-| Rules | `{workspace}/.nanobot/rules/` + `{workspace}/NANOBOT.md` |
+| 会话历史 | `{workspace}/.nanocode/sessions/` |
+| 长期记忆 | `{workspace}/.nanocode/memory/MEMORY.md` |
+| Hook 配置 | `{workspace}/.nanocode/hooks/`（或 config.yaml 中配置） |
+| Skills | `{workspace}/.nanocode/skills/` |
+| Rules | `{workspace}/.nanocode/rules/` + `{workspace}/NANOCODE.md` |
 
 ---
 
@@ -224,7 +224,7 @@ SOUL.md / IDENTITY.md / USER.md
 
 | | 开发环境 | 分发环境 |
 |------|---------|------|
-| API Key | `~/.nanobot/secret.yaml` 或环境变量 | 环境变量 `DEEPSEEK_API_KEY` |
+| API Key | `~/.nanocode/secret.yaml` 或环境变量 | 环境变量 `DEEPSEEK_API_KEY` |
 | config.yaml | cwd 或 classpath | classpath 内置 |
 | 身份 | classpath SOUL.md | classpath 内置 |
 | terminal | 自动检测降级 | 自动检测降级 |

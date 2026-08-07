@@ -1,4 +1,4 @@
-# nanobot-java 代码质量审查报告
+# nanocode-java 代码质量审查报告
 
 > 审查日期：2026-07-28
 > 参考标准：阿里巴巴 Java 开发手册（泰山版）
@@ -350,7 +350,7 @@ info.setName(node.get("name").asText());  // name 字段缺失时 NPE
 
 | 文件 | 行号 | 当前 | 应为 |
 |------|------|------|------|
-| `v2/websocket/NanobotWebSocketEndpoint.java` | 49 | `connectionCount` | `CONNECTION_COUNT` |
+| `v2/websocket/NanoCodeWebSocketEndpoint.java` | 49 | `connectionCount` | `CONNECTION_COUNT` |
 | 同文件 | 60 | `wsConsumerRunning` | `WS_CONSUMER_RUNNING` |
 | `subagent/FileInbox.java` | 26 | `mapper` | `MAPPER` |
 | `subagent/TaskStore.java` | 21 | `mapper` | `MAPPER` |
@@ -408,7 +408,7 @@ info.setName(node.get("name").asText());  // name 字段缺失时 NPE
 | `v3/cli/CliChannel.java` | 281 | 等 session clear 生效 |
 | 同文件 | 601 | 等流式输出开始 |
 | 同文件 | 613 | 等流式输出结束 |
-| `v3/NanobotCliApplication.java` | 63 | 等 AgentLoop 启动 |
+| `v3/NanoCodeCliApplication.java` | 63 | 等 AgentLoop 启动 |
 
 应用 `CountDownLatch` 或 `CompletableFuture.get(timeout)` 替代 sleep。
 
@@ -450,7 +450,7 @@ return fileName.endsWith(".xml") ? "xml" : "text"; // line 546 — 永远到不�
 |------|------|------|
 | `v3/cli/CliChannel.java` | `start()` | ~100 |
 | `v2/controller/ChatController.java` | `streamChat()` | ~105 |
-| `v2/NanobotConfig.java` | `registerTools()` | ~55 |
+| `v2/NanoCodeConfig.java` | `registerTools()` | ~55 |
 
 按阿里巴巴建议（单方法≤80行），应拆分。
 

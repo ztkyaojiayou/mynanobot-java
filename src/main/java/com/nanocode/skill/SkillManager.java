@@ -51,7 +51,7 @@ public class SkillManager {
      * 初始化技能搜索路径
      */
     private void initSkillPaths() {
-        // 1. 项目级技能目录 {workspace}/.nanobot/skills/
+        // 1. 项目级技能目录 {workspace}/.nanocode/skills/
         Path projectSkills = Paths.get(config.getNanoCodeDir(), "skills");
         if (Files.exists(projectSkills)) {
             skillPaths.add(projectSkills.toAbsolutePath().normalize());

@@ -47,7 +47,7 @@ class CommandRegistrySmokeTest {
 
     @BeforeEach
     void setup() throws Exception {
-        Path temp = Files.createTempDirectory("nanobot-cmd-test");
+        Path temp = Files.createTempDirectory("nanocode-cmd-test");
         sm = new SessionManager(temp.toString());
         Config config = new Config(null, null, null, null, null);
         MessageBus bus = new MessageBus();
