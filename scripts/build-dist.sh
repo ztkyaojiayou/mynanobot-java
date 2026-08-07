@@ -6,7 +6,18 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
-export JAVA_HOME="${JAVA_HOME:-D:/devSoftWare/jdk17/jdk-17.0.19+10}"
+# 自动检测 JAVA_HOME：环境变量(JDK17+) > macOS > Windows 默认路径
+is_jdk17() {
+    [ -n "$1" ] && [ -x "$1/bin/java" ] && "$1/bin/java" -version 2>&1 | grep -q '"17'
+}
+if is_jdk17 "$JAVA_HOME"; then
+    : # 环境变量是有效 JDK 17，保留
+elif [ -x "/usr/libexec/java_home" ]; then
+    JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null || /usr/libexec/java_home)"
+else
+    JAVA_HOME="D:/devSoftWare/jdk17/jdk-17.0.19+10"
+fi
+export JAVA_HOME
 export PATH="$JAVA_HOME/bin:$PATH"
 
 echo "=== Building nanobot distribution ==="

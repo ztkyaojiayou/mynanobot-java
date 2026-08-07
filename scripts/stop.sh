@@ -22,7 +22,7 @@ if [[ -f "$PID_FILE" ]]; then
     rm -f "$PID_FILE"
 else
     echo "未找到 PID 文件，尝试查找 Java 进程..."
-    PID=$(jps -l | grep nanobot | awk '{print $1}')
+    PID=$(pgrep -f "NanobotApplication\|NanobotCliApplication" | head -1)
     if [[ -n "$PID" ]]; then
         echo "找到 nanobot 进程: $PID，正在停止..."
         kill "$PID"
