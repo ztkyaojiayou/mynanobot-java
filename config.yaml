@@ -7,21 +7,3 @@ agents:
 providers:
   deepseek:
     model: "deepseek-chat"
-
-# MCP 测试——本地文件系统 Server（两种位置都写，兼容不同 Jackson 解析路径）
-mcp_servers:
-  filesystem:
-    type: stdio
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-    enabled_tools: ["*"]
-    enable: true
-
-tools:
-  mcp_servers:
-    filesystem:
-      type: stdio
-      command: npx
-      args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-      enabled_tools: ["*"]
-      enable: true
