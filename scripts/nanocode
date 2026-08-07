@@ -24,4 +24,4 @@ if [[ ! -f "$JAR" ]] || [[ -n "$(find "$SCRIPT_DIR/src/main/java" -name '*.java'
 fi
 
 ORIG_DIR="$PWD"
-cd "$SCRIPT_DIR" && java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "$JAR" --workspace "$ORIG_DIR" "$@"
+cd "$SCRIPT_DIR" && java -Dloader.main=com.nanocode.v3.NanobotCliApplication -jar "$JAR" --workspace "$ORIG_DIR" "$@"

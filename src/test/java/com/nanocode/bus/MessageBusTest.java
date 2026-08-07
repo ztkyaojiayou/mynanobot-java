@@ -1,0 +1,194 @@
+package com.nanocode.bus;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * MessageBus 消息总线测试类
+ * ===================================
+ *
+ * 测试消息总线的核心功能：
+ * - 入站消息发布与消费
+ * - 出站消息发布与会话响应匹配
+ * - 异步发布功能
+ * - 消息流转正确性
+ *
+ * 注：已适配当前 MessageBus API（outboundQueue 已移除，出站消息走 sessionResponses Map）。
+ */
+@DisplayName("MessageBus 消息总线测试")
+class MessageBusTest {
+
+    private MessageBus messageBus;
+
+    @BeforeEach
+    void setUp() {
+        messageBus = new MessageBus(10);
+        messageBus.start();
+    }
+
+    @AfterEach
+    void tearDown() {
+        messageBus.shutdown(1, TimeUnit.SECONDS);
+    }
+
+    @Test
+    @DisplayName("测试入站消息发布与消费")
+    void testPublishAndConsumeInbound() throws InterruptedException {
+        // 创建测试消息
+        InboundMessage message = InboundMessage.builder()
+                .channel("test")
+                .senderId("user123")
+                .sessionId("chat456")
+                .content("Hello, World!")
+                .build();
+
+        // 发布消息
+        messageBus.publishInbound(message);
+
+        // 消费消息
+        InboundMessage consumed = messageBus.consumeInbound(1, TimeUnit.SECONDS);
+
+        // 验证消息内容
+        assertNotNull(consumed);
+        assertEquals("test", consumed.getChannel());
+        assertEquals("user123", consumed.getSenderId());
+        assertEquals("chat456", consumed.getSessionId());
+        assertEquals("Hello, World!", consumed.getContent());
+    }
+
+    @Test
+    @DisplayName("测试出站消息发布与会话响应匹配")
+    void testPublishAndConsumeOutbound() throws InterruptedException {
+        // 创建测试消息（带 requestId 用于精确匹配）
+        OutboundMessage message = OutboundMessage.builder()
+                .channel("test")
+                .sessionId("chat456")
+                .content("Response message")
+                .requestId("req-001")
+                .build();
+
+        // 发布消息到 sessionResponses
+        messageBus.publishSessionResponse(message);
+
+        // 通过 waitForSessionResponse 按 requestId 匹配取出
+        OutboundMessage consumed = messageBus.waitForSessionResponse(
+                "chat456", "req-001", 1, TimeUnit.SECONDS);
+
+        // 验证消息内容
+        assertNotNull(consumed);
+        assertEquals("test", consumed.getChannel());
+        assertEquals("chat456", consumed.getSessionId());
+        assertEquals("Response message", consumed.getContent());
+    }
+
+    @Test
+    @DisplayName("测试入站消息异步发布")
+    void testPublishInboundAsync() throws Exception {
+        InboundMessage message = InboundMessage.builder()
+                .channel("async")
+                .senderId("asyncUser")
+                .sessionId("asyncChat")
+                .content("Async message")
+                .build();
+
+        // 异步发布（用 CompletableFuture 模拟）
+        CompletableFuture.runAsync(() -> {
+            try {
+                messageBus.publishInbound(message);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).get(5, TimeUnit.SECONDS);
+
+        // 消费消息
+        InboundMessage consumed = messageBus.consumeInbound(1, TimeUnit.SECONDS);
+        assertNotNull(consumed);
+        assertEquals("Async message", consumed.getContent());
+    }
+
+    @Test
+    @DisplayName("测试出站消息异步发布")
+    void testPublishOutboundAsync() throws Exception {
+        OutboundMessage message = OutboundMessage.builder()
+                .channel("async")
+                .sessionId("asyncChat")
+                .content("Async response")
+                .requestId("req-async")
+                .build();
+
+        // 异步发布（用 CompletableFuture 模拟）
+        CompletableFuture.runAsync(() -> {
+            try {
+                messageBus.publishSessionResponse(message);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).get(5, TimeUnit.SECONDS);
+
+        // 通过 waitForSessionResponse 匹配取出
+        OutboundMessage consumed = messageBus.waitForSessionResponse(
+                "asyncChat", "req-async", 1, TimeUnit.SECONDS);
+        assertNotNull(consumed);
+        assertEquals("Async response", consumed.getContent());
+    }
+
+    @Test
+    @DisplayName("测试会话密钥生成")
+    void testSessionKey() {
+        InboundMessage message1 = InboundMessage.builder()
+                .channel("telegram")
+                .senderId("user1")
+                .sessionId("chat1")
+                .content("test")
+                .build();
+
+        InboundMessage message2 = InboundMessage.builder()
+                .channel("telegram")
+                .senderId("user1")
+                .sessionId("chat1")
+                .content("test")
+                .sessionKeyOverride("custom-key")
+                .build();
+
+        assertEquals("telegram:chat1", message1.getSessionKey());
+        assertEquals("custom-key", message2.getSessionKey());
+    }
+
+    @Test
+    @DisplayName("测试消息超时获取")
+    void testConsumeWithTimeout() throws InterruptedException {
+        // 队列为空时，应该在超时后返回 null
+        InboundMessage message = messageBus.consumeInbound(100, TimeUnit.MILLISECONDS);
+        assertNull(message);
+    }
+
+    @Test
+    @DisplayName("测试消息属性检查")
+    void testMessageProperties() {
+        InboundMessage message = InboundMessage.builder()
+                .channel("test")
+                .senderId("user")
+                .sessionId("chat")
+                .content("")
+                .build();
+
+        assertTrue(message.isContentEmpty());
+        assertFalse(message.hasMedia());
+
+        InboundMessage withContent = InboundMessage.builder()
+                .channel("test")
+                .senderId("user")
+                .sessionId("chat")
+                .content("Hello")
+                .build();
+
+        assertFalse(withContent.isContentEmpty());
+    }
+}

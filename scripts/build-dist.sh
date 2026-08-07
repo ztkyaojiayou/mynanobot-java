@@ -41,7 +41,7 @@ cat > "$DIST_DIR/nanocode" << 'SCRIPT'
 #!/bin/bash
 DIR="$(cd "$(dirname "$0")" && pwd)"
 ORIG_DIR="$PWD"
-cd "$DIR" && java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "$DIR/nanocode.jar" --workspace "$ORIG_DIR" "$@"
+cd "$DIR" && java -Dloader.main=com.nanocode.v3.NanobotCliApplication -jar "$DIR/nanocode.jar" --workspace "$ORIG_DIR" "$@"
 SCRIPT
 chmod +x "$DIST_DIR/nanocode"
 
@@ -49,7 +49,7 @@ chmod +x "$DIST_DIR/nanocode"
 cat > "$DIST_DIR/nanocode.bat" << 'BAT'
 @echo off
 set DIR=%~dp0
-java -Dloader.main=com.nanobot.v3.NanobotCliApplication -jar "%DIR%nanocode.jar" --workspace "%CD%" %*
+java -Dloader.main=com.nanocode.v3.NanobotCliApplication -jar "%DIR%nanocode.jar" --workspace "%CD%" %*
 BAT
 
 # 默认配置文件模板
