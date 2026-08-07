@@ -1,9 +1,9 @@
-# Nanobot Spring Boot 配置
+# NanoCode Spring Boot 配置
 # ============================
 
 spring:
   application:
-    name: nanobot-java
+    name: nanocode-java
 
   # 静态资源配置
   web:
@@ -36,7 +36,7 @@ management:
 logging:
   level:
     root: INFO
-    com.nanobot: DEBUG
+    com.nanocode: DEBUG
 
 # CLI 模式：抑制日志，控制台只留对话
 ---
@@ -47,4 +47,4 @@ spring:
 logging:
   level:
     root: WARN
-    com.nanobot: WARN
+    com.nanocode: WARN

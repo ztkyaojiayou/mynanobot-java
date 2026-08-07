@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>com.nanobot</groupId>
-  <artifactId>nanobot-java</artifactId>
-  <name>Nanobot-Java</name>
+  <groupId>com.nanocode</groupId>
+  <artifactId>nanocode-java</artifactId>
+  <name>NanoCode-Java</name>
   <version>1.0.0-SNAPSHOT</version>
   <description>基于 Java 21 的 AI Agent 核心实现
         用于学习 Agent 的底层实现和架构思想</description>
@@ -33,7 +33,7 @@
         <configuration>
           <archive>
             <manifest>
-              <mainClass>com.nanobot.Nanobot</mainClass>
+              <mainClass>com.nanocode.v1.NanoCode</mainClass>
             </manifest>
           </archive>
         </configuration>
@@ -50,7 +50,7 @@
             <configuration>
               <transformers>
                 <transformer>
-                  <mainClass>com.nanobot.Nanobot</mainClass>
+                  <mainClass>com.nanocode.v1.NanoCode</mainClass>
                 </transformer>
               </transformers>
             </configuration>

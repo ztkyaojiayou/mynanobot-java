@@ -1,0 +1,27 @@
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# 自动检测 JAVA_HOME：环境变量(JVM17+) > macOS > Windows 默认路径
+# 环境变量指向 JDK 8 等过旧版本时忽略，避免"无效的目标发行版: 17"
+is_jdk17() {
+    [ -n "$1" ] && [ -x "$1/bin/java" ] && "$1/bin/java" -version 2>&1 | grep -q '"17'
+}
+if is_jdk17 "$JAVA_HOME"; then
+    : # 环境变量是有效 JDK 17，保留
+elif [ -x "/usr/libexec/java_home" ]; then
+    JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null || /usr/libexec/java_home)"
+else
+    JAVA_HOME="D:/devSoftWare/jdk17/jdk-17.0.19+10"
+fi
+export JAVA_HOME
+export PATH="$JAVA_HOME/bin:$PATH"
+
+JAR="$SCRIPT_DIR/target/nanocode-cli.jar"
+
+# 源码有更新？自动重新打包
+if [[ ! -f "$JAR" ]] || [[ -n "$(find "$SCRIPT_DIR/src/main/java" -name '*.java' -newer "$JAR" 2>/dev/null | head -1)" ]]; then
+    echo "(source changed, rebuilding...)"
+    (cd "$SCRIPT_DIR" && mvn package -Dmaven.test.skip=true -q)
+fi
+
+ORIG_DIR="$PWD"
+cd "$SCRIPT_DIR" && java -Dloader.main=com.nanocode.v3.NanoCodeCliApplication -jar "$JAR" --workspace "$ORIG_DIR" "$@"

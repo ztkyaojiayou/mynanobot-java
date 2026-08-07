@@ -24,7 +24,7 @@ owner: Owner Agent
 
 ### Step 1: 准备环境
 ```bash
-./scripts/nanobot                   # 启动 CLI 模式
+./scripts/nanocode                   # 启动 CLI 模式
 mvn clean package -DskipTests   # 已在 CI 验过测试
 mvn spring-boot:run               # V2 Web 模式
 ```

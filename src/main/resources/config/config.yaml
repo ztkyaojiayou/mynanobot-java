@@ -1,13 +1,13 @@
-# Nanobot-Java 配置文件
+# NanoCode-Java 配置文件
 # =====================
 #
-# 复制到 .nanobot/config.yaml 并修改相应值
+# 复制到 .nanocode/config.yaml 并修改相应值
 
 # Agent 配置
 agents:
   defaults:
     # 工作区根路径。分发后默认 "." = 当前目录。
-    # 本地开发多项目时，在 .nanobot/config.yaml 中覆写为 ".."
+    # 本地开发多项目时，在 .nanocode/config.yaml 中覆写为 ".."
     workspace: "."
     
     # 使用 DeepSeek 模型
@@ -37,7 +37,7 @@ agents:
     # 系统提示词（支持多行）
     # {date} 会被自动替换为当前日期
     systemPrompt: |
-      你是 Nanobot，一个强大的 AI 助手。
+      你是 NanoCode，一个强大的 AI 助手。
       
       当前日期：{date}
       
@@ -94,7 +94,7 @@ providers:
 # 工具配置
 tools:
   # @ToolDef 注解扫描的包路径（逗号分隔多个）
-  toolScanPackages: "com.nanobot.tools.impl"
+  toolScanPackages: "com.nanocode.tools.impl"
 
   # 是否限制工具只能访问工作空间
   restrictToWorkspace: false

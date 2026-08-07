@@ -1,4 +1,4 @@
-# Nanobot-Java 项目状态
+# NanoCode-Java 项目状态
 
 > 最后更新: 2026-08-06 | 134 源文件 · ~29,000 行
 
@@ -7,7 +7,7 @@
 ## 一、总览
 
 ```
-com.nanobot (134 files, ~29K lines)
+com.nanocode (134 files, ~29K lines)
 ├── v1/              独立模式 (5 files)
 ├── v2/              Spring Boot — HTTP/SSE/WS (9 files)
 ├── v3/              CLI 模式 — 类 Claude Code (4 files)
@@ -129,7 +129,7 @@ PreToolUse Hook → Guards ×3 → RuleEngine（ASK 触发 CLI 确认框）→ P
 | `!N` | 重复第 N 条 |
 | `/mode plan\|default\|accept_edits\|bypass` | 切换权限模式 |
 | `/plan approve` | 审批计划，开始执行 |
-| `/init` | 分析项目生成 NANOBOT.md |
+| `/init` | 分析项目生成 NANOCODE.md |
 | `/resume` | 列出/恢复历史会话 |
 | `Esc` | 中断流式回复 |
 
@@ -137,18 +137,18 @@ PreToolUse Hook → Guards ×3 → RuleEngine（ASK 触发 CLI 确认框）→ P
 
 ## 七、配置架构
 
-所有配置统一优先级链：`环境变量 > CLI参数 > workspace/.nanobot/ > ~/.nanobot/ > classpath`
+所有配置统一优先级链：`环境变量 > CLI参数 > workspace/.nanocode/ > ~/.nanocode/ > classpath`
 
 | 配置 | 加载链 |
 |------|--------|
 | config.yaml | workspace → ~ → cwd → classpath |
 | secret.yaml (Key) | 环境变量 → workspace → ~ → 文件目录 → classpath |
 | SOUL/IDENTITY/USER | workspace → ~ → classpath → 默认模板 |
-| NANOBOT.md | workspace 根目录 |
-| Rules/Skills | workspace/.nanobot/ → ~/.nanobot/ |
-| Sessions/Memory | workspace/.nanobot/ (runtime) |
+| NANOCODE.md | workspace 根目录 |
+| Rules/Skills | workspace/.nanocode/ → ~/.nanocode/ |
+| Sessions/Memory | workspace/.nanocode/ (runtime) |
 
-环境变量：`DEEPSEEK_API_KEY` / `OPENAI_API_KEY` / `NANOBOT_API_KEY`
+环境变量：`DEEPSEEK_API_KEY` / `OPENAI_API_KEY` / `NANOCODE_API_KEY`
 
 ---
 
@@ -156,7 +156,7 @@ PreToolUse Hook → Guards ×3 → RuleEngine（ASK 触发 CLI 确认框）→ P
 
 | 通道 | 入口 | 模式 |
 |------|------|------|
-| CLI | `nanobot` 命令 | 类 Claude Code，workspace 即工作目录 |
+| CLI | `nanocode` 命令 | 类 Claude Code，workspace 即工作目录 |
 | HTTP REST | `POST /api/chat` | 同步等待（60s 超时） |
 | SSE 流式 | `POST /api/chat/stream` | StreamResponseCallback |
 | WebSocket | `ws://host/ws` | StreamResponseCallback |
@@ -178,8 +178,8 @@ PreToolUse Hook → Guards ×3 → RuleEngine（ASK 触发 CLI 确认框）→ P
 
 | 脚本 | 用途 |
 |------|------|
-| `scripts/nanobot` | CLI 全局命令（自动检测源码变更 + 重建） |
-| `scripts/nanobot.bat` | Windows CMD 版 |
+| `scripts/nanocode` | CLI 全局命令（自动检测源码变更 + 重建） |
+| `scripts/nanocode.bat` | Windows CMD 版 |
 | `scripts/start.sh` | V2 Web 启动 |
 | `scripts/stop.sh` | 停止 |
 | `scripts/restart.sh` | 重启 |

@@ -1,6 +1,8 @@
 # 变更清单路线图 (Change Backlog Roadmap)
 
 > 所有卡片 status: done（代码已实现，卡片为回溯记录）。
+>
+> 📌 **命名历史**：本项目品牌于 v2.4 由 **nanobot** 升级为 **nanocode**（定位编程 Agent，向 Claude Code 致敬）。以下历史卡片中的包名 `com.nanobot`、类名 `Nanobot*`、目录 `.nanobot` 均为当时真实状态，未改写以保留可追溯性。当前代码以 `com.nanocode` / `NanoCode*` / `.nanocode` 为准。
 
 ## 状态总览
 

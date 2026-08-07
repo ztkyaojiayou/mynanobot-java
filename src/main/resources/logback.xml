@@ -21,9 +21,9 @@
     
     <!-- 文件输出 -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>logs/nanobot.log</file>
+        <file>logs/nanocode.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>logs/nanobot.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <fileNamePattern>logs/nanocode.%d{yyyy-MM-dd}.log</fileNamePattern>
             <maxHistory>30</maxHistory>
         </rollingPolicy>
         <encoder>
@@ -46,10 +46,10 @@
     </root>
     
     <!-- 组件日志级别 -->
-    <logger name="com.nanobot" level="DEBUG"/>
-    <logger name="com.nanobot.core" level="DEBUG"/>
-    <logger name="com.nanobot.bus" level="DEBUG"/>
-    <logger name="com.nanobot.tools" level="DEBUG"/>
+    <logger name="com.nanocode" level="DEBUG"/>
+    <logger name="com.nanocode.core" level="DEBUG"/>
+    <logger name="com.nanocode.bus" level="DEBUG"/>
+    <logger name="com.nanocode.tools" level="DEBUG"/>
     
     <!-- 第三方库日志级别 -->
     <logger name="com.fasterxml.jackson" level="WARN"/>

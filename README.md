@@ -1,4 +1,4 @@
-# Nanobot-Java
+# NanoCode-Java
 
 [![Java 17](https://img.shields.io/badge/Java-17%2B-blue)](https://adoptium.net/)
 [![Spring Boot 3.2](https://img.shields.io/badge/Spring%20Boot-3.2-brightgreen)](https://spring.io/projects/spring-boot)
@@ -26,8 +26,8 @@ export OPENAI_API_KEY=your-api-key        # OpenAI
 mvn compile
 
 # 4. CLI 模式启动（推荐）
-./scripts/nanobot                         # Mac / Linux
-scripts\nanobot.bat                       # Windows
+./scripts/nanocode                         # Mac / Linux
+scripts\nanocode.bat                       # Windows
 
 # 5. 开始对话
 > 你好！帮我写一个..."
@@ -92,8 +92,8 @@ AI：(按计划逐步实现 → 跑测试 → 完成)
 ### 项目初始化
 
 ```bash
-> /init                          # AI 分析项目 → 生成 NANOBOT.md
-# NANOBOT.md 会每次对话自动加载，可手动编辑补充编码规范
+> /init                          # AI 分析项目 → 生成 NANOCODE.md
+# NANOCODE.md 会每次对话自动加载，可手动编辑补充编码规范
 ```
 
 ---
@@ -116,10 +116,10 @@ export PATH="/path/to/mynanobot-java/scripts:$PATH"
 
 # 现在可以在任意项目目录启动
 cd /any/project
-nanobot
+nanocode
 
 # 指定工作目录
-nanobot --workspace /path/to/project
+nanocode --workspace /path/to/project
 ```
 
 ### 打包部署
@@ -129,10 +129,10 @@ nanobot --workspace /path/to/project
 mvn clean package -DskipTests
 
 # 直接运行
-java -jar target/nanobot-cli.jar
+java -jar target/nanocode-cli.jar
 
 # 或通过脚本（自动检测源码更新并重建）
-./scripts/nanobot
+./scripts/nanocode
 ```
 
 ### 分发部署
@@ -140,7 +140,7 @@ java -jar target/nanobot-cli.jar
 ```bash
 # 一键生成分发包
 ./scripts/build-dist.sh
-# → dist/nanobot/ 目录，复制到目标机器即可使用
+# → dist/nanocode/ 目录，复制到目标机器即可使用
 ```
 
 ### Docker
@@ -150,16 +150,16 @@ java -jar target/nanobot-cli.jar
 mvn clean package -DskipTests
 
 # 构建镜像
-docker build -t nanobot -f- . <<'EOF'
+docker build -t nanocode -f- . <<'EOF'
 FROM openjdk:17-jdk-slim
 WORKDIR /app
-COPY target/nanobot-cli.jar app.jar
+COPY target/nanocode-cli.jar app.jar
 ENV DEEPSEEK_API_KEY=your-api-key
 CMD ["java", "-jar", "app.jar"]
 EOF
 
 # 运行
-docker run -d --name nanobot -e DEEPSEEK_API_KEY=your-key nanobot
+docker run -d --name nanocode -e DEEPSEEK_API_KEY=your-key nanocode
 ```
 
 ### Windows
@@ -169,7 +169,7 @@ REM 设置 API Key
 set DEEPSEEK_API_KEY=your-api-key
 
 REM 启动
-scripts\nanobot.bat
+scripts\nanocode.bat
 ```
 
 ---
@@ -188,7 +188,7 @@ scripts\nanobot.bat
 | **4 级权限** | PLAN / DEFAULT / ACCEPT_EDITS / BYPASS + 交互确认 (1/2/3) |
 | **会话管理** | 持久化 + 恢复 + Web 管理界面 |
 | **7 状态引擎** | Agent Loop State 模式，每个状态独立处理器 |
-| **记忆系统** | Dream 长期记忆 + Consolidator 上下文压缩 + NANOBOT.md |
+| **记忆系统** | Dream 长期记忆 + Consolidator 上下文压缩 + NANOCODE.md |
 | **三入口** | V3 CLI / V2 Spring Boot / V1 独立，共享核心引擎 |
 
 ---
@@ -218,7 +218,7 @@ scripts\nanobot.bat
 ## 项目结构
 
 ```
-src/main/java/com/nanobot/
+src/main/java/com/nanocode/
 ├── core/          核心引擎 (AgentLoop, AgentRunner, State 处理器, Hook)
 ├── tools/         工具系统 (17 内置 + MCP)
 ├── providers/     LLM 提供商 (OpenAI, DeepSeek + 策略工厂)
@@ -246,7 +246,7 @@ src/main/java/com/nanobot/
 | `/history` | 查看输入历史 |
 | `!!` | 重复上一条命令 |
 | `!N` | 重复第 N 条历史命令 |
-| `/init` | 分析项目生成 NANOBOT.md |
+| `/init` | 分析项目生成 NANOCODE.md |
 | `/plan` (或 `/mode plan`) | 进入规划模式（只读分析出计划） |
 | `/plan approve` | 审批计划，切换到执行模式 |
 | `/mode default` | 默认模式（读放行，写需确认） |
@@ -261,14 +261,14 @@ src/main/java/com/nanobot/
 
 ## 配置
 
-所有配置遵循统一优先级链：`环境变量 > workspace/.nanobot/ > ~/.nanobot/ > classpath 默认`
+所有配置遵循统一优先级链：`环境变量 > workspace/.nanocode/ > ~/.nanocode/ > classpath 默认`
 
 **API Key**（三选一）：
 
 ```bash
 export DEEPSEEK_API_KEY=sk-xxx              # ① 环境变量（推荐）
 # 或
-mkdir ~/.nanobot && echo "providers: ..."   # ② ~/.nanobot/secret.yaml
+mkdir ~/.nanocode && echo "providers: ..."   # ② ~/.nanocode/secret.yaml
 # 或编辑 config.yaml 的 apiKey 字段         # ③ 项目本地
 ```
 
@@ -294,7 +294,7 @@ tools:
     enable: true
 ```
 
-`application.yml` 只管 Spring Boot 层（端口、日志），nanobot 业务配置全在 `config.yaml`。
+`application.yml` 只管 Spring Boot 层（端口、日志），nanocode 业务配置全在 `config.yaml`。
 
 ---
 
@@ -321,7 +321,7 @@ tools:
 | `docs/deployment.md` | 启动、部署、配置架构 |
 | `docs/features.md` | 权限控制 + CLI 交互模块 |
 | `docs/线上问题总结.md` | 19 个历史 bug 分析 + 修复 |
-| `NANOBOT.md` | 项目编码约定（AI 自动加载） |
+| `NANOCODE.md` | 项目编码约定（AI 自动加载） |
 
 ### 常见问题
 

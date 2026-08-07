@@ -7,7 +7,7 @@
 
 ## Context
 
-nanobot 命令系统当前"三分天下"，管理混乱：
+NanoCode 命令系统当前"三分天下"，管理混乱：
 1. **CommandState 内置命令**（`core/state/CommandState.java`）：/stop /clear /compact /remember /skills /rules /stats，走 AgentLoop 状态机，仅 Web 通道可触发。
 2. **CommandRegistry 注册命令**（`command/`）：/mode /help /init /resume，仅 CLI 用。
 3. **CLI 硬编码**（`v3/cli/CliChannel.java` L335-343）：/clear /exit /history 在输入循环里 if 分支。
@@ -15,7 +15,7 @@ nanobot 命令系统当前"三分天下"，管理混乱：
 **已知 bug**：CLI 拦截所有 `/` 开头行，未注册命令直接报"未知命令"——所以 `/stop /compact /remember /skills /rules /stats` 和**技能 slash**在 CLI 下永远不可用。
 
 **目标**（用户明确要求）：
-1. 参考 Claude Code 统一注册中心：内置命令 + CLI 硬编码统一进 CommandRegistry。**新命令两种方式**：写一个 Java 类（`Command` 实现）或加一个技能文件（`.nanobot/skills/xxx/SKILL.md`，已有机制，**不新建命令文件机制**）。
+1. 参考 Claude Code 统一注册中心：内置命令 + CLI 硬编码统一进 CommandRegistry。**新命令两种方式**：写一个 Java 类（`Command` 实现）或加一个技能文件（`.nanocode/skills/xxx/SKILL.md`，已有机制，**不新建命令文件机制**）。
 2. 高复杂度项不做（/model 运行时换 provider、/undo 文件回退等）。
 3. 跨平台适配往后放（! bash 直通、/config、Ctrl+R 等）。
 
@@ -93,7 +93,7 @@ nanobot 命令系统当前"三分天下"，管理混乱：
 2. **冒烟测试** `CommandRegistrySmokeTest`（11 项）：buildBase 注册完整性、execute 三态语义（empty/present/exit）、/clear 用完整 sessionKey（修复裸 sessionId 清错 key）、/stop 无活动轮次不崩溃、/cost 估算、/permissions 状态展示 + 切换 + 无效模式防御、**/help <命令> 显示 usage（含别名）/ 别名解析 / 未知命令提示 / 全命令 usage() 非空**。全量 `mvn test` 仅 McpHttpClientTest 因 Windows 缺 python3 失败（环境无关）。
 4. **CLI**：`/help` 列出全部命令（内置 + 注册 + 提示技能）；`/help mode` / `/help plan` 显示单命令用法；`/stats /skills /rules /compact /remember` 不再"未知命令"；`/clear /exit(/q /quit) /history /mode /init /resume` 正常；`!!` `!N` 保留。
 5. **CLI 技能**：`/commit-generator` 首次能执行（原来报未知命令）。
-6. **/compact**：造长会话后 `/compact`，`.nanobot/sessions/cli_*/history.jsonl` 行数显著减少（验证 replaceHistory）。
+6. **/compact**：造长会话后 `/compact`，`.nanocode/sessions/cli_*/history.jsonl` 行数显著减少（验证 replaceHistory）。
 7. **Web**：`/stats` 正常；`/clear` 清空前端列表。
 8. **回归**：普通对话、工具调用、`/plan`→`/plan approve`、`@file` 引用、Esc 中断均正常。
 9. **CLI 行编辑（Unix/Windows Terminal）**：输入 `/` + Tab 自动列出命令候选，过滤后补全；上下键历史；`!ls` 不再被当作历史事件扩展；`/exit` / `Ctrl+D` 退出、`Ctrl+C` 忽略重提示；Windows CMD 降级 Scanner 交互不变。
