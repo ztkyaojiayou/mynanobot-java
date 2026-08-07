@@ -17,7 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * /init — 分析当前项目并生成 NANOBOT.md。
+ * /init — 分析当前项目并生成 NANOCODE.md。
  *
  * 混合模式：
  * 1. Java 快速收集项目元数据（pom.xml、目录结构等，无需权限确认）
@@ -28,8 +28,8 @@ public class InitCommand implements Command {
 
     private static final Logger logger = LoggerFactory.getLogger(InitCommand.class);
 
-    /** NANOBOT.md 文件名 */
-    private static final String NANOBOT_FILENAME = "NANOBOT.md";
+    /** NANOCODE.md 文件名 */
+    private static final String NANOCODE_FILENAME = "NANOCODE.md";
 
     /** 采样源文件的最大数量（限制 token 用量） */
     private static final int MAX_SAMPLE_FILES = 8;
@@ -44,18 +44,18 @@ public class InitCommand implements Command {
     private static final int LLM_TIMEOUT_SECONDS = 60;
 
     @Override public String name() { return "init"; }
-    @Override public String description() { return "分析当前项目并生成 NANOBOT.md"; }
+    @Override public String description() { return "分析当前项目并生成 NANOCODE.md"; }
 
     @Override
     public String usage() {
-        return "  用法: /init\n  分析当前项目（构建文件/目录树/配置/源码采样），生成 NANOBOT.md；\n  LLM 不可用时回退到模板模式";
+        return "  用法: /init\n  分析当前项目（构建文件/目录树/配置/源码采样），生成 NANOCODE.md；\n  LLM 不可用时回退到模板模式";
     }
 
     @Override
     public boolean execute(CommandContext ctx, String input) {
         // 确定项目根目录
         Path projectRoot = resolveProjectRoot();
-        Path outputPath = projectRoot.resolve(NANOBOT_FILENAME);
+        Path outputPath = projectRoot.resolve(NANOCODE_FILENAME);
 
         System.out.println("[分析] 正在分析项目: " + projectRoot);
 
@@ -66,11 +66,11 @@ public class InitCommand implements Command {
         collectConfigFiles(projectRoot, projectInfo);
         collectSampleSources(projectRoot, projectInfo);
 
-        // ── 2. 尝试用 LLM 生成 NANOBOT.md ──
+        // ── 2. 尝试用 LLM 生成 NANOCODE.md ──
         LLMProvider provider = NanoCodeRunner.getProvider();
         if (provider != null) {
             try {
-                System.out.println("[LLM] 正在通过大模型分析并生成 NANOBOT.md...");
+                System.out.println("[LLM] 正在通过大模型分析并生成 NANOCODE.md...");
                 String content = generateWithLLM(provider, projectInfo.toString());
                 Files.writeString(outputPath, content);
                 System.out.println("[OK] 已生成: " + outputPath.toAbsolutePath() + " (" + content.length() + " 字符)");
@@ -88,7 +88,7 @@ public class InitCommand implements Command {
             Files.writeString(outputPath, content);
             System.out.println("[OK] 已生成: " + outputPath.toAbsolutePath() + "（模板模式，" + content.length() + " 字符）");
         } catch (IOException e) {
-            logger.error("写入 NANOBOT.md 失败: {}", e.getMessage(), e);
+            logger.error("写入 NANOCODE.md 失败: {}", e.getMessage(), e);
         }
 
         return false;
@@ -96,7 +96,7 @@ public class InitCommand implements Command {
 
     /** 解析项目根目录：workspace 就是项目根，无需向上查找 */
     private Path resolveProjectRoot() {
-        String ws = System.getProperty("nanobot.workspace");
+        String ws = com.nanocode.config.NanoCodeEnv.getProperty("nanocode.workspace", "nanobot.workspace");
         if (ws != null && !ws.isBlank()) {
             return Path.of(ws).toAbsolutePath().normalize();
         }
@@ -263,7 +263,7 @@ public class InitCommand implements Command {
 
     private String generateWithLLM(LLMProvider provider, String projectInfo) throws Exception {
         String systemPrompt = """
-                你是一位技术文档专家。你的任务是根据提供的项目信息，生成一份专业、简洁的 NANOBOT.md 文件。
+                你是一位技术文档专家。你的任务是根据提供的项目信息，生成一份专业、简洁的 NANOCODE.md 文件。
 
                 要求：
                 1. 采用 Markdown 格式
@@ -276,12 +276,12 @@ public class InitCommand implements Command {
                    - 关键设计决策
                 3. 内容要具体、可操作，不要泛泛而谈
                 4. 格式简洁，参照 CLAUDE.md 风格
-                5. 只输出 NANOBOT.md 的完整内容，不要额外解释
+                5. 只输出 NANOCODE.md 的完整内容，不要额外解释
                 """;
 
         var messages = List.of(
                 LLMProvider.Message.ofSystem(systemPrompt),
-                LLMProvider.Message.ofUser("以下是项目信息，请生成 NANOBOT.md：\n\n" + projectInfo)
+                LLMProvider.Message.ofUser("以下是项目信息，请生成 NANOCODE.md：\n\n" + projectInfo)
         );
 
         LLMResponse response = provider.chat(messages, null)
@@ -336,20 +336,20 @@ public class InitCommand implements Command {
                 详见上方的源码目录结构。
 
                 ## 注意事项
-                - NANOBOT.md 是 AI 助手的项目记忆文件，可手动编辑补充。
+                - NANOCODE.md 是 AI 助手的项目记忆文件，可手动编辑补充。
                 - 使用 `/init` 重新生成会覆盖当前文件。
                 """.formatted(projectName, javaVersion, buildCmd);
     }
 
     private String extractProjectName(String info) {
-        // 从 pom.xml 中提取 artifactId
+        // 从 pom.xml 中提取 artifactId（跳过本项目自身的 artifactId）
         for (String line : info.lines().toList()) {
-            if (line.contains("<artifactId>") && !line.contains("nanobot-java")) {
+            if (line.contains("<artifactId>") && !line.contains("nanocode-java")) {
                 String name = line.replaceAll(".*<artifactId>", "").replaceAll("</artifactId>.*", "").trim();
                 if (!name.isBlank()) return name;
             }
         }
-        return "nanobot-java";
+        return "nanocode-java";
     }
 
     private String detectBuildCommand(String info) {

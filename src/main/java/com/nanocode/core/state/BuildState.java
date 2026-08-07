@@ -21,7 +21,7 @@ import java.util.function.BooleanSupplier;
 
 /**
  * BUILD — 构建系统提示词。
- * 注入身份信息、长期记忆、技能目录、NANOBOT.md、Plan Mode、Rules。
+ * 注入身份信息、长期记忆、技能目录、NANOCODE.md、Plan Mode、Rules。
  */
 public class BuildState implements AgentState {
 
@@ -34,7 +34,7 @@ public class BuildState implements AgentState {
     private final BooleanSupplier planModeSupplier; // 支持运行时查询 planMode
     private final Dream dream; // 可为 null
     private final SkillRegistry skillRegistry; // 可为 null — 用于注入技能目录
-    private final String workspacePath; // 工作区路径，用于读取 NANOBOT.md
+    private final String workspacePath; // 工作区路径，用于读取 NANOCODE.md
     private final HookManager hookManager; // 可为 null — TURN_START PROMPT 钩子注入
 
     public BuildState(IdentityManager identityManager, RuleManager ruleManager,
@@ -67,7 +67,7 @@ public class BuildState implements AgentState {
         appendSearchHint(systemPrompt, useSearch);
         // 3. 长期记忆注入（Dream — 从过往对话中提取的相关记忆）
         appendMemories(systemPrompt, ctx);
-        // 4. NANOBOT.md 项目记忆
+        // 4. NANOCODE.md 项目记忆
         appendNanoCodeMd(systemPrompt);
         // 5. Plan Mode 规划模式
         appendPlanMode(systemPrompt);
@@ -102,10 +102,10 @@ public class BuildState implements AgentState {
             sb.append(identityManager.getSystemPrompt(currentDate));
         } else {
             sb.append("""
-                    你是 my-nanobot，一个基于 Java 实现的轻量级 AI Agent 框架驱动的智能助手。
+                    你是 my-nanocode，一个基于 Java 实现的轻量级 AI Agent 框架驱动的智能助手。
 
-                    ⚠️ 重要：你不是 Claude、DeepSeek 或任何其他 AI 产品。你的名字是 my-nanobot。
-                    当用户问"你是谁"时，必须回答你是 my-nanobot，不要自称 Claude 或任何其他名字。
+                    ⚠️ 重要：你不是 Claude、DeepSeek 或任何其他 AI 产品。你的名字是 my-nanocode。
+                    当用户问"你是谁"时，必须回答你是 my-nanocode，不要自称 Claude 或任何其他名字。
 
                     你的任务是帮助用户解决问题，回答问题，执行任务。
 
@@ -154,14 +154,17 @@ public class BuildState implements AgentState {
 
     private void appendNanoCodeMd(StringBuilder sb) {
         try {
-            java.nio.file.Path path = java.nio.file.Paths.get(workspacePath, "NANOBOT.md");
+            java.nio.file.Path dir = java.nio.file.Paths.get(workspacePath);
+            // 优先 NANOCODE.md，旧 NANOBOT.md 兼容
+            String fileName = com.nanocode.config.NanoCodeEnv.resolveMemoryFileName(dir);
+            java.nio.file.Path path = dir.resolve(fileName);
             if (java.nio.file.Files.exists(path)) {
                 String content = java.nio.file.Files.readString(path);
-                sb.append("\n\n【项目上下文 — 来自 NANOBOT.md】\n").append(content).append("\n");
-                logger.debug("Loaded NANOBOT.md ({} chars)", content.length());
+                sb.append("\n\n【项目上下文 — 来自 ").append(fileName).append("】\n").append(content).append("\n");
+                logger.debug("Loaded {} ({} chars)", fileName, content.length());
             }
         } catch (Exception e) {
-            logger.debug("NANOBOT.md not found or unreadable: {}", e.getMessage());
+            logger.debug("NANOCODE.md not found or unreadable: {}", e.getMessage());
         }
     }
 

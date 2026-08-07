@@ -14,7 +14,7 @@ import java.util.Map;
  * - 用户历史记录摘要
  * - 用户目标和需求
  * 
- * **文件位置**：.nanobot/USER.md
+ * **文件位置**：.nanocode/USER.md
  * 
  * **文件格式**：
  * ```markdown

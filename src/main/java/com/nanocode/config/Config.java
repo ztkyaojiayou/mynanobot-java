@@ -146,7 +146,7 @@ public class Config {
     public static class AgentDefaults {
 
         /** 工作空间目录（相对于项目根目录） */
-        private String workspace = ".nanobot";
+        private String workspace = ".nanocode";
 
         /** 默认模型 */
         private String model = "anthropic/claude-sonnet-4-20250514";
@@ -548,20 +548,24 @@ public class Config {
 
     // ==================== 辅助方法 ====================
 
-    /** 获取 .nanobot 配置目录完整路径（{workspace}/.nanobot） */
+    /**
+     * 获取运行时配置目录完整路径（{workspace}/.nanocode）。
+     * 兼容旧版：若 .nanocode 不存在但 .nanobot 存在，则回退旧目录保证数据不丢。
+     */
     public String getNanoCodeDir() {
-        return java.nio.file.Paths.get(getWorkspacePath(), ".nanobot").toString();
+        return NanoCodeEnv.resolveRuntimeDir(getWorkspacePath()).toString();
     }
 
     /**
      * 获取完整的工作空间路径。
      *
-     * 优先级：系统属性 nanobot.workspace > YAML 配置 > 当前目录
-     * 系统属性由 CLI 启动脚本通过 -Dnanobot.workspace 或 NanoCodeCliApplication 设置。
+     * 优先级：系统属性 nanocode.workspace > YAML 配置 > 当前目录
+     * 系统属性由 CLI 启动脚本通过 -Dnanocode.workspace 或 NanoCodeCliApplication 设置。
+     * 兼容旧键 nanobot.workspace。
      */
     public String getWorkspacePath() {
-        // ① 系统属性最高优先级（CLI --workspace / -Dnanobot.workspace）
-        String sysProp = System.getProperty("nanobot.workspace");
+        // ① 系统属性最高优先级（CLI --workspace / -Dnanocode.workspace）
+        String sysProp = NanoCodeEnv.getProperty("nanocode.workspace", "nanobot.workspace");
         if (sysProp != null && !sysProp.isBlank()) {
             return java.nio.file.Paths.get(sysProp).toAbsolutePath().normalize().toString();
         }

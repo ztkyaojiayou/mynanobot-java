@@ -18,7 +18,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * # COMMAND 类型：执行 shell
  * action:
  *   type: COMMAND
- *   command: "echo 'blocked: ${NANOBOT_TOOL}'"
+ *   command: "echo 'blocked: ${NANOCODE_TOOL}'"
  *
  * # PROMPT 类型：注入上下文
  * action:
@@ -28,7 +28,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * # SCRIPT 类型：执行脚本文件
  * action:
  *   type: SCRIPT
- *   script_path: "${NANOBOT_DIR}/hooks/audit.sh"
+ *   script_path: "${NANOCODE_DIR}/hooks/audit.sh"
  * </pre>
  */
 public record HookAction(

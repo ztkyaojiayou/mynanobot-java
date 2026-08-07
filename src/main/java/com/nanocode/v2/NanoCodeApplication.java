@@ -58,7 +58,7 @@ public class NanoCodeApplication {
                 ║    ██║ ╚═╝ ██║ ██║       ██║ ╚████║   ██║     ██║  ██║██║ ╚████║          ║
                 ║    ╚═╝     ╚═╝ ╚═╝       ╚═╝  ╚═══╝   ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝          ║
                 ║                                                                              ║
-                ║                          my-nanobot v1.0.0                                   ║
+                ║                          my-nanocode v1.0.0                                   ║
                 ║              A lightweight AI Agent Framework for Java                        ║
                 ║                                                                              ║
                 ║    Features:  • Agent Loop    • Memory Management    • Tool System           ║
@@ -66,7 +66,7 @@ public class NanoCodeApplication {
                 ║                                                                              ║
                 ║                         🌟 启动成功！🌟                                      ║
                 ║                                                                              ║
-                ║    服务 ID:    nanobot-java                                                   ║
+                ║    服务 ID:    nanocode-java                                                   ║
                 ║    Local:      %s                                                            ║
                 ║    Model:      %s                                                            ║
                 ║    Components: • Tools: %d    • Skills: %d    • Rules: %d                       ║

@@ -20,9 +20,9 @@ import java.util.regex.Pattern;
  * 从文件系统加载规则定义。
  * 
  * **规则文件位置**：
- * 1. 项目级：NANOBOT.md（项目根目录）
- * 2. 项目级：.nanobot/rules/*.md
- * 3. 用户级：~/.nanobot/rules/*.md
+ * 1. 项目级：NANOCODE.md（项目根目录）
+ * 2. 项目级：.nanocode/rules/*.md
+ * 3. 用户级：~/.nanocode/rules/*.md
  * 4. 全局级：内置默认规则
  * 
  * **规则文件格式**：

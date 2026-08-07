@@ -18,11 +18,11 @@ import java.util.List;
  * Hook 加载器 — 从多个来源加载 Hook 规则，产出给 {@link HookManager}.
  *
  * <h2>加载来源（合并模式）</h2>
- * config.yaml + .nanobot/hooks/ 目录的 Hook 会合并在一起.
+ * config.yaml + .nanocode/hooks/ 目录的 Hook 会合并在一起.
  * 两者都为空时才回退到内置 BuiltinHooks.
  * <ol>
  *   <li><b>config.yaml</b> — {@code hooks.list} 显式配置的 Hook</li>
- *   <li><b>.nanobot/hooks/ 目录</b> — 扫描 {@code *.yaml / *.yml / *.json} 文件，
+ *   <li><b>.nanocode/hooks/ 目录</b> — 扫描 {@code *.yaml / *.yml / *.json} 文件，
  *       每个文件定义一个或多个 Hook（项目级 + 用户级）</li>
  *   <li><b>内置 BuiltinHooks</b> — 以上两者都为空时的兜底默认</li>
  * </ol>
@@ -30,14 +30,14 @@ import java.util.List;
  * <h2>文件系统扫描路径</h2>
  * 和 Rule / Skill 保持一致：
  * <ul>
- *   <li>项目级：{@code {workspace}/.nanobot/hooks/*.yaml}</li>
- *   <li>用户级：{@code ~/.nanobot/hooks/*.yaml}</li>
+ *   <li>项目级：{@code {workspace}/.nanocode/hooks/*.yaml}</li>
+ *   <li>用户级：{@code ~/.nanocode/hooks/*.yaml}</li>
  * </ul>
  *
  * <h2>文件格式</h2>
  * 每个 YAML 文件中为一个 Hook 或 Hook 列表：
  * <pre>
- * # .nanobot/hooks/security.yaml
+ * # .nanocode/hooks/security.yaml
  * - id: "block-rm"
  *   event: PRE_TOOL_USE
  *   condition: "tool==bash"
@@ -68,7 +68,7 @@ public final class HookLoader {
      * <ol>
      *   <li>{@code config.enabled == false} → 空列表</li>
      *   <li>config.yaml 有显式配置 → 使用 config.yaml 的 hook（不走文件系统/Builtin）</li>
-     *   <li>config.yaml 无配置 → 扫描 .nanobot/hooks/ 目录</li>
+     *   <li>config.yaml 无配置 → 扫描 .nanocode/hooks/ 目录</li>
      *   <li>目录也无 .yaml 文件 → 加载 BuiltinHooks 默认</li>
      * </ol>
      *
@@ -91,11 +91,11 @@ public final class HookLoader {
             logger.info("HookLoader: {} hook(s) from config.yaml", configList.size());
         }
 
-        // ── ② .nanobot/hooks/ 目录（文件系统）──
+        // ── ② .nanocode/hooks/ 目录（文件系统）──
         List<Hook> fileHooks = loadFromNanoCodeDir(config);
         if (!fileHooks.isEmpty()) {
             all.addAll(fileHooks);
-            logger.info("HookLoader: {} hook(s) from .nanobot/hooks/", fileHooks.size());
+            logger.info("HookLoader: {} hook(s) from .nanocode/hooks/", fileHooks.size());
         }
 
         // ── 合并结果 ──
@@ -114,7 +114,7 @@ public final class HookLoader {
     // ═══════════ 文件系统加载 ═══════════
 
     /**
-     * 扫描 .nanobot/hooks/ 目录（项目级 + 用户级）加载 Hook 文件.
+     * 扫描 .nanocode/hooks/ 目录（项目级 + 用户级）加载 Hook 文件.
      *
      * 每个 .yaml / .yml / .json 文件应包含一个 Hook 或 Hook 列表.
      * 解析失败的文件会输出警告但不影响其他文件.
@@ -122,12 +122,13 @@ public final class HookLoader {
     static List<Hook> loadFromNanoCodeDir(Config config) {
         List<Hook> result = new ArrayList<>();
 
-        // 项目级：{workspace}/.nanobot/hooks/
+        // 项目级：{workspace}/.nanocode/hooks/
         Path projectDir = Paths.get(config.getNanoCodeDir(), "hooks");
         result.addAll(loadFromDirectory(projectDir));
 
-        // 用户级：~/.nanobot/hooks/
-        Path userDir = Paths.get(System.getProperty("user.home"), ".nanobot", "hooks");
+        // 用户级：~/.nanocode/hooks/（兼容旧 ~/.nanocode）
+        Path userDir = com.nanocode.config.NanoCodeEnv.resolveRuntimeDir(
+                System.getProperty("user.home"), ".nanocode").resolve("hooks");
         if (!userDir.equals(projectDir)) {
             result.addAll(loadFromDirectory(userDir));
         }

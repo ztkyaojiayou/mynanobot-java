@@ -10,7 +10,7 @@ import org.springframework.context.annotation.Bean;
 /**
  * NanoCode CLI 启动类（V3 — 命令行交互，类 Claude Code 体验）。
  *
- * 启动: java -cp nanobot.jar com.nanocode.v3.NanoCodeCliApplication [--workspace /path]
+ * 启动: java -cp nanocode.jar com.nanocode.v3.NanoCodeCliApplication [--workspace /path]
  * 不指定 --workspace 时自动取当前目录。
  */
 @SpringBootApplication(scanBasePackages = "com.nanocode")
@@ -38,7 +38,9 @@ public class NanoCodeCliApplication {
         java.util.List<String> merged = new java.util.ArrayList<>();
         if (!hasWorkspace) {
             // 用系统属性传递原始工作目录（ConfigLoader 不认 Spring Boot CLI 参数）
-            System.setProperty("nanobot.workspace", System.getProperty("user.dir"));
+            // 双写新旧键，兼容旧版读取逻辑
+            com.nanocode.config.NanoCodeEnv.setPropertyBoth(
+                    "nanocode.workspace", "nanobot.workspace", System.getProperty("user.dir"));
         }
 
         merged.add("--logging.config=classpath:logback-cli.xml");
@@ -49,7 +51,8 @@ public class NanoCodeCliApplication {
         // --workspace / -w → 系统属性（优先级最高，ConfigLoader 读取）
         for (int i = 0; i < args.length; i++) {
             if (("--workspace".equals(args[i]) || "-w".equals(args[i])) && i + 1 < args.length) {
-                System.setProperty("nanobot.workspace", args[++i]);
+                com.nanocode.config.NanoCodeEnv.setPropertyBoth(
+                        "nanocode.workspace", "nanobot.workspace", args[++i]);
             } else {
                 merged.add(args[i]);
             }

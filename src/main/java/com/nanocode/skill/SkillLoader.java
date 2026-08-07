@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
  * 
  * **技能目录结构**：
  * ```
- * .nanobot/skills/my-skill/
+ * .nanocode/skills/my-skill/
  * ├── SKILL.md          # 必需：技能定义
  * ├── templates/        # 可选：模板文件
  * ├── scripts/          # 可选：辅助脚本

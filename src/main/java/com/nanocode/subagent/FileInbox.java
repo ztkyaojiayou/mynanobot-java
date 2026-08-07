@@ -13,7 +13,7 @@ import java.util.*;
  * 文件邮箱 — 子 Agent 异步通信。
  *
  * 目录结构:
- *   .nanobot/inbox/
+ *   .nanocode/inbox/
  *     {taskId}.json       ← 任务文件（Lead 写入）
  *     {taskId}.result.json ← 结果文件（子Agent 写入）
  *
@@ -28,7 +28,7 @@ public class FileInbox {
     private final Path inboxDir;
 
     public FileInbox() {
-        this(Path.of(".nanobot", "inbox"));
+        this(Path.of(".nanocode", "inbox"));
     }
 
     public FileInbox(Path inboxDir) {

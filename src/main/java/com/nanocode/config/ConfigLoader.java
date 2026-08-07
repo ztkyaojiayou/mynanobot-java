@@ -88,8 +88,8 @@ public class ConfigLoader {
     /** 默认配置文件名 */
     private static final String DEFAULT_CONFIG_FILE = "config.yaml";
     
-    /** 用户配置目录 */
-    private static final String USER_CONFIG_DIR = ".nanobot";
+    /** 用户配置目录（品牌升级后为 .nanocode，旧 .nanobot 作 fallback） */
+    private static final String USER_CONFIG_DIR = ".nanocode";
     
     /** 类路径中的默认配置 */
     private static final String CLASSPATH_DEFAULT_CONFIG = "config/default.yaml";
@@ -152,17 +152,17 @@ public class ConfigLoader {
      * 再通过 mergeWithDefaults 补全缺失字段。
      */
     public static Config load() {
-        // ① workspace/.nanobot/config.yaml（项目专属配置，最高优先级）
-        String ws = System.getProperty("nanobot.workspace");
+        // ① workspace/.nanocode/config.yaml（项目专属配置，最高优先级；兼容旧 .nanobot）
+        String ws = NanoCodeEnv.getProperty("nanocode.workspace", "nanobot.workspace");
         if (ws != null && !ws.isBlank()) {
-            Path wsConfig = Paths.get(ws, ".nanobot", "config.yaml");
+            Path wsConfig = NanoCodeEnv.resolveRuntimeDir(ws).resolve("config.yaml");
             if (Files.exists(wsConfig)) {
                 logger.info("Loading from workspace: {}", wsConfig);
                 return load(wsConfig);
             }
         }
 
-        // ② ~/.nanobot/config.yaml（用户全局配置）
+        // ② ~/.nanocode/config.yaml（用户全局配置；兼容旧 ~/.nanobot）
         Path userConfig = getUserConfigPath();
         if (Files.exists(userConfig)) {
             logger.info("Loading from user home: {}", userConfig);
@@ -253,8 +253,8 @@ public class ConfigLoader {
         // ② workspace/.nanobot/secret.yaml
         if (applyWorkspaceSecret(config)) return;
 
-        // ③ ~/.nanobot/secret.yaml（用户全局）
-        Path globalDir = Paths.get(System.getProperty("user.home", "."), ".nanobot");
+        // ③ ~/.nanocode/secret.yaml（用户全局；兼容旧 ~/.nanobot）
+        Path globalDir = NanoCodeEnv.resolveRuntimeDir(System.getProperty("user.home", "."), USER_CONFIG_DIR);
         Path globalSecret = globalDir.resolve("secret.yaml");
         if (Files.exists(globalSecret)) { mergeFromFile(globalSecret, config); return; }
 
@@ -287,19 +287,20 @@ public class ConfigLoader {
             logger.info("Using API key from OPENAI_API_KEY env");
             found = true;
         }
-        String nanobotKey = System.getenv("NANOBOT_API_KEY");
-        if (nanobotKey != null && !nanobotKey.isBlank()) {
-            config.getProviders().getDeepseek().setApiKey(nanobotKey);
-            logger.info("Using API key from NANOBOT_API_KEY env");
+        // 兼容：NANOCODE_API_KEY 优先，旧 NANOBOT_API_KEY fallback
+        String nanoKey = NanoCodeEnv.getEnv("NANOCODE_API_KEY", "NANOBOT_API_KEY");
+        if (nanoKey != null && !nanoKey.isBlank()) {
+            config.getProviders().getDeepseek().setApiKey(nanoKey);
+            logger.info("Using API key from NANOCODE_API_KEY/NANOBOT_API_KEY env");
             found = true;
         }
         return found;
     }
 
     private static boolean applyWorkspaceSecret(Config config) {
-        String ws = System.getProperty("nanobot.workspace");
+        String ws = NanoCodeEnv.getProperty("nanocode.workspace", "nanobot.workspace");
         if (ws == null || ws.isBlank()) return false;
-        Path f = Paths.get(ws, ".nanobot", "secret.yaml");
+        Path f = NanoCodeEnv.resolveRuntimeDir(ws).resolve("secret.yaml");
         if (Files.exists(f)) { mergeFromFile(f, config); return true; }
         return false;
     }
@@ -467,15 +468,15 @@ public class ConfigLoader {
         // 这是简化实现
         // 完整的实现需要反射或表达式语言
         
-        // 示例：检查 NANOBOT_MODEL 环境变量
-        String modelEnv = System.getenv("NANOBOT_MODEL");
+        // 示例：检查 NANOCODE_MODEL 环境变量（兼容旧 NANOBOT_MODEL）
+        String modelEnv = NanoCodeEnv.getEnv("NANOCODE_MODEL", "NANOBOT_MODEL");
         if (modelEnv != null && !modelEnv.isBlank()) {
             config.getAgents().getDefaults().setModel(modelEnv);
             logger.info("Model overridden by environment: {}", modelEnv);
         }
-        
-        // 示例：检查 NANOBOT_API_KEY 环境变量
-        String apiKeyEnv = System.getenv("NANOBOT_API_KEY");
+
+        // 示例：检查 NANOCODE_API_KEY 环境变量（兼容旧 NANOBOT_API_KEY）
+        String apiKeyEnv = NanoCodeEnv.getEnv("NANOCODE_API_KEY", "NANOBOT_API_KEY");
         if (apiKeyEnv != null && !apiKeyEnv.isBlank()) {
             config.getProviders().getAnthropic().setApiKey(apiKeyEnv);
             logger.info("API key overridden by environment");
@@ -493,7 +494,9 @@ public class ConfigLoader {
      */
     public static Path getUserConfigPath() {
         String home = System.getProperty("user.home");
-        return Paths.get(home, USER_CONFIG_DIR, DEFAULT_CONFIG_FILE);
+        // 优先 ~/.nanocode，若不存在且 ~/.nanobot 存在则回退旧目录
+        Path dir = NanoCodeEnv.resolveRuntimeDir(home, USER_CONFIG_DIR);
+        return dir.resolve(DEFAULT_CONFIG_FILE);
     }
     
     /**

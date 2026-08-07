@@ -18,9 +18,9 @@ import java.util.List;
  * 负责规则的加载、管理和提示词生成。
  * 
  * **规则搜索路径**（按优先级）：
- * 1. 项目级：NANOBOT.md（项目根目录）
- * 2. 项目级：.nanobot/rules/*.md
- * 3. 用户级：~/.nanobot/rules/*.md
+ * 1. 项目级：NANOCODE.md（项目根目录）
+ * 2. 项目级：.nanocode/rules/*.md
+ * 3. 用户级：~/.nanocode/rules/*.md
  * 4. 全局级：内置默认规则
  * 
  * **使用示例**：
@@ -55,20 +55,21 @@ public class RuleManager {
     private void initRulePaths() {
         Path workspace = Paths.get(config.getWorkspacePath());
 
-        // 1. 项目级规则文件 NANOBOT.md
-        Path claudeMd = workspace.resolve("NANOBOT.md");
+        // 1. 项目级规则文件 NANOCODE.md（旧 NANOBOT.md 兼容）
+        Path claudeMd = workspace.resolve(com.nanocode.config.NanoCodeEnv.resolveMemoryFileName(workspace));
         if (Files.exists(claudeMd)) {
             rulePaths.add(claudeMd.toAbsolutePath().normalize());
         }
 
-        // 2. 项目级规则目录 {workspace}/.nanobot/rules/
+        // 2. 项目级规则目录 {workspace}/.nanocode/rules/
         Path projectRules = Paths.get(config.getNanoCodeDir(), "rules");
         if (Files.exists(projectRules)) {
             rulePaths.add(projectRules.toAbsolutePath().normalize());
         }
 
-        // 3. 用户级规则目录 ~/.nanobot/rules/（跨项目共享,不变）
-        Path userRules = Paths.get(System.getProperty("user.home"), ".nanobot", "rules");
+        // 3. 用户级规则目录 ~/.nanocode/rules/（跨项目共享；兼容旧 ~/.nanocode）
+        Path userRules = com.nanocode.config.NanoCodeEnv.resolveRuntimeDir(
+                System.getProperty("user.home"), ".nanocode").resolve("rules");
         if (Files.exists(userRules)) {
             rulePaths.add(userRules.toAbsolutePath().normalize());
         }

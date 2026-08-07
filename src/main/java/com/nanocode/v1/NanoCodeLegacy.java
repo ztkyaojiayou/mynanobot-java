@@ -30,7 +30,7 @@ public class NanoCodeLegacy {
             This version is deprecated and will be removed in future releases.
             
             Please use the Spring Boot version instead:
-              java -jar nanobot-java.jar
+              java -jar nanocode-java.jar
               
             Or use Maven:
               mvn spring-boot:run

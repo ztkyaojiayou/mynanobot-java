@@ -34,13 +34,13 @@ import java.util.concurrent.TimeUnit;
  * 
  * ```bash
  * # 运行
- * java -jar nanobot-java.jar
- * 
+ * java -jar nanocode-java.jar
+ *
  * # 指定配置
- * java -jar nanobot-java.jar --config /path/to/config.yaml
- * 
+ * java -jar nanocode-java.jar --config /path/to/config.yaml
+ *
  * # 生成示例配置
- * java -jar nanobot-java.jar --generate-config
+ * java -jar nanocode-java.jar --generate-config
  * ```
  */
 public class NanoCode {
@@ -159,7 +159,7 @@ public class NanoCode {
         
         // 9. 初始化长期记忆系统（Dream）
         int maxMemories = config.getMemory().getDream().getMaxMemories();
-        java.nio.file.Path memoryDir = java.nio.file.Paths.get(".nanobot", "memory").toAbsolutePath().normalize();
+        java.nio.file.Path memoryDir = java.nio.file.Paths.get(".nanocode", "memory").toAbsolutePath().normalize();
         dream = new com.nanocode.memory.Dream(provider, maxMemories, memoryDir);
         dream.loadFromMemoryFile(memoryDir);
         logger.info("Dream long-term memory initialized");
@@ -411,7 +411,7 @@ public class NanoCode {
             NanoCode-Java - AI Agent
             
             Usage:
-              java -jar nanobot-java.jar [options]
+              java -jar nanocode-java.jar [options]
             
             Options:
               --config, -c <path>   Specify config file path
@@ -420,13 +420,13 @@ public class NanoCode {
             
             Environment variables:
               OPENAI_API_KEY       OpenAI API key
-              NANOBOT_API_KEY      Anthropic API key
-              NANOBOT_MODEL        Default model
+              NANOCODE_API_KEY      Anthropic API key
+              NANOCODE_MODEL        Default model
             
             Examples:
-              java -jar nanobot-java.jar
-              java -jar nanobot-java.jar --config ~/.nanobot/config.yaml
-              java -jar nanobot-java.jar --generate-config
+              java -jar nanocode-java.jar
+              java -jar nanocode-java.jar --config ~/.nanocode/config.yaml
+              java -jar nanocode-java.jar --generate-config
             """);
     }
     
@@ -435,8 +435,8 @@ public class NanoCode {
      */
     private static void generateConfig() {
         try {
-            var path = java.nio.file.Paths.get(System.getProperty("user.home"), 
-                                              ".nanobot", "config.yaml");
+            var path = com.nanocode.config.NanoCodeEnv.resolveRuntimeDir(
+                    System.getProperty("user.home"), ".nanocode").resolve("config.yaml");
             ConfigLoader.generateExampleConfig(path);
             System.out.println("Example config generated at: " + path);
         } catch (Exception e) {
@@ -491,7 +491,7 @@ public class NanoCode {
             ║    ██║ ╚═╝ ██║ ██║       ██║ ╚████║   ██║     ██║  ██║██║ ╚████║          ║
             ║    ╚═╝     ╚═╝ ╚═╝       ╚═╝  ╚═══╝   ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝          ║
             ║                                                                              ║
-            ║                          my-nanobot v1.0.0                                   ║
+            ║                          my-nanocode v1.0.0                                   ║
             ║              A lightweight AI Agent Framework for Java                        ║
             ║                                                                              ║
             ║    Features:  • Agent Loop    • Memory Management    • Tool System           ║

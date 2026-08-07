@@ -82,7 +82,7 @@ package com.nanocode.hook;
  *   condition: "tool==write_file || tool==edit_file"
  *   action:
  *     type: SCRIPT
- *     script_path: "${NANOBOT_DIR}/hooks/audit.sh"
+ *     script_path: "${NANOCODE_DIR}/hooks/audit.sh"
  *   reject: false
  * </pre>
  */

@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
  * 
  * 加载并解析 MEMORY.md 文件，支持从文件导入长期记忆。
  * 
- * **文件位置**：.nanobot/MEMORY.md
+ * **文件位置**：.nanocode/MEMORY.md
  * 
  * **文件格式**：
  * ```markdown

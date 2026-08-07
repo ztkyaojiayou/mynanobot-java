@@ -11,18 +11,18 @@ import java.nio.file.Path;
  * - 我的目标和使命
  * - 我的价值观
  * 
- * **文件位置**：.nanobot/SOUL.md
+ * **文件位置**：.nanocode/SOUL.md
  * 
  * **文件格式**：
  * ```markdown
  * ---
- * name: my-nanobot
+ * name: my-nanocode
  * role: AI 助手
  * version: 1.0.0
  * ---
  * # 我的身份
  * 
- * 我是 my-nanobot，一个强大的 AI 助手。
+ * 我是 my-nanocode，一个强大的 AI 助手。
  * 
  * ## 我的使命
  * 帮助用户解决问题，提供有价值的信息和建议。

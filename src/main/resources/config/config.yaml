@@ -1,13 +1,13 @@
 # NanoCode-Java 配置文件
 # =====================
 #
-# 复制到 .nanobot/config.yaml 并修改相应值
+# 复制到 .nanocode/config.yaml 并修改相应值
 
 # Agent 配置
 agents:
   defaults:
     # 工作区根路径。分发后默认 "." = 当前目录。
-    # 本地开发多项目时，在 .nanobot/config.yaml 中覆写为 ".."
+    # 本地开发多项目时，在 .nanocode/config.yaml 中覆写为 ".."
     workspace: "."
     
     # 使用 DeepSeek 模型

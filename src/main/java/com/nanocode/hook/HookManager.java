@@ -447,14 +447,24 @@ public class HookManager {
         if (scriptPath == null || scriptPath.isBlank()) {
             return new HookResult(hook.id(), "(empty script path)", true, hook.reject());
         }
-        // 展开环境变量引用
+        // 展开环境变量引用（兼容：${NANOCODE_DIR} 优先，旧 ${NANOBOT_DIR} 也展开）
+        String runtimeDir = com.nanocode.config.NanoCodeEnv.getProperty("nanocode.dir", "nanobot.dir");
+        if (runtimeDir == null || runtimeDir.isBlank()) runtimeDir = ".nanocode";
         String expanded = scriptPath
-                .replace("${NANOBOT_DIR}", System.getProperty("nanobot.dir", ".nanobot"));
+                .replace("${NANOCODE_DIR}", runtimeDir)
+                .replace("${NANOBOT_DIR}", runtimeDir);
         try {
             ProcessBuilder pb = new ProcessBuilder("bash", expanded);
-            pb.environment().put("NANOBOT_EVENT", ctx.event() != null ? ctx.event().name() : "");
-            pb.environment().put("NANOBOT_TOOL", ctx.toolName() != null ? ctx.toolName() : "");
-            pb.environment().put("NANOBOT_SESSION", ctx.sessionId() != null ? ctx.sessionId() : "");
+            // 双写新旧环境变量，兼容已有钩子脚本
+            String evt = ctx.event() != null ? ctx.event().name() : "";
+            String tool = ctx.toolName() != null ? ctx.toolName() : "";
+            String sid = ctx.sessionId() != null ? ctx.sessionId() : "";
+            pb.environment().put("NANOCODE_EVENT", evt);
+            pb.environment().put("NANOCODE_TOOL", tool);
+            pb.environment().put("NANOCODE_SESSION", sid);
+            pb.environment().put("NANOBOT_EVENT", evt);
+            pb.environment().put("NANOBOT_TOOL", tool);
+            pb.environment().put("NANOBOT_SESSION", sid);
             pb.redirectErrorStream(true);
 
             Process proc = pb.start();

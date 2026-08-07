@@ -569,7 +569,7 @@ public class CliChannel {
             return;
         }
         try {
-            String ws = System.getProperty("nanobot.workspace");
+            String ws = com.nanocode.config.NanoCodeEnv.getProperty("nanocode.workspace", "nanobot.workspace");
             ExecTool exec = (ws != null && !ws.isBlank())
                     ? new ExecTool(new java.io.File(ws))
                     : new ExecTool();
@@ -795,7 +795,7 @@ public class CliChannel {
         Path path = Paths.get(expanded);
         if (!path.isAbsolute()) {
             // 使用 workspace 作为基准（而非 user.dir — pushd 会污染）
-            String ws = System.getProperty("nanobot.workspace");
+            String ws = com.nanocode.config.NanoCodeEnv.getProperty("nanocode.workspace", "nanobot.workspace");
             Path base = (ws != null && !ws.isBlank())
                     ? Paths.get(ws)
                     : Paths.get(System.getProperty("user.dir", "."));
@@ -1117,7 +1117,8 @@ public class CliChannel {
         // 模型、目录
         String model = "deepseek-chat";
         try { var c = NanoCodeRunner.getConfig(); if (c != null) model = c.getAgents().getDefaults().getModel(); } catch (Exception ignored) {}
-        String ws = System.getProperty("nanobot.workspace", System.getProperty("user.dir", "."));
+        String ws = com.nanocode.config.NanoCodeEnv.getProperty("nanocode.workspace", "nanobot.workspace");
+        if (ws == null || ws.isBlank()) ws = System.getProperty("user.dir", ".");
         if (ws.length() > leftW - 12) {
             int cut = ws.length() - (leftW - 15);
             int sep = Math.max(ws.indexOf('\\', cut), ws.indexOf('/', cut));
@@ -1168,7 +1169,8 @@ public class CliChannel {
 
         String model = "deepseek-chat";
         try { var c = NanoCodeRunner.getConfig(); if (c != null) model = c.getAgents().getDefaults().getModel(); } catch (Exception ignored) {}
-        String ws = System.getProperty("nanobot.workspace", System.getProperty("user.dir", "."));
+        String ws = com.nanocode.config.NanoCodeEnv.getProperty("nanocode.workspace", "nanobot.workspace");
+        if (ws == null || ws.isBlank()) ws = System.getProperty("user.dir", ".");
         if (ws.length() > bw - 12) ws = "..." + ws.substring(ws.length() - (bw - 15));
 
         System.out.println(padAscii("|  模型: " + model, bw));

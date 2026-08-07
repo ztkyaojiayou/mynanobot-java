@@ -28,15 +28,16 @@ public class IdentityLoader {
         Pattern.compile("^---\\s*\\n([\\s\\S]*?)\\n---\\s*\\n([\\s\\S]*)$");
 
     /**
-     * 加载 SOUL.md：workspace/.nanobot > ~/.nanobot > classpath > 默认模板
+     * 加载 SOUL.md：workspace/.nanocode > ~/.nanocode > classpath > 默认模板（兼容旧 .nanobot）
      */
     public static Soul loadSoul(Path workspaceNanoCode) {
-        // ① workspace/.nanobot/SOUL.md
+        // ① workspace/.nanocode/SOUL.md
         Path f = workspaceNanoCode.resolve("SOUL.md");
         if (Files.exists(f)) return loadSoulFromFile(f);
 
-        // ② ~/.nanobot/SOUL.md
-        f = Paths.get(System.getProperty("user.home", "."), ".nanobot", "SOUL.md");
+        // ② ~/.nanocode/SOUL.md（兼容旧 ~/.nanobot）
+        f = com.nanocode.config.NanoCodeEnv.resolveRuntimeDir(
+                System.getProperty("user.home", "."), ".nanocode").resolve("SOUL.md");
         if (Files.exists(f)) return loadSoulFromFile(f);
 
         // ③ classpath:config/SOUL.md
@@ -59,12 +60,13 @@ public class IdentityLoader {
     }
 
     /**
-     * 加载 IDENTITY.md：workspace/.nanobot > ~/.nanobot > classpath > 默认
+     * 加载 IDENTITY.md：workspace/.nanocode > ~/.nanocode > classpath > 默认（兼容旧 .nanobot）
      */
     public static Identity loadIdentity(Path workspaceNanoCode) {
         Path f = workspaceNanoCode.resolve("IDENTITY.md");
         if (Files.exists(f)) return loadIdentityFromFile(f);
-        f = Paths.get(System.getProperty("user.home", "."), ".nanobot", "IDENTITY.md");
+        f = com.nanocode.config.NanoCodeEnv.resolveRuntimeDir(
+                System.getProperty("user.home", "."), ".nanocode").resolve("IDENTITY.md");
         if (Files.exists(f)) return loadIdentityFromFile(f);
         String content = readClasspath("config/IDENTITY.md");
         if (content != null) return parseIdentity(content, null);
@@ -83,12 +85,13 @@ public class IdentityLoader {
     }
 
     /**
-     * 加载 USER.md：workspace/.nanobot > ~/.nanobot > classpath > 默认
+     * 加载 USER.md：workspace/.nanocode > ~/.nanocode > classpath > 默认（兼容旧 .nanobot）
      */
     public static UserProfile loadUserProfile(Path workspaceNanoCode) {
         Path f = workspaceNanoCode.resolve("USER.md");
         if (Files.exists(f)) return loadUserFromFile(f);
-        f = Paths.get(System.getProperty("user.home", "."), ".nanobot", "USER.md");
+        f = com.nanocode.config.NanoCodeEnv.resolveRuntimeDir(
+                System.getProperty("user.home", "."), ".nanocode").resolve("USER.md");
         if (Files.exists(f)) return loadUserFromFile(f);
         String content = readClasspath("config/USER.md");
         if (content != null) return parseUserProfile(content, null);
@@ -130,13 +133,13 @@ public class IdentityLoader {
         return """
                 # 我的身份
 
-                我是 my-nanobot，一个基于 Java 实现的轻量级 AI Agent 框架驱动的智能助手。
+                我是 my-nanocode，一个基于 Java 实现的轻量级 AI Agent 框架驱动的智能助手。
 
                 ## ⚠️ 重要身份规则（必须严格遵守）
                 - 你不是 Claude，你不是 DeepSeek，你不是 OpenAI 的产品
                 - 你不属于 Anthropic、Google、Meta 或任何其他 AI 公司
-                - 你的名字是 my-nanobot，你是用户自己的 AI 助手
-                - 当用户问"你是谁"或类似问题时，必须回答你是 my-nanobot
+                - 你的名字是 my-nanocode，你是用户自己的 AI 助手
+                - 当用户问"你是谁"或类似问题时，必须回答你是 my-nanocode
                 - 永远不要自称 Claude、DeepSeek 或其他 AI 产品的名字
 
                 ## 我的使命
@@ -190,7 +193,7 @@ public class IdentityLoader {
     private static Soul parseSoul(String content, Path filePath) {
         Matcher matcher = FRONTMATTER_PATTERN.matcher(content);
 
-        String name = "my-nanobot";
+        String name = "my-nanocode";
         String role = "AI 助手";
         String version = "1.0.0";
         String description = content;
@@ -371,13 +374,13 @@ public class IdentityLoader {
         String description = """
             # 我的身份
 
-            我是 my-nanobot，一个基于 Java 实现的轻量级 AI Agent 框架驱动的智能助手。
+            我是 my-nanocode，一个基于 Java 实现的轻量级 AI Agent 框架驱动的智能助手。
 
             ## ⚠️ 重要身份规则（必须严格遵守）
             - 你不是 Claude，你不是 DeepSeek，你不是 OpenAI 的产品
             - 你不属于 Anthropic、Google、Meta 或任何其他 AI 公司
-            - 你的名字是 my-nanobot，你是用户自己的 AI 助手
-            - 当用户问"你是谁"或类似问题时，必须回答你是 my-nanobot
+            - 你的名字是 my-nanocode，你是用户自己的 AI 助手
+            - 当用户问"你是谁"或类似问题时，必须回答你是 my-nanocode
             - 永远不要自称 Claude、DeepSeek 或其他 AI 产品的名字
 
             ## 我的使命
@@ -388,7 +391,7 @@ public class IdentityLoader {
             - 乐于助人
             - 持续学习
             """;
-        return new SoulImpl("my-nanobot", "AI 助手", "1.0.0", description, null);
+        return new SoulImpl("my-nanocode", "AI 助手", "1.0.0", description, null);
     }
 
     /**

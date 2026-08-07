@@ -51,8 +51,8 @@ import org.springframework.context.annotation.Configuration;
  *     |
  *     +-- 上下文注入三件套:
  *     |     +-- IdentityManager  -> SOUL.md / IDENTITY.md / USER.md
- *     |     +-- RuleManager      -> .nanobot/rules/*.md
- *     |     +-- SkillManager     -> .nanobot/skills/{name}/SKILL.md
+ *     |     +-- RuleManager      -> .nanocode/rules/*.md
+ *     |     +-- SkillManager     -> .nanocode/skills/{name}/SKILL.md
  *     |
  *     +-- LLM 通道:
  *     |     +-- LLMProvider -> DeepSeek (HTTP + SSE streaming)
@@ -79,7 +79,7 @@ import org.springframework.context.annotation.Configuration;
  *       -> RESTORE: SessionManager restores history
  *       -> COMPACT: Consolidator compacts if over token budget
  *       -> COMMAND: handle /stop /clear /compact /remember etc.
- *       -> BUILD: IdentityManager + Dream + NANOBOT.md + Rules -> System Prompt
+ *       -> BUILD: IdentityManager + Dream + NANOCODE.md + Rules -> System Prompt
  *       -> RUN: LLMProvider.chat() + ToolRegistry tool-call loop
  *       -> SAVE: SessionManager saves + Dream.extractAndStore() async
  *       -> RESPOND: MessageBus.publishOutbound(response)
@@ -102,7 +102,7 @@ public class NanoCodeConfig {
      * 全局配置 — 一切 Bean 的"参数源头".
      *
      * <h3>加载优先级</h3>
-     * {@code ~/.nanobot/config.yaml} → {@code ./config.yaml} → classpath 默认值.
+     * {@code ~/.nanocode/config.yaml} → {@code ./config.yaml} → classpath 默认值.
      * ConfigLoader 自动合并 config.yaml（默认配置）和 secret.yaml（API Key）.
      *
      * <h3>启动即校验</h3>
@@ -314,7 +314,7 @@ public class NanoCodeConfig {
     /**
      * 身份管理器 — 定义 Agent "是谁".
      *
-     * 加载 {@code .nanobot/SOUL.md}（人设）+ {@code IDENTITY.md}（个性）+ {@code USER.md}（用户画像）.
+     * 加载 {@code .nanocode/SOUL.md}（人设）+ {@code IDENTITY.md}（个性）+ {@code USER.md}（用户画像）.
      * 文件不存在时自动生成默认模板.
      *
      * 每次对话 BUILD 阶段，BuildState 调用 {@code identityManager.getSystemPrompt()} 注入.
@@ -332,9 +332,9 @@ public class NanoCodeConfig {
      *
      * 加载来源（按优先级）：
      * <ol>
-     *   <li>{@code NANOBOT.md} — 项目根目录，项目级事实和约定</li>
-     *   <li>{@code .nanobot/rules/*.md} — 项目级规则（编码规范、安全红线、Git 工作流）</li>
-     *   <li>{@code ~/.nanobot/rules/*.md} — 用户级规则（跨所有项目生效）</li>
+     *   <li>{@code NANOCODE.md} — 项目根目录，项目级事实和约定</li>
+     *   <li>{@code .nanocode/rules/*.md} — 项目级规则（编码规范、安全红线、Git 工作流）</li>
+     *   <li>{@code ~/.nanocode/rules/*.md} — 用户级规则（跨所有项目生效）</li>
      * </ol>
      *
      * 每次对话 BUILD 阶段，BuildState 将规则注入 System Prompt 末尾.
@@ -350,7 +350,7 @@ public class NanoCodeConfig {
     /**
      * 技能管理器 — 定义 Agent "有哪些可复用的专业能力".
      *
-     * 加载 {@code .nanobot/skills/<name>/SKILL.md}，每个子目录一个技能.
+     * 加载 {@code .nanocode/skills/<name>/SKILL.md}，每个子目录一个技能.
      * LLM 通过 {@code /skill-name} 或 {@code use_skill} 工具激活技能.
      *
      * 每次对话 BUILD 阶段，BuildState 将技能目录（仅名称+描述，省 token）注入 System Prompt.
@@ -370,7 +370,7 @@ public class NanoCodeConfig {
     /**
      * 会话管理器 — 对话历史的"存档柜".
      *
-     * 每次对话 RESTORE 阶段从 {@code .nanobot/sessions/{key}/history.jsonl} 恢复历史，
+     * 每次对话 RESTORE 阶段从 {@code .nanocode/sessions/{key}/history.jsonl} 恢复历史，
      * SAVE 阶段增量追加写入.
      *
      * 锁策略：每个 sessionKey 一把独立锁，不同会话互不阻塞.
@@ -401,7 +401,7 @@ public class NanoCodeConfig {
      * <ol>
      *   <li><b>提取（异步 fire-and-forget）</b>：SAVE 状态调 LLM 分析对话，
      *       增量节流——对话新增不足 5000 字符直接跳过（省 LLM 费用）</li>
-     *   <li><b>存储</b>：Jackson 解析 LLM 返回的 JSON → 写入 {@code .nanobot/memory/MEMORY.md}</li>
+     *   <li><b>存储</b>：Jackson 解析 LLM 返回的 JSON → 写入 {@code .nanocode/memory/MEMORY.md}</li>
      *   <li><b>检索（同步）</b>：BUILD 阶段关键词匹配 + 重要性加权，取 top 5 注入 System Prompt</li>
      *   <li><b>手动触发</b>：{@code /remember} 命令强行提取，无视节流阈值</li>
      * </ol>
@@ -449,7 +449,7 @@ public class NanoCodeConfig {
      */
     @Bean
     public com.nanocode.hook.HookManager hookManager(Config config) {
-        // HookLoader 负责加载（config.yaml → .nanobot/hooks/ 文件系统 → BuiltinHooks 回退）
+        // HookLoader 负责加载（config.yaml → .nanocode/hooks/ 文件系统 → BuiltinHooks 回退）
         java.util.List<com.nanocode.hook.Hook> hooks = com.nanocode.hook.HookLoader.load(config);
         com.nanocode.hook.HookManager hm = new com.nanocode.hook.HookManager();
         hm.load(hooks);

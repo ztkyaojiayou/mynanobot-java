@@ -18,8 +18,8 @@ import java.util.*;
  * 负责技能的加载、管理和执行。
  * 
  * **技能搜索路径**（按优先级）：
- * 1. 项目级：./.nanobot/skills/
- * 2. 用户级：~/.nanobot/skills/
+ * 1. 项目级：./.nanocode/skills/
+ * 2. 用户级：~/.nanocode/skills/
  * 
  * **使用示例**：
  * ```java
@@ -57,8 +57,9 @@ public class SkillManager {
             skillPaths.add(projectSkills.toAbsolutePath().normalize());
         }
 
-        // 2. 用户级技能目录 ~/.nanobot/skills/（跨项目共享,不变）
-        Path userSkills = Paths.get(System.getProperty("user.home"), ".nanobot", "skills");
+        // 2. 用户级技能目录 ~/.nanocode/skills/（跨项目共享；兼容旧 ~/.nanobot）
+        Path userSkills = com.nanocode.config.NanoCodeEnv.resolveRuntimeDir(
+                System.getProperty("user.home"), ".nanocode").resolve("skills");
         if (Files.exists(userSkills)) {
             skillPaths.add(userSkills.toAbsolutePath().normalize());
         }

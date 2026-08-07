@@ -13,7 +13,7 @@ import java.util.List;
  * - 沟通方式
  * - 禁忌事项
  * 
- * **文件位置**：.nanobot/IDENTITY.md
+ * **文件位置**：.nanocode/IDENTITY.md
  * 
  * **文件格式**：
  * ```markdown

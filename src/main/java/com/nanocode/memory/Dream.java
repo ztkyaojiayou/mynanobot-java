@@ -57,7 +57,7 @@ public class Dream {
      *
      * @param llmProvider LLM 提供商，用于记忆分析和检索
      * @param maxMemories 最大记忆数量限制
-     * @param memoryDir 记忆文件存储目录（如 .nanobot/memory）
+     * @param memoryDir 记忆文件存储目录（如 .nanocode/memory）
      */
     public Dream(LLMProvider llmProvider, int maxMemories, Path memoryDir) {
         this.llmProvider = llmProvider;
@@ -124,7 +124,7 @@ public class Dream {
                     }
                 }
                 if (!stored.isEmpty()) {
-                    // 自动持久化到 .nanobot/memory/MEMORY.md
+                    // 自动持久化到 .nanocode/memory/MEMORY.md
                     saveToMemoryFile(memoryDir);
                 }
                 logger.info("Extracted {} memories from session {}", stored.size(), sessionId);
