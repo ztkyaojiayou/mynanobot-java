@@ -92,6 +92,13 @@ public class CliChannel {
     /** 终端输入锁——CancelMonitor 和交互对话框共用，防抢 System.in */
     private final Object terminalLock = new Object();
 
+    /** 对话框回答挂起请求：工具线程发布、主线程 readCliLine 后消费（单 future，confirmLock 保证一次一框） */
+    private volatile java.util.concurrent.CompletableFuture<String> pendingAnswer;
+    /** pendingAnswer 发布/取走互斥锁 */
+    private final Object pendingLock = new Object();
+    /** 对话框串行锁（权限确认 + ask_user 共用），防止并行工具同时弹多个确认框覆盖单 future */
+    private final Object confirmLock = new Object();
+
     /**
      * JLine 终端 — 跨平台原始按键读取（Esc 中断，不干扰 Scanner）
      */
@@ -150,69 +157,28 @@ public class CliChannel {
     }
 
     /**
-     * 交互对话框专用：从 JLine terminal.reader() 逐字符读 + 回显。
-     * 与 CancelMonitor 共用 terminalLock，确保同一时刻只有一个读终端。
+     * 交互对话框专用：读取用户一行回答。
      * <p>
-     * 支持总超时兜底（防"权限确认框无响应 → 永久假死"）：
-     * <ul>
-     *   <li>JLine：reader.read(200) 本身非阻塞，循环内检查 deadline</li>
-     *   <li>CMD/无终端：scanner.nextLine() 无限阻塞无法中断，改用 System.in 轮询</li>
-     * </ul>
+     * 工具线程<b>绝不直接读</b> {@code terminal.reader()} —— JLine NonBlockingReader 非线程安全，
+     * 且与主线程 LineReader / CancelMonitor 并发读会让字符错配或读到空回车 → 确认框误判超时。
+     * 统一改为发布"待回答"请求（pendingAnswer），由<b>主线程</b>读到终端输入行时消费
+     * （主线程在 {@link #readCliLine()} 或 {@link #waitForStreamCompletion()} 两个位置都会消费）。
      *
      * @param timeoutSec 超时秒数，&gt;0 时超时返回 null（调用方按"拒绝/跳过"处理）；&lt;=0 不限制
      */
     private String readInteractiveLine(int timeoutSec) {
-        long deadline = timeoutSec > 0 ? System.currentTimeMillis() + timeoutSec * 1000L : Long.MAX_VALUE;
-        synchronized (terminalLock) {
-            if (terminal == null) {
-                // CMD/无终端：scanner.nextLine() 无限阻塞无法超时，改用 System.in 轮询
-                java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
-                try {
-                    while (System.currentTimeMillis() < deadline) {
-                        if (System.in.available() > 0) {
-                            int ch = System.in.read();
-                            if (ch < 0) break; // EOF
-                            if (ch == '\r') {
-                                // Windows 回车是 \r\n：把紧随的 \n 也消费掉。
-                                // 若不消费，残留的 \n 会在 endDialog() 后被 CancelMonitor 的
-                                // System.in 分支读到（任意输入即中断）→ 选完确认立刻触发 [已中断]。
-                                long waitUntil = System.currentTimeMillis() + 300;
-                                while (System.in.available() == 0 && System.currentTimeMillis() < waitUntil) {
-                                    Thread.sleep(10);
-                                }
-                                if (System.in.available() > 0) System.in.read(); // 消费 \n
-                                break;
-                            }
-                            if (ch == '\n') break;
-                            buf.write(ch);
-                        } else {
-                            Thread.sleep(50);
-                        }
-                    }
-                } catch (Exception e) {
-                    logger.warn("终端读取失败: {}", e.getMessage());
-                }
-                System.out.println();
-                if (buf.size() == 0) return null; // 无输入（超时或 EOF）
-                return new String(buf.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+        java.util.concurrent.CompletableFuture<String> f = new java.util.concurrent.CompletableFuture<>();
+        synchronized (pendingLock) {
+            pendingAnswer = f;
+        }
+        try {
+            return f.get(timeoutSec, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            return null; // 超时/中断/EOF → null，沿用"超时拒绝"语义
+        } finally {
+            synchronized (pendingLock) {
+                if (pendingAnswer == f) pendingAnswer = null; // 防主线程迟到 drain 残留
             }
-            NonBlockingReader reader = terminal.reader();
-            StringBuilder sb = new StringBuilder();
-            try {
-                while (System.currentTimeMillis() < deadline) {
-                    int ch = reader.read(200);
-                    if (ch < 0) continue;
-                    if (ch == '\r' || ch == '\n') break;
-                    sb.append((char) ch);
-                    System.out.print((char) ch);
-                    System.out.flush();
-                }
-            } catch (java.io.IOException e) {
-                logger.warn("终端读取失败: {}", e.getMessage());
-            }
-            System.out.println();
-            if (sb.length() == 0) return null; // 超时或无输入
-            return sb.toString();
         }
     }
 
@@ -488,11 +454,35 @@ public class CliChannel {
         return readLine().trim();
     }
 
+    /**
+     * 消费挂起的对话框回答请求：主线程读到一行输入后调用。
+     * 若存在 pendingAnswer（工具线程正等待确认/ask_user 回答），把本行作为回答 complete 并返回 true；
+     * 否则返回 false（本行作为普通命令/消息处理）。null/空行也能作为回答（null=EOF → 后台按拒绝处理）。
+     */
+    private boolean drainPendingAnswer(String line) {
+        java.util.concurrent.CompletableFuture<String> f;
+        synchronized (pendingLock) {
+            f = pendingAnswer;
+            pendingAnswer = null;
+        }
+        if (f != null) {
+            f.complete(line);
+            return true;
+        }
+        return false;
+    }
+
     /** ③ 主输入循环 */
     private void runInputLoop() {
         while (true) {
             try {
                 String line = readCliLine();
+                // ── 对话框回答路由：存在挂起的确认/ask_user 请求时，本行（含空行/EOF）作为回答消费，
+                //    不进 history、不当作命令/消息。 ──
+                if (drainPendingAnswer(line)) {
+                    if (line == null) break; // EOF 且恰有挂起回答 → 先唤醒后台（null=拒绝）再退出
+                    continue;
+                }
                 if (line == null) break; // EOF(Ctrl+D) → 退出
                 if (line.isEmpty()) continue;
 
@@ -591,7 +581,6 @@ public class CliChannel {
         if (registry == null || registry.getPermissionManager() == null) return;
 
         var trusted = new java.util.concurrent.atomic.AtomicBoolean(false);
-        final Object confirmLock = new Object(); // 防并发工具调用的确认框穿插
 
         registry.getPermissionManager().setInteractiveHandler((tool, params, reason) -> {
             if (trusted.get()) return true;
@@ -641,20 +630,23 @@ public class CliChannel {
         var tool = registry.get("ask_user");
         if (tool instanceof AskUserTool askTool) {
             askTool.setInteractiveHandler(question -> {
-                beginDialog();
-                try {
-                    System.out.println();
-                    System.out.println("❓ " + question);
-                    System.out.print("> ");
-                    System.out.flush();
-                    String answer = readInteractiveLine(DIALOG_TIMEOUT_SECONDS);
-                    if (answer == null) {
-                        // 超时兜底：返回占位文本，让 LLM 感知用户未回答，避免空串被当成"已回答"
-                        return "（用户等待超时未回答）";
+                // 与权限确认共用 confirmLock：一次一个对话框，保证单 pendingAnswer 不被并发覆盖
+                synchronized (confirmLock) {
+                    beginDialog();
+                    try {
+                        System.out.println();
+                        System.out.println("❓ " + question);
+                        System.out.print("> ");
+                        System.out.flush();
+                        String answer = readInteractiveLine(DIALOG_TIMEOUT_SECONDS);
+                        if (answer == null) {
+                            // 超时兜底：返回占位文本，让 LLM 感知用户未回答，避免空串被当成"已回答"
+                            return "（用户等待超时未回答）";
+                        }
+                        return answer.trim();
+                    } finally {
+                        endDialog();
                     }
-                    return answer.trim();
-                } finally {
-                    endDialog();
                 }
             });
         }
@@ -1089,6 +1081,11 @@ public class CliChannel {
         Thread.sleep(200);
         int waited = 0;
         while (currentRequestId != null && waited < 300_000) {
+            // 流式等待期间若出现挂起的对话框回答请求（工具确认/ask_user），
+            // 主线程读一行终端输入作为回答（此时是唯一读终端的线程，无竞争）。
+            if (consumeDialogIfPending()) {
+                continue;
+            }
             Thread.sleep(100);
             waited += 100;
         }
@@ -1097,6 +1094,46 @@ public class CliChannel {
         } else if (currentRequestId != null) {
             System.out.println("\n[超时]");
             currentRequestId = null;
+        }
+    }
+
+    /**
+     * 若存在挂起的对话框回答请求（pendingAnswer 非空），读一行终端输入作为回答并消费
+     * （阻塞到用户输入）。返回 true 表示消费了一行回答。
+     * <p>
+     * 工具确认/ask_user 已在 beginDialog() 置 dialogActive=true，CancelMonitor 会跳过读终端，
+     * 因此这里主线程读终端是独占的，无竞争。
+     */
+    private boolean consumeDialogIfPending() throws InterruptedException {
+        java.util.concurrent.CompletableFuture<String> f;
+        synchronized (pendingLock) {
+            f = pendingAnswer;
+        }
+        if (f == null) return false;
+        String line = readDialogLine();
+        drainPendingAnswer(line);
+        return true;
+    }
+
+    /**
+     * 读取一行终端输入（对话框回答）：JLine LineReader 或 CMD Scanner。
+     * 主线程在读，CancelMonitor 已跳过（dialogActive=true），无竞争。
+     */
+    private String readDialogLine() {
+        if (lineReader != null) {
+            try {
+                String line = lineReader.readLine("");
+                return line == null ? null : line.trim();
+            } catch (EndOfFileException e) {
+                return null; // Ctrl+D
+            } catch (UserInterruptException e) {
+                return "";   // Ctrl+C → 空回答（handler 按拒绝处理）
+            } catch (Exception e) {
+                logger.warn("对话框读取异常，降级 Scanner: {}", e.toString());
+            }
+        }
+        synchronized (scanner) {
+            return scanner.hasNextLine() ? scanner.nextLine().trim() : null;
         }
     }
 
