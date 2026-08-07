@@ -172,7 +172,18 @@ public class CliChannel {
                         if (System.in.available() > 0) {
                             int ch = System.in.read();
                             if (ch < 0) break; // EOF
-                            if (ch == '\r' || ch == '\n') break;
+                            if (ch == '\r') {
+                                // Windows 回车是 \r\n：把紧随的 \n 也消费掉。
+                                // 若不消费，残留的 \n 会在 endDialog() 后被 CancelMonitor 的
+                                // System.in 分支读到（任意输入即中断）→ 选完确认立刻触发 [已中断]。
+                                long waitUntil = System.currentTimeMillis() + 300;
+                                while (System.in.available() == 0 && System.currentTimeMillis() < waitUntil) {
+                                    Thread.sleep(10);
+                                }
+                                if (System.in.available() > 0) System.in.read(); // 消费 \n
+                                break;
+                            }
+                            if (ch == '\n') break;
                             buf.write(ch);
                         } else {
                             Thread.sleep(50);
