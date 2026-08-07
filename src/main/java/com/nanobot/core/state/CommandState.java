@@ -1,52 +1,43 @@
 package com.nanobot.core.state;
 
-import com.nanobot.bus.MessageBus;
-import com.nanobot.bus.OutboundMessage;
+import com.nanobot.command.CommandContext;
+import com.nanobot.command.CommandRegistry;
+import com.nanobot.core.AgentLoop;
 import com.nanobot.core.TurnContext;
 import com.nanobot.core.TurnState;
-import com.nanobot.hook.HookManager;
-import com.nanobot.memory.Consolidator;
-import com.nanobot.memory.Dream;
-import com.nanobot.rules.RuleManager;
-import com.nanobot.session.SessionManager;
 import com.nanobot.skill.SkillManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
-import java.util.Map;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 
 /**
  * COMMAND — 命令分发。
  *
- * <h2>匹配优先级</h2>
+ * <h2>匹配优先级（与 CLI 一致）</h2>
  * <ol>
- *   <li>内置命令（系统级，不能被技能覆盖）：/stop, /clear, /compact, /remember, /skills, /rules</li>
- *   <li>技能斜杠调用：/xxx → SkillRegistry 查找，返回 SKILL.md 全文</li>
+ *   <li>统一注册中心 CommandRegistry 内置命令（/stop /clear /compact /remember /skills /rules /stats）
+ *       与 CLI 共用一套命令类，依赖统一经 ctx.agentLoop() getter 获取</li>
+ *   <li>技能斜杠调用：/xxx → SkillManager 查找，返回 SKILL.md 全文</li>
  *   <li>都不匹配 → BUILD（当作普通消息进入 LLM 处理）</li>
  * </ol>
+ *
+ * <p>命令类统一通过 {@code ctx.out()} 输出：CLI 传 System.out，本状态传收集 buffer，
+ * 执行完把内容作为最终响应返回给 Web 前端（原内置命令 setFinalContent 的行为保留）。
  */
 public class CommandState implements AgentState {
 
     private static final Logger logger = LoggerFactory.getLogger(CommandState.class);
+    private final AgentLoop agentLoop;
     private final SkillManager skillManager;
-    private final RuleManager ruleManager;
-    private final SessionManager sessionManager;
-    private final Consolidator consolidator;
-    private final Dream dream;
-    private final MessageBus messageBus;
-    private final HookManager hookManager;
+    private final CommandRegistry registry;
 
-    public CommandState(SkillManager skillManager, RuleManager ruleManager,
-                        SessionManager sessionManager, Consolidator consolidator,
-                        Dream dream, MessageBus messageBus, HookManager hookManager) {
+    public CommandState(AgentLoop agentLoop, SkillManager skillManager) {
+        this.agentLoop = agentLoop;
         this.skillManager = skillManager;
-        this.ruleManager = ruleManager;
-        this.sessionManager = sessionManager;
-        this.consolidator = consolidator;
-        this.dream = dream;
-        this.messageBus = messageBus;
-        this.hookManager = hookManager;
+        this.registry = CommandRegistry.buildBase();
     }
 
     @Override
@@ -59,206 +50,39 @@ public class CommandState implements AgentState {
         logger.info("CommandState: content='{}', command='{}'", content, command);
 
         // ── ① 内置命令优先（系统级操作不能被用户技能覆盖）──
-        TurnState builtinResult = handleBuiltinCommand(command, ctx);
-        if (builtinResult != null) {
-            logger.info("CommandState: handled by builtin, result={}", builtinResult);
-            return builtinResult;
+        // 内置命令类只用 agentLoop/sessionKey/sessionId/channel/out；toolRegistry、
+        // permissionManager、shutdown 传 null/忽略（Web 不退出进程）。
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        CommandContext cmdCtx = new CommandContext(
+                null,
+                null,
+                agentLoop,
+                ctx.getMessage().getSessionId(),
+                ctx.getSessionKey(),
+                ctx.getMessage().getChannel(),
+                new PrintStream(buffer, true, StandardCharsets.UTF_8),
+                null);
+
+        var result = registry.execute(cmdCtx, content);
+        if (result.isPresent()) {
+            // 命令已执行（boolean 为退出信号，Web 下忽略）；把输出作为最终响应
+            String output = buffer.toString(StandardCharsets.UTF_8).trim();
+            ctx.setFinalContent(output.isEmpty() ? "命令已执行。" : output);
+            return TurnState.DONE;
         }
 
         // ── ② 不是内置命令 → 尝试技能匹配 ──
         if (skillManager != null) {
             SkillManager.SkillCall skillCall = skillManager.parseSlashCommand(content);
             if (skillCall != null) {
-                String result = skillManager.executeSkill(
+                String skillOutput = skillManager.executeSkill(
                         skillCall.skillName(), java.util.Map.of(), skillCall.args());
-                ctx.setFinalContent(result);
+                ctx.setFinalContent(skillOutput);
                 return TurnState.DONE;
             }
         }
 
         // ── ③ 都不匹配 → 当作普通 / 开头消息，进入 LLM ──
         return TurnState.BUILD;
-    }
-
-    /**
-     * 处理内置命令。
-     *
-     * @return 匹配成功返回对应的 TurnState，不匹配返回 null（让调用方继续查技能）
-     */
-    private TurnState handleBuiltinCommand(String command, TurnContext ctx) {
-        return switch (command) {
-            case "/stop" -> {
-                ctx.cancel();
-                ctx.setFinalContent("已停止处理。");
-                yield TurnState.DONE;
-            }
-            case "/clear" -> {
-                sessionManager.clearSession(ctx.getSessionKey());
-                ctx.setFinalContent("会话已清除。");
-                // 发布 _session_cleared 事件到 outboundQueue，通知各通道清空展示
-                publishSessionCleared(ctx);
-                yield TurnState.DONE;
-            }
-            case "/compact" -> handleCompact(ctx);
-            case "/remember" -> handleRemember(ctx);
-            case "/skills" -> {
-                String help = skillManager != null
-                        ? skillManager.getRegistry().getHelp()
-                        : "技能系统未启用。";
-                ctx.setFinalContent(help);
-                yield TurnState.DONE;
-            }
-            case "/rules" -> {
-                String summary = ruleManager != null
-                        ? ruleManager.getRulesSummary()
-                        : "规则系统未启用。";
-                ctx.setFinalContent(summary);
-                yield TurnState.DONE;
-            }
-            case "/stats" -> handleStats(ctx);
-            default -> null;  // 不是内置命令 → 返回 null，让调用方继续
-        };
-    }
-
-    /** /stats — 显示当前会话和全局统计 */
-    private TurnState handleStats(TurnContext ctx) {
-        StringBuilder sb = new StringBuilder("📊 会话统计\n\n");
-
-        // ① 当前会话
-        appendSessionStats(sb, ctx);
-
-        // ② 全局统计
-        appendGlobalStats(sb);
-
-        // ③ 长期记忆
-        if (dream != null) {
-            sb.append("长期记忆: ").append(dream.getMemoryCount()).append(" 条\n");
-        }
-
-        // ④ Hook 系统统计
-        appendHookStats(sb);
-
-        ctx.setFinalContent(sb.toString());
-        return TurnState.DONE;
-    }
-
-    // ── handleStats 子步骤 ──
-
-    /** ① 当前会话统计：消息数、Token 估算、LLM 迭代次数 */
-    private static void appendSessionStats(StringBuilder sb, TurnContext ctx) {
-        var msgs = ctx.getMessages();
-        int msgCount = (int) msgs.stream().filter(m -> !"system".equals(m.get("role"))).count();
-        int tokens = (int) (msgs.stream()
-                .mapToInt(m -> m.getOrDefault("content", "").toString().length()).sum() / 4.0);
-        sb.append("消息数: ").append(msgCount)
-                .append(" 条 · Token 估算: ").append(tokens).append("\n");
-        sb.append("LLM 迭代次: ").append(ctx.getIteration()).append("\n\n");
-    }
-
-    /** ② 全局统计：会话总数、队列大小、订阅者数 */
-    private void appendGlobalStats(StringBuilder sb) {
-        sb.append("📊 全局\n\n");
-        sb.append("会话总数: ").append(sessionManager.getSessionCount()).append(" 个\n");
-        sb.append("入站队列: ").append(messageBus.getInboundSize())
-                .append("/100\n");
-        sb.append("出站队列: ").append(messageBus.getOutboundQueueSize()).append("/1000\n");
-        sb.append("订阅者数: ").append(messageBus.getSubscriberCount()).append("\n");
-    }
-
-    /** ③ Hook 系统统计：事件触发次数、拦截次数、工具耗时（由 HookManager 内置计数器提供） */
-    private void appendHookStats(StringBuilder sb) {
-        if (hookManager == null) return;
-
-        // 各事件触发次数
-        var eventCounts = hookManager.getRunCounts();
-        if (!eventCounts.isEmpty()) {
-            sb.append("\n📊 Hook 事件触发\n\n");
-            eventCounts.forEach((event, count) ->
-                    sb.append("  ").append(event.name()).append(": ").append(count).append(" 次\n"));
-        }
-        sb.append("Hook 拦截: ").append(hookManager.getRejectCount()).append(" 次\n");
-        sb.append("已注册: ").append(hookManager.getHookCount()).append(" 个 Hook\n");
-
-        // 工具耗时（由 HookManager POST_TOOL_USE 自动记录）
-        var timings = hookManager.getToolTimings();
-        if (!timings.isEmpty()) {
-            sb.append("\n📊 工具耗时\n\n");
-            timings.values().stream()
-                    .sorted((a, b) -> Long.compare(b.totalMs(), a.totalMs()))
-                    .limit(10)
-                    .forEach(t -> sb.append("  ").append(t).append("\n"));
-        }
-    }
-
-    /** /compact — 手动触发对话历史压缩 */
-    private TurnState handleCompact(TurnContext ctx) {
-        if (consolidator == null) {
-            ctx.setFinalContent("压缩器未启用。");
-            return TurnState.DONE;
-        }
-        List<Map<String, Object>> messages = ctx.getMessages();
-        int before = messages.size();
-        int tokens = consolidator.getCurrentUsage(messages);
-
-        try {
-            List<Map<String, Object>> compacted = consolidator.consolidate(messages).join();
-            ctx.getMessages().clear();
-            ctx.getMessages().addAll(compacted);
-            int saved = before - compacted.size();
-            int newTokens = consolidator.getCurrentUsage(compacted);
-            ctx.setFinalContent(String.format(
-                    "✅ 上下文已压缩：%d 条消息 → %d 条（减少 %d 条），token 估算 %d → %d",
-                    before, compacted.size(), saved, tokens, newTokens));
-            logger.info("Manual compaction: {} → {} messages", before, compacted.size());
-        } catch (Exception e) {
-            logger.error("Manual compaction failed", e);
-            ctx.setFinalContent("❌ 压缩失败：" + e.getMessage());
-        }
-        return TurnState.DONE;
-    }
-
-    /** /remember — 手动触发长期记忆提取 */
-    private TurnState handleRemember(TurnContext ctx) {
-        if (dream == null) {
-            ctx.setFinalContent("长期记忆系统未启用。");
-            return TurnState.DONE;
-        }
-        String sessionId = ctx.getSessionKey();
-        List<Map<String, Object>> messages = ctx.getMessages();
-
-        try {
-            var stored = dream.extractAndStore(sessionId, messages).join();
-            if (stored.isEmpty()) {
-                ctx.setFinalContent("📝 没有提取到新的长期记忆（可能已存在或增量不足）。");
-            } else {
-                StringBuilder sb = new StringBuilder("✅ 已提取 " + stored.size() + " 条长期记忆：\n");
-                for (var entry : stored) {
-                    sb.append("- ").append(entry.getContent()).append("\n");
-                }
-                ctx.setFinalContent(sb.toString().trim());
-                logger.info("Manual memory extraction: {} entries from session {}",
-                        stored.size(), sessionId);
-            }
-        } catch (Exception e) {
-            logger.error("Manual memory extraction failed", e);
-            ctx.setFinalContent("❌ 记忆提取失败：" + e.getMessage());
-        }
-        return TurnState.DONE;
-    }
-
-    /** 发布 _session_cleared 事件到 outboundQueue，通知各通道清空展示 */
-    private void publishSessionCleared(TurnContext ctx) {
-        try {
-            String requestId = ctx.extractRequestId();
-            OutboundMessage msg = OutboundMessage.builder()
-                    .sessionId(ctx.getSessionKey())
-                    .requestId(requestId)
-                    .channel(ctx.getMessage().getChannel())
-                    .metadata(Map.of("_session_cleared", true))
-                    .build();
-            messageBus.publishToOutboundQueue(msg);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 }

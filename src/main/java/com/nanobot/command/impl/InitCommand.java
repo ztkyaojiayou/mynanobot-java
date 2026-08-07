@@ -47,6 +47,11 @@ public class InitCommand implements Command {
     @Override public String description() { return "分析当前项目并生成 NANOBOT.md"; }
 
     @Override
+    public String usage() {
+        return "  用法: /init\n  分析当前项目（构建文件/目录树/配置/源码采样），生成 NANOBOT.md；\n  LLM 不可用时回退到模板模式";
+    }
+
+    @Override
     public boolean execute(CommandContext ctx, String input) {
         // 确定项目根目录
         Path projectRoot = resolveProjectRoot();

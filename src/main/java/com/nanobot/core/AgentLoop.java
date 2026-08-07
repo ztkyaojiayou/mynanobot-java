@@ -246,6 +246,39 @@ public class AgentLoop implements AutoCloseable {
         this.hookManager = hookManager;
     }
 
+    // ==================== 命令依赖 Getter ====================
+
+    public SessionManager getSessionManager() { return sessionManager; }
+    public MessageBus getMessageBus() { return messageBus; }
+    public SkillManager getSkillManager() { return skillManager; }
+    public RuleManager getRuleManager() { return ruleManager; }
+    public com.nanobot.memory.Consolidator getConsolidator() { return consolidator; }
+    public com.nanobot.memory.Dream getDream() { return dream; }
+    public Config getConfig() { return config; }
+
+    // ==================== 当前轮次追踪（供 /stop 取消） ====================
+
+    /** 当前正在处理的 TurnContext（按 sessionKey 追踪，同会话只跟踪首个 turn） */
+    private final java.util.concurrent.ConcurrentMap<String, TurnContext> currentTurns =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * 取消指定会话正在处理的轮次（/stop）。
+     * 标记 cancel 后，AgentRunner 会在下一 LLM 迭代边界返回"处理已取消"。
+     *
+     * @return 是否找到并标记了取消
+     */
+    public boolean cancelCurrentTurn(String sessionKey) {
+        TurnContext turn = currentTurns.get(sessionKey);
+        if (turn != null) {
+            turn.cancel();
+            logger.info("Cancelled current turn for session: {}", sessionKey);
+            return true;
+        }
+        logger.debug("No active turn to cancel for session: {}", sessionKey);
+        return false;
+    }
+
     // ==================== 生命周期 ====================
 
     /**
@@ -437,15 +470,21 @@ public class AgentLoop implements AutoCloseable {
             // ② 构建 TurnContext
             TurnContext context = createTurnContext(message);
 
-            // ③ 状态机处理--核心，就是一条消息被处理的整个流程，分成多个步骤处理，相当于模板模式！！！
-            String result = processStates(context);
+            // ②.5 注册当前轮次（供 /stop 取消），处理结束移除
+            currentTurns.put(context.getSessionKey(), context);
+            try {
+                // ③ 状态机处理--核心，就是一条消息被处理的整个流程，分成多个步骤处理，相当于模板模式！！！
+                String result = processStates(context);
 
-            // ④ 发送响应 + TURN_END Hook
-            sendResponse(message, result, context);
+                // ④ 发送响应 + TURN_END Hook
+                sendResponse(message, result, context);
 
-            long duration = System.currentTimeMillis() - startTime;
-            logger.info("Message processed in {}ms, tokens: {}", duration, context.getTotalTokens());
-            runPostProcessingHooks(sessionId);
+                long duration = System.currentTimeMillis() - startTime;
+                logger.info("Message processed in {}ms, tokens: {}", duration, context.getTotalTokens());
+                runPostProcessingHooks(sessionId);
+            } finally {
+                currentTurns.remove(context.getSessionKey());
+            }
 
         } catch (Exception e) {
             handleProcessingError(message, sessionId, e);
@@ -558,8 +597,7 @@ public class AgentLoop implements AutoCloseable {
     private void initStateHandlers() {
         stateHandlers.put(TurnState.RESTORE, new com.nanobot.core.state.RestoreState(sessionManager));
         stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(consolidator));
-        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager,
-                sessionManager, consolidator, dream, messageBus, hookManager));
+        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(this, skillManager));
         stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager,
                 () -> planMode, dream, skillManager != null ? skillManager.getRegistry() : null,
                 config.getWorkspacePath(), hookManager));
@@ -574,8 +612,7 @@ public class AgentLoop implements AutoCloseable {
     public void setConsolidator(com.nanobot.memory.Consolidator c) {
         this.consolidator = c;
         stateHandlers.put(TurnState.COMPACT, new com.nanobot.core.state.CompactState(c));
-        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager,
-                sessionManager, c, dream, messageBus, hookManager));
+        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(this, skillManager));
     }
 
     /**
@@ -592,8 +629,7 @@ public class AgentLoop implements AutoCloseable {
         stateHandlers.put(TurnState.BUILD, new com.nanobot.core.state.BuildState(identityManager, ruleManager,
                 () -> planMode, d, skillManager != null ? skillManager.getRegistry() : null,
                 config.getWorkspacePath(), hookManager));
-        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(skillManager, ruleManager,
-                sessionManager, consolidator, d, messageBus, hookManager));
+        stateHandlers.put(TurnState.COMMAND, new com.nanobot.core.state.CommandState(this, skillManager));
     }
 
     // ==================== 响应发送 ====================

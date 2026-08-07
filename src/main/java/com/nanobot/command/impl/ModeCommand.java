@@ -38,6 +38,15 @@ public class ModeCommand implements Command {
     }
 
     @Override
+    public String usage() {
+        return "  用法: /mode [模式]    别名: /plan\n"
+             + "  模式: plan | default | accept_edits | bypass\n"
+             + "  Plan 工作流:\n"
+             + "    /plan           进入规划模式（只读分析 + 出计划）\n"
+             + "    /plan approve   审批通过，切换到执行模式并开始实现";
+    }
+
+    @Override
     public boolean execute(CommandContext ctx, String input) {
         // 提取命令名和参数
         String trimmed = input.startsWith("/") ? input.substring(1).trim() : input.trim();

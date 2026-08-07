@@ -4,16 +4,25 @@ import com.nanobot.NanobotRunner;
 import com.nanobot.bus.InboundMessage;
 import com.nanobot.bus.MessageBus;
 import com.nanobot.bus.OutboundMessage;
+import com.nanobot.command.Command;
 import com.nanobot.command.CommandContext;
 import com.nanobot.command.CommandRegistry;
 import com.nanobot.command.impl.HelpCommand;
+import com.nanobot.command.impl.HistoryCommand;
 import com.nanobot.command.impl.InitCommand;
 import com.nanobot.command.impl.ModeCommand;
 import com.nanobot.command.impl.ResumeCommand;
 import com.nanobot.core.AgentLoop;
 import com.nanobot.tools.impl.AskUserTool;
+import com.nanobot.tools.impl.ExecTool;
 import com.nanobot.v3.tui.MarkdownRenderer;
 import com.nanobot.v3.tui.TerminalStyle;
+import org.jline.reader.Candidate;
+import org.jline.reader.Completer;
+import org.jline.reader.EndOfFileException;
+import org.jline.reader.LineReader;
+import org.jline.reader.LineReaderBuilder;
+import org.jline.reader.UserInterruptException;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
 import org.jline.utils.NonBlockingReader;
@@ -52,7 +61,8 @@ public class CliChannel {
     private AtomicBoolean consumerRunning;
     private Thread consumerThread;
     private final CommandRegistry commands;
-    private final CommandContext cmdCtx;
+    /** 命令上下文（非 final：/resume 切换会话后重建，sessionKey 跟随新会话） */
+    private CommandContext cmdCtx;
 
     private final ConfigurableApplicationContext appContext;
 
@@ -76,6 +86,12 @@ public class CliChannel {
      * JLine 终端 — 跨平台原始按键读取（Esc 中断，不干扰 Scanner）
      */
     private final Terminal terminal;
+
+    /**
+     * JLine 行编辑器 — 行编辑 + Tab 斜杠命令补全 + 历史浏览。
+     * Unix / Windows Terminal 启用；Windows CMD 或初始化失败 → null，降级 Scanner。
+     */
+    private LineReader lineReader;
 
     /** 命令历史（最近 50 条） */
     private final java.util.LinkedList<String> inputHistory = new java.util.LinkedList<>();
@@ -158,17 +174,19 @@ public class CliChannel {
         }
         this.appContext = appContext;
 
-        // ── 终端检测：CMD(纯文本) / WT(彩色无JLine) / Unix(彩色+JLine) ──
+        // ── 终端检测：CMD(纯文本降级 Scanner) / WT(彩色+JLine) / Unix(彩色+JLine) ──
         boolean isWin = System.getProperty("os.name", "").toLowerCase().contains("win");
         boolean isWinTerm = isWin && System.getenv("WT_SESSION") != null;
 
-        // JLine：仅 Unix 初始化（Windows 统一跳过，避免 dumb terminal 警告）
+        // JLine：Unix 或 Windows Terminal（CMD 统一降级 Scanner，避免 dumb terminal 警告）
+        // system(true)：无法创建系统终端（无 tty / 无原生支持）时抛异常而非静默回退 dumb
         Terminal t = null;
-        if (!isWin) {
+        boolean tryJLine = !isWin || isWinTerm;
+        if (tryJLine) {
             try {
-                t = TerminalBuilder.builder().build();
+                t = TerminalBuilder.builder().system(true).build();
             } catch (Exception e) {
-                logger.debug("终端初始化失败: {}", e.getMessage());
+                logger.debug("JLine 终端初始化失败: {}", e.getMessage());
             }
         }
         this.terminal = t;
@@ -176,18 +194,18 @@ public class CliChannel {
         // ANSI：仅 CMD 关闭，WT/Unix 启用
         if (isWin && !isWinTerm) {
             TerminalStyle.disable();
-            logger.info("CMD 终端，ANSI 已关闭");
+            logger.info("CMD 终端，ANSI 已关闭（Scanner 降级）");
         } else if (isWinTerm) {
-            logger.info("Windows Terminal，ANSI 已启用（无 JLine）");
+            logger.info("Windows Terminal，ANSI 已启用 (jline={})",
+                    t != null ? t.getType() : "null");
         } else {
             logger.info("Unix 终端 (jline={})，ANSI 已启用",
                     t != null ? t.getType() : "null");
         }
 
-        // 初始化命令注册中心
-        var registry = NanobotRunner.getToolRegistry();
-        this.cmdCtx = new CommandContext(registry, registry != null ? registry.getPermissionManager() : null, agentLoop, sessionId, appContext::close);
-        this.commands = new CommandRegistry();
+        // 初始化命令注册中心：统一注册中心（内置命令 + 通道专属命令）
+        this.cmdCtx = buildCmdCtx();
+        this.commands = CommandRegistry.buildBase();
         this.commands.register(new ModeCommand());
         this.commands.register(new HelpCommand(commands));
         this.commands.register(new InitCommand());
@@ -202,8 +220,62 @@ public class CliChannel {
             this.sessionId = sessionKey.startsWith(channelPrefix)
                     ? sessionKey.substring(channelPrefix.length())
                     : sessionKey;
+            // 会话切换后重建命令上下文，sessionKey 跟随新会话（/clear /compact /stop 等才准确）
+            this.cmdCtx = buildCmdCtx();
             System.out.println("会话已切换至: " + sessionKey + "，历史上下文将在下一条消息中恢复");
         }));
+        this.commands.register(new HistoryCommand(inputHistory));
+
+        // JLine 行编辑器（命令已注册，补全候选可实时查询 commands/技能）
+        this.lineReader = t != null ? buildLineReader(t) : null;
+    }
+
+    /** 构建命令上下文（CLI 的 sessionKey 需带 "cli:" 前缀，与 SessionStore 目录一致） */
+    private CommandContext buildCmdCtx() {
+        var registry = NanobotRunner.getToolRegistry();
+        return new CommandContext(
+                registry,
+                registry != null ? registry.getPermissionManager() : null,
+                agentLoop,
+                sessionId,
+                "cli:" + sessionId,
+                "cli",
+                System.out,
+                appContext::close);
+    }
+
+    /**
+     * 构建 JLine 行编辑器：行编辑 + 斜杠命令补全 + 历史浏览。
+     * <p>
+     * 补全候选动态查询：内置命令（含别名）+ 技能（每次触发实时收集，支持后续新增技能）。
+     * Tab 触发补全，AUTO_LIST 自动列出候选。
+     * DISABLE_EVENT_EXPANSION 必须开启，否则 !ls 会被当作历史事件扩展。
+     */
+    private LineReader buildLineReader(Terminal term) {
+        Completer completer = (reader, parsed, candidates) -> {
+            String buf = parsed.line();
+            if (buf.isEmpty() || buf.charAt(0) != '/') return;
+            List<String> names = new ArrayList<>();
+            for (Command cmd : this.commands.listUnique()) {
+                names.add("/" + cmd.name());
+                for (String alias : cmd.aliases()) names.add("/" + alias);
+            }
+            var sm = agentLoop != null ? agentLoop.getSkillManager() : null;
+            if (sm != null && sm.getRegistry() != null) {
+                for (var skill : sm.getRegistry().getAllSkills()) {
+                    names.add("/" + skill.getName());
+                }
+            }
+            names.stream().filter(n -> n.startsWith(buf)).distinct().sorted()
+                    .forEach(n -> candidates.add(new Candidate(n)));
+        };
+        return LineReaderBuilder.builder()
+                .terminal(term)
+                .completer(completer)
+                .option(LineReader.Option.DISABLE_EVENT_EXPANSION, true)
+                .option(LineReader.Option.AUTO_MENU, true)
+                .option(LineReader.Option.AUTO_LIST, true)
+                .build();
     }
 
     public void start() {
@@ -304,13 +376,41 @@ public class CliChannel {
         System.out.println();
     }
 
+    /**
+     * 读取一行输入：优先 JLine 行编辑器（行编辑 + Tab 补全 + 历史浏览），
+     * Windows CMD 或 JLine 初始化失败时降级 Scanner。
+     *
+     * @return 输入行（trim 后）；null 表示 EOF（Ctrl+D / Scanner 结束）→ 调用方退出
+     */
+    private String readCliLine() {
+        if (lineReader != null) {
+            try {
+                String line = lineReader.readLine(buildPrompt());
+                // JLine 返回后光标停在输入行末尾，补一个换行让后续输出从新行开始
+                System.out.println();
+                return line.trim();
+            } catch (EndOfFileException e) {
+                return null; // Ctrl+D → 退出
+            } catch (UserInterruptException e) {
+                return "";   // Ctrl+C → 忽略本次输入，重新提示
+            } catch (Exception e) {
+                logger.warn("LineReader 异常，降级 Scanner: {}", e.toString());
+                try { terminal.close(); } catch (Exception ignored) {}
+                lineReader = null;
+                return readCliLine(); // 递归走 Scanner 分支
+            }
+        }
+        System.out.print(buildPrompt());
+        System.out.flush();
+        synchronized (scanner) { if (!scanner.hasNextLine()) return null; }
+        return readLine().trim();
+    }
+
     /** ③ 主输入循环 */
     private void runInputLoop() {
         while (true) {
-            System.out.print(buildPrompt());
-            System.out.flush();
-            synchronized (scanner) { if (!scanner.hasNextLine()) break; }
-            String line = readLine().trim();
+            String line = readCliLine();
+            if (line == null) break; // EOF(Ctrl+D) → 退出
             if (line.isEmpty()) continue;
 
             // ── 历史快捷操作 ──
@@ -332,12 +432,33 @@ public class CliChannel {
             inputHistory.addLast(line);
             if (inputHistory.size() > MAX_HISTORY) inputHistory.removeFirst();
 
+            // ── ! bash 直通：!命令 直接执行 shell（复用 ExecTool 的跨平台转换）──
+            // !! / !N 已在上面的历史分支处理；到这里剩下的是 !命令
+            if (line.startsWith("!") && line.length() > 1) {
+                runShellCommand(line.substring(1).trim());
+                continue;
+            }
+
             if (line.startsWith("/")) {
-                String cmdName = extractCmdName(line);
-                if ("clear".equals(cmdName)) { handleClear(); continue; }
-                if ("exit".equals(cmdName) || "q".equals(cmdName) || "quit".equals(cmdName)) { handleExit(); return; }
-                if ("history".equals(cmdName)) { showHistory(); continue; }
-                if (commands.isRegistered(cmdName)) { commands.execute(cmdCtx, line); continue; }
+                // ① 统一注册中心（内置命令：/exit /clear /history /stats /mode ...）
+                var result = commands.execute(cmdCtx, line);
+                if (result.isPresent()) {
+                    if (result.get()) return; // /exit 请求退出 → 跳出循环，走统一清理
+                    continue;
+                }
+                // ② 技能斜杠调用（复用技能系统，如 /commit-generator）
+                var skillManager = agentLoop.getSkillManager();
+                if (skillManager != null) {
+                    var skillCall = skillManager.parseSlashCommand(line);
+                    if (skillCall != null) {
+                        String out = skillManager.executeSkill(
+                                skillCall.skillName(), java.util.Map.of(), skillCall.args());
+                        if (out != null && !out.isBlank()) {
+                            System.out.println(TerminalStyle.dim(out));
+                        }
+                        continue;
+                    }
+                }
                 System.out.println(TerminalStyle.warn("未知命令: " + line + "（输入 /help 查看可用命令）"));
                 continue;
             }
@@ -349,6 +470,30 @@ public class CliChannel {
         consumerThread.interrupt();
         //取消订阅 outbound 扇出队列防止内存泄漏
         messageBus.unsubscribeFromOutbound(subscriberQueue);
+    }
+
+    /**
+     * ! bash 直通 — 复用 ExecTool 直接执行 shell 命令（含 Unix→Windows 命令转换），
+     * 在 workspace 目录下运行，同步等待结果。
+     */
+    private void runShellCommand(String cmd) {
+        if (cmd.isEmpty()) {
+            System.out.println(TerminalStyle.warn("用法: ! <shell命令>，如 !git status"));
+            return;
+        }
+        try {
+            String ws = System.getProperty("nanobot.workspace");
+            ExecTool exec = (ws != null && !ws.isBlank())
+                    ? new ExecTool(new java.io.File(ws))
+                    : new ExecTool();
+            Object result = exec.execute(java.util.Map.of("command", cmd, "timeout", 600)).join();
+            if (result != null) {
+                String out = result.toString();
+                if (!out.isBlank()) System.out.println(out);
+            }
+        } catch (Exception e) {
+            System.out.println(TerminalStyle.warn("命令执行失败: " + e.getMessage()));
+        }
     }
 
     /**
@@ -441,45 +586,6 @@ public class CliChannel {
         }
         sb.append(TerminalStyle.dim(" ")).append(TerminalStyle.B).append("> ").append(TerminalStyle.R);
         return sb.toString();
-    }
-
-    private void showHistory() {
-        if (inputHistory.isEmpty()) { System.out.println(TerminalStyle.dim("暂无历史命令")); return; }
-        System.out.println(TerminalStyle.dim("最近命令（!! 重复上条，!N 指定序号）:"));
-        int idx = 1;
-        for (String h : inputHistory) {
-            System.out.printf("  %s%2d%s %s%n",
-                    TerminalStyle.GRAY, idx++, TerminalStyle.R,
-                    h.length() > 60 ? h.substring(0, 57) + "..." : h);
-        }
-    }
-
-    /** 从输入行提取命令名（去掉 / 前缀，取第一个空格前 token 小写） */
-    private static String extractCmdName(String line) {
-        if (line == null || line.length() <= 1) return "";
-        return line.substring(1).trim().split("\\s+")[0].toLowerCase();
-    }
-
-    /** /clear — 直接调 SessionManager，不经过 MessageBus（避免等待永不来的 _stream_end） */
-    private boolean handleClear() {
-        var sm = NanobotRunner.getSessionManager();
-        if (sm != null) {
-            sm.clearSession(sessionId);
-            System.out.println("会话已清除。");
-        } else {
-            System.out.println("会话管理器未就绪。");
-        }
-        return false;
-    }
-
-    /** /exit — 延迟关闭 Spring 容器，AgentLoop 线程随之终止 */
-    private boolean handleExit() {
-        System.out.println("正在关闭...");
-        new Thread(() -> {
-            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
-            appContext.close();
-        }).start();
-        return true;
     }
 
     // ═══════════════════════════════════════════════════════════════

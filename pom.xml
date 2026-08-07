@@ -76,6 +76,18 @@
             <artifactId>jline-terminal</artifactId>
             <version>3.25.1</version>
         </dependency>
+        <!-- JLine LineReader - 行编辑器（斜杠命令补全、历史浏览） -->
+        <dependency>
+            <groupId>org.jline</groupId>
+            <artifactId>jline-reader</artifactId>
+            <version>3.25.1</version>
+        </dependency>
+        <!-- JLine Windows 原生终端支持（jansi）— 让 Windows Terminal 也能获得真终端 -->
+        <dependency>
+            <groupId>org.jline</groupId>
+            <artifactId>jline-terminal-jansi</artifactId>
+            <version>3.25.1</version>
+        </dependency>
 
         <!-- ==================== JSON 处理 ==================== -->
         <!-- Jackson Core - 核心 JSON 处理 -->

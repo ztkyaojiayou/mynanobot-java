@@ -27,6 +27,13 @@ public class ResumeCommand implements Command {
     @Override public String description() { return "列出或恢复历史会话"; }
 
     @Override
+    public String usage() {
+        return "  用法: /resume [会话key]\n"
+             + "  无参数: 列出最近 5 个会话\n"
+             + "  /resume 会话key: 恢复指定会话的上下文";
+    }
+
+    @Override
     public boolean execute(CommandContext ctx, String input) {
         SessionManager sm = NanobotRunner.getSessionManager();
         if (sm == null) { System.out.println("会话管理器未就绪"); return false; }

@@ -1,5 +1,16 @@
 package com.nanobot.command;
 
+import com.nanobot.command.impl.ClearCommand;
+import com.nanobot.command.impl.CompactCommand;
+import com.nanobot.command.impl.CostCommand;
+import com.nanobot.command.impl.ExitCommand;
+import com.nanobot.command.impl.PermissionsCommand;
+import com.nanobot.command.impl.RememberCommand;
+import com.nanobot.command.impl.RulesCommand;
+import com.nanobot.command.impl.SkillsCommand;
+import com.nanobot.command.impl.StatsCommand;
+import com.nanobot.command.impl.StopCommand;
+
 import java.util.*;
 
 /**
@@ -7,15 +18,36 @@ import java.util.*;
  * <p>
  * 使用:
  * <pre>
- *   CommandRegistry registry = new CommandRegistry();
- *   registry.register(new ExitCommand());
- *   registry.register(new ModeCommand());
- *   boolean shouldExit = registry.execute(ctx, "/mode plan");
+ *   CommandRegistry registry = CommandRegistry.buildBase(); // 全部内置命令
+ *   registry.register(new HistoryCommand(history));         // 通道专属命令
+ *   Optional&lt;Boolean&gt; result = registry.execute(ctx, "/mode plan");
+ *   // result.empty()      → 未注册命令，调用方可 fallback 到技能
+ *   // result.of(true)     → 命令已执行，且请求退出（/exit）
+ *   // result.of(false)    → 命令已执行，正常继续
  * </pre>
  */
 public class CommandRegistry {
 
     private final Map<String, Command> commands = new LinkedHashMap<>();
+
+    /**
+     * 注册全部内置命令（每通道调用一次，新建独立实例，
+     * 避免 CLI 追加 /history 等通道专属命令污染 Web 的 registry）。
+     */
+    public static CommandRegistry buildBase() {
+        CommandRegistry registry = new CommandRegistry();
+        registry.register(new ExitCommand());
+        registry.register(new ClearCommand());
+        registry.register(new CompactCommand());
+        registry.register(new RememberCommand());
+        registry.register(new SkillsCommand());
+        registry.register(new RulesCommand());
+        registry.register(new StatsCommand());
+        registry.register(new StopCommand());
+        registry.register(new CostCommand());
+        registry.register(new PermissionsCommand());
+        return registry;
+    }
 
     /**
      * 注册命令
@@ -33,19 +65,39 @@ public class CommandRegistry {
         return name != null && commands.containsKey(name.toLowerCase());
     }
 
-    /** 获取所有注册的命令（用于 /help 遍历） */
-    public java.util.Collection<Command> getCommands() {
+    /**
+     * 按名称（支持别名、可带 / 前缀）查找命令。供 /help 命令 使用。
+     */
+    public Optional<Command> find(String name) {
+        if (name == null) return Optional.empty();
+        String clean = name.startsWith("/") ? name.substring(1) : name;
+        Command cmd = commands.get(clean.toLowerCase());
+        return cmd != null ? Optional.of(cmd) : Optional.empty();
+    }
+
+    /**
+     * 去重后的命令列表（name + aliases 指向同一实例，这里只保留一份）。
+     * 供 /help 遍历用。
+     */
+    public List<Command> listUnique() {
+        Set<Command> seen = new HashSet<>();
+        return commands.values().stream().filter(seen::add).toList();
+    }
+
+    /** 获取所有注册的命令（含别名条目，遍历时注意去重） */
+    public Collection<Command> getCommands() {
         return commands.values();
     }
 
     /**
-     * 执行命令。
+     * 匹配并执行命令。
      *
      * @param ctx   命令上下文
      * @param input 用户输入行（以 / 开头）
-     * @return true 表示需要终止当前进程
+     * @return 空 Optional 表示未注册命令（调用方可 fallback 到技能）；
+     *         Optional.of(boolean) 表示已执行，boolean=true 请求退出进程（/exit）
      */
-    public Optional<String> execute(CommandContext ctx, String input) {
+    public Optional<Boolean> execute(CommandContext ctx, String input) {
         if (input == null || !input.startsWith("/")) return Optional.empty();
 
         String trimmed = input.substring(1).trim();
@@ -54,15 +106,11 @@ public class CommandRegistry {
         // 提取命令名（空格前）
         int space = trimmed.indexOf(' ');
         String cmdName = (space > 0 ? trimmed.substring(0, space) : trimmed).toLowerCase();
-        //获取对应的命令对象
         Command cmd = commands.get(cmdName);
-        if (cmd == null) {
-            System.out.println("未知命令: " + input + " (输入 /help 查看可用命令)");
-            return Optional.empty();
-        }
-        //执行命令
-        cmd.execute(ctx, input);
-        return Optional.empty();
+        if (cmd == null) return Optional.empty(); // 未注册 → 交调用方 fallback
+
+        // 执行命令，透传终止信号（原来这里把返回值丢弃了）
+        return Optional.of(cmd.execute(ctx, input));
     }
 
     /**
@@ -70,14 +118,11 @@ public class CommandRegistry {
      */
     public String helpText() {
         var sb = new StringBuilder("可用命令:\n");
-        Set<Command> seen = new HashSet<>();
-        for (Command cmd : commands.values()) {
-            if (seen.add(cmd)) {
-                sb.append("  /").append(cmd.name());
-                if (!cmd.aliases().isEmpty())
-                    sb.append(" (").append(String.join(", ", cmd.aliases())).append(")");
-                sb.append("  — ").append(cmd.description()).append("\n");
-            }
+        for (Command cmd : listUnique()) {
+            sb.append("  /").append(cmd.name());
+            if (!cmd.aliases().isEmpty())
+                sb.append(" (").append(String.join(", ", cmd.aliases())).append(")");
+            sb.append("  — ").append(cmd.description()).append("\n");
         }
         return sb.toString();
     }

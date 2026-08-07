@@ -40,6 +40,16 @@ public class SessionManager {
         }
     }
 
+    /**
+     * 覆盖写历史（/compact 等压缩场景用）。saveHistory 是追加式，压缩后行数变少会静默失效。
+     */
+    public void replaceHistory(String sessionKey, List<Map<String, Object>> messages) {
+        synchronized (lock(sessionKey)) {
+            try { store.replaceHistory(sessionKey, messages); }
+            catch (Exception e) { logger.error("Failed to replace history: {}", sessionKey, e); }
+        }
+    }
+
     public Optional<List<Map<String, Object>>> loadHistory(String sessionKey) {
         synchronized (lock(sessionKey)) {
             try { return store.loadHistory(sessionKey); }

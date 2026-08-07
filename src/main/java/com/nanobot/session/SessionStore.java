@@ -59,6 +59,25 @@ class SessionStore {
         }
     }
 
+    /**
+     * 覆盖写历史（用于 /compact 等场景）。
+     * 注意：saveHistory 是追加式（只追加新行），压缩后行数变少会静默不生效，必须用本方法。
+     */
+    void replaceHistory(String sessionKey, List<Map<String, Object>> messages) {
+        Path file = getSessionDir(sessionKey).resolve("history.jsonl");
+        try (BufferedWriter w = Files.newBufferedWriter(file, StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+            if (messages != null) {
+                for (Map<String, Object> m : messages) {
+                    w.write(toJson(m));
+                    w.newLine();
+                }
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to replace history: " + sessionKey, e);
+        }
+    }
+
     Optional<List<Map<String, Object>>> loadHistory(String sessionKey) {
         Path file = getSessionDir(sessionKey).resolve("history.jsonl");
         if (!Files.exists(file)) return Optional.empty();
