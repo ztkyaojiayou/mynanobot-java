@@ -12,9 +12,9 @@
 
     <!-- 文件输出（完整格式，便于排查 CLI 崩溃/异常） -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>logs/nanobot-cli.log</file>
+        <file>logs/nanocode-cli.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>logs/nanobot-cli.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <fileNamePattern>logs/nanocode-cli.%d{yyyy-MM-dd}.log</fileNamePattern>
             <maxHistory>30</maxHistory>
         </rollingPolicy>
         <encoder>

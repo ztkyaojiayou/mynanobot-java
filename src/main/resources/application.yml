@@ -1,9 +1,9 @@
-# Nanobot Spring Boot 配置
+# NanoCode Spring Boot 配置
 # ============================
 
 spring:
   application:
-    name: nanobot-java
+    name: nanocode-java
 
   # 静态资源配置
   web:

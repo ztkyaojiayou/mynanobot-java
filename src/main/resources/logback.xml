@@ -21,9 +21,9 @@
     
     <!-- 文件输出 -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>logs/nanobot.log</file>
+        <file>logs/nanocode.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>logs/nanobot.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <fileNamePattern>logs/nanocode.%d{yyyy-MM-dd}.log</fileNamePattern>
             <maxHistory>30</maxHistory>
         </rollingPolicy>
         <encoder>

@@ -4,7 +4,7 @@ set SCRIPT_DIR=%~dp0..
 set JAVA_HOME=D:/devSoftWare/jdk17/jdk-17.0.19+10
 set PATH=%JAVA_HOME%\bin;%PATH%
 
-set JAR=%SCRIPT_DIR%\target\nanobot-cli.jar
+set JAR=%SCRIPT_DIR%\target\nanocode-cli.jar
 
 set NEED_BUILD=0
 if not exist "%JAR%" set NEED_BUILD=1
