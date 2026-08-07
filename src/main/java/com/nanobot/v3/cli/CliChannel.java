@@ -72,6 +72,13 @@ public class CliChannel {
     private volatile String currentRequestId;
 
     /**
+     * CancelMonitor 线程引用 — 主线程 readLine 前 join，避免它与 LineReader
+     * 并发读同一个 terminal.reader()（JLine NonBlockingReader 非线程安全，并发读
+     * 会让 LineReader 读到假 EOF 而抛 EndOfFileException → CLI 突然退出）。
+     */
+    private volatile Thread cancelMonitorThread;
+
+    /**
      * 中断标志 — 用户在流式输出期间按 Enter 取消当前回复
      */
     private volatile boolean cancelled;
@@ -99,6 +106,8 @@ public class CliChannel {
 
     /** thinking spinner 运行中 */
     private volatile boolean thinking;
+    /** spinner 线程引用 — dialog 开始时 join 等待其清行完成，避免 \r 覆盖确认提示 */
+    private volatile Thread thinkingThread;
 
     /** 上一轮 token 用量（用于 prompt 显示） */
     private volatile int lastTokens = -1;
@@ -114,7 +123,13 @@ public class CliChannel {
     private static Scanner createUtf8Scanner() {
         // 使用系统原生编码（Win CMD=GBK, Unix=UTF-8）
         // chcp 65001 只能改子进程，无法改变用户 CMD 窗口 → 不强行切 UTF-8
-        return new Scanner(System.in, java.nio.charset.Charset.defaultCharset());
+        // 解码器 REPLACE：遇到无法解码的字节（粘贴含 emoji/特殊 Unicode 时很常见）
+        // 替换为 � 而不是抛 MalformedInputException —— 否则 Scanner 抛异常会导致 CLI 崩溃退出
+        java.nio.charset.Charset charset = java.nio.charset.Charset.defaultCharset();
+        java.nio.charset.CharsetDecoder decoder = charset.newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPLACE)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPLACE);
+        return new Scanner(new java.io.InputStreamReader(System.in, decoder));
     }
 
     private String readLine() {
@@ -122,8 +137,9 @@ public class CliChannel {
             try {
                 return scanner.nextLine();
             } catch (RuntimeException e) {
+                // 注意：绝不 close scanner —— Scanner.close() 会连带关闭底层 System.in，
+                // 之后 hasNextLine() 永远返回 false → runInputLoop break → CLI 静默退出
                 logger.warn("Scanner 异常，重建: {}", e.toString());
-                try { scanner.close(); } catch (Exception ignored) {}
                 scanner = createUtf8Scanner();
                 return "";
             }
@@ -210,16 +226,21 @@ public class CliChannel {
         this.commands.register(new HelpCommand(commands));
         this.commands.register(new InitCommand());
         this.commands.register(new ResumeCommand(sessionKey -> {
-            // 取消旧 session 的精准路由订阅，注册新 session 的
-            BlockingQueue<OutboundMessage> oldQueue = this.subscriberQueue;
-            this.subscriberQueue = messageBus.subscribeToOutbound(sessionKey);
-            if (oldQueue != null) messageBus.unsubscribeFromOutbound(this.sessionId, oldQueue);
             // safe key (cli_xxx) → 去掉 channel 前缀，还原原始 sessionId
             // 否则 getSessionKey() 会再次加 channel: → 生成新目录
             String channelPrefix = "cli_";
-            this.sessionId = sessionKey.startsWith(channelPrefix)
+            String newSessionId = sessionKey.startsWith(channelPrefix)
                     ? sessionKey.substring(channelPrefix.length())
                     : sessionKey;
+            // 取消旧 session 的精准路由订阅，注册新 session 的。
+            // 关键：AgentLoop 发布 outbound 时用的是 message.getSessionId()（裸 sessionId），
+            // 所以这里也必须用裸 sessionId 订阅。若用带 cli_ 前缀的 sessionKey 订阅，
+            // Dispatcher 按裸 id 路由时匹配不到 → 流式事件全丢 → currentRequestId 等不到
+            // streamEnd → CLI 卡死 300 秒（切会话后第一条消息就卡）。
+            BlockingQueue<OutboundMessage> oldQueue = this.subscriberQueue;
+            this.subscriberQueue = messageBus.subscribeToOutbound(newSessionId);
+            if (oldQueue != null) messageBus.unsubscribeFromOutbound(this.sessionId, oldQueue);
+            this.sessionId = newSessionId;
             // 会话切换后重建命令上下文，sessionKey 跟随新会话（/clear /compact /stop 等才准确）
             this.cmdCtx = buildCmdCtx();
             System.out.println("会话已切换至: " + sessionKey + "，历史上下文将在下一条消息中恢复");
@@ -384,6 +405,9 @@ public class CliChannel {
      */
     private String readCliLine() {
         if (lineReader != null) {
+            // 确保 CancelMonitor 已退出，LineReader 独占 terminal.reader()
+            // （流式结束后 currentRequestId=null，CancelMonitor 最多 50ms 内自退）
+            stopCancelMonitor();
             try {
                 String line = lineReader.readLine(buildPrompt());
                 // JLine 返回后光标停在输入行末尾，补一个换行让后续输出从新行开始
@@ -394,75 +418,94 @@ public class CliChannel {
             } catch (UserInterruptException e) {
                 return "";   // Ctrl+C → 忽略本次输入，重新提示
             } catch (Exception e) {
-                logger.warn("LineReader 异常，降级 Scanner: {}", e.toString());
-                try { terminal.close(); } catch (Exception ignored) {}
-                lineReader = null;
-                return readCliLine(); // 递归走 Scanner 分支
+                // 偶发异常（多为 reader 竞争）→ 重建 LineReader 而非降级 Scanner，
+                // 避免 System.in 在 JLine 原生终端下不可用导致 CLI 意外退出
+                logger.warn("LineReader 异常，重建 LineReader: {}", e.toString());
+                try { lineReader = buildLineReader(terminal); }
+                catch (Exception e2) {
+                    logger.warn("LineReader 重建失败，降级 Scanner: {}", e2.toString());
+                    lineReader = null;
+                }
+                return readCliLine();
             }
         }
         System.out.print(buildPrompt());
         System.out.flush();
-        synchronized (scanner) { if (!scanner.hasNextLine()) return null; }
+        synchronized (scanner) {
+            try {
+                if (!scanner.hasNextLine()) return null; // 真 EOF(Ctrl+D) → 退出
+            } catch (RuntimeException e) {
+                // 编码异常不能误判为 EOF 退出：重建 scanner 并继续，
+                // 真 EOF 时 nextLine() 会抛 NoSuchElementException 被 readLine 处理
+                logger.warn("Scanner hasNextLine 异常，重建: {}", e.toString());
+                scanner = createUtf8Scanner();
+            }
+        }
         return readLine().trim();
     }
 
     /** ③ 主输入循环 */
     private void runInputLoop() {
         while (true) {
-            String line = readCliLine();
-            if (line == null) break; // EOF(Ctrl+D) → 退出
-            if (line.isEmpty()) continue;
+            try {
+                String line = readCliLine();
+                if (line == null) break; // EOF(Ctrl+D) → 退出
+                if (line.isEmpty()) continue;
 
-            // ── 历史快捷操作 ──
-            if ("!!".equals(line)) {
-                if (inputHistory.isEmpty()) { System.out.println(TerminalStyle.dim("暂无历史命令")); continue; }
-                line = inputHistory.getLast();
-                System.out.println(TerminalStyle.dim("  ! " + line));
-            } else if (line.matches("!\\d+")) {
-                int idx = Integer.parseInt(line.substring(1)) - 1;
-                if (idx < 0 || idx >= inputHistory.size()) {
-                    System.out.println(TerminalStyle.warn("历史索引无效: " + line + "（共 " + inputHistory.size() + " 条）"));
-                    continue;
-                }
-                line = inputHistory.get(idx);
-                System.out.println(TerminalStyle.dim("  ! " + line));
-            }
-
-            if (!inputHistory.isEmpty() && inputHistory.getLast().equals(line)) inputHistory.removeLast();
-            inputHistory.addLast(line);
-            if (inputHistory.size() > MAX_HISTORY) inputHistory.removeFirst();
-
-            // ── ! bash 直通：!命令 直接执行 shell（复用 ExecTool 的跨平台转换）──
-            // !! / !N 已在上面的历史分支处理；到这里剩下的是 !命令
-            if (line.startsWith("!") && line.length() > 1) {
-                runShellCommand(line.substring(1).trim());
-                continue;
-            }
-
-            if (line.startsWith("/")) {
-                // ① 统一注册中心（内置命令：/exit /clear /history /stats /mode ...）
-                var result = commands.execute(cmdCtx, line);
-                if (result.isPresent()) {
-                    if (result.get()) return; // /exit 请求退出 → 跳出循环，走统一清理
-                    continue;
-                }
-                // ② 技能斜杠调用（复用技能系统，如 /commit-generator）
-                var skillManager = agentLoop.getSkillManager();
-                if (skillManager != null) {
-                    var skillCall = skillManager.parseSlashCommand(line);
-                    if (skillCall != null) {
-                        String out = skillManager.executeSkill(
-                                skillCall.skillName(), java.util.Map.of(), skillCall.args());
-                        if (out != null && !out.isBlank()) {
-                            System.out.println(TerminalStyle.dim(out));
-                        }
+                // ── 历史快捷操作 ──
+                if ("!!".equals(line)) {
+                    if (inputHistory.isEmpty()) { System.out.println(TerminalStyle.dim("暂无历史命令")); continue; }
+                    line = inputHistory.getLast();
+                    System.out.println(TerminalStyle.dim("  ! " + line));
+                } else if (line.matches("!\\d+")) {
+                    int idx = Integer.parseInt(line.substring(1)) - 1;
+                    if (idx < 0 || idx >= inputHistory.size()) {
+                        System.out.println(TerminalStyle.warn("历史索引无效: " + line + "（共 " + inputHistory.size() + " 条）"));
                         continue;
                     }
+                    line = inputHistory.get(idx);
+                    System.out.println(TerminalStyle.dim("  ! " + line));
                 }
-                System.out.println(TerminalStyle.warn("未知命令: " + line + "（输入 /help 查看可用命令）"));
-                continue;
+
+                if (!inputHistory.isEmpty() && inputHistory.getLast().equals(line)) inputHistory.removeLast();
+                inputHistory.addLast(line);
+                if (inputHistory.size() > MAX_HISTORY) inputHistory.removeFirst();
+
+                // ── ! bash 直通：!命令 直接执行 shell（复用 ExecTool 的跨平台转换）──
+                // !! / !N 已在上面的历史分支处理；到这里剩下的是 !命令
+                if (line.startsWith("!") && line.length() > 1) {
+                    runShellCommand(line.substring(1).trim());
+                    continue;
+                }
+
+                if (line.startsWith("/")) {
+                    // ① 统一注册中心（内置命令：/exit /clear /history /stats /mode ...）
+                    var result = commands.execute(cmdCtx, line);
+                    if (result.isPresent()) {
+                        if (result.get()) return; // /exit 请求退出 → 跳出循环，走统一清理
+                        continue;
+                    }
+                    // ② 技能斜杠调用（复用技能系统，如 /commit-generator）
+                    var skillManager = agentLoop.getSkillManager();
+                    if (skillManager != null) {
+                        var skillCall = skillManager.parseSlashCommand(line);
+                        if (skillCall != null) {
+                            String out = skillManager.executeSkill(
+                                    skillCall.skillName(), java.util.Map.of(), skillCall.args());
+                            if (out != null && !out.isBlank()) {
+                                System.out.println(TerminalStyle.dim(out));
+                            }
+                            continue;
+                        }
+                    }
+                    System.out.println(TerminalStyle.warn("未知命令: " + line + "（输入 /help 查看可用命令）"));
+                    continue;
+                }
+                sendMessage(line);
+            } catch (Exception e) {
+                // 兜底：任何未捕获异常只记录并继续，绝不静默退出 CLI（根因：坏编码输入等）
+                logger.error("CLI 主循环异常（继续运行）: {}", e.toString(), e);
             }
-            sendMessage(line);
         }
 
         // ── 退出时清理 ──
@@ -512,29 +555,29 @@ public class CliChannel {
             synchronized (confirmLock) {
                 // 双重检查：等待锁期间可能已被其他线程信任
                 if (trusted.get()) return true;
-                dialogActive = true;
-            try {
-                System.out.println();
-                System.out.println(TerminalStyle.ORANGE + TerminalStyle.B + "  [!] 工具调用确认" + TerminalStyle.R);
-                System.out.println("  " + TerminalStyle.bold("工具: ") + TerminalStyle.highlight(tool.getName()));
-                String ps = params.toString();
-                if (ps.length() > 80) ps = ps.substring(0, 77) + "...";
-                System.out.println("  " + TerminalStyle.dim("参数: " + ps));
-                System.out.println("  " + TerminalStyle.dim("原因: " + reason));
-                System.out.print("  " + TerminalStyle.GREEN + "[1] 允许 " + TerminalStyle.R
-                        + TerminalStyle.CYAN + "[2] 之后都放行 " + TerminalStyle.R
-                        + TerminalStyle.RED + "[3] 拒绝 " + TerminalStyle.R);
-                System.out.flush();
-                String input = readInteractiveLine().trim();
-                if ("2".equals(input)) {
-                    trusted.set(true);
-                    System.out.println("  " + TerminalStyle.success("已信任当前会话，后续不再询问。"));
-                    return true;
+                beginDialog();
+                try {
+                    System.out.println();
+                    System.out.println(TerminalStyle.ORANGE + TerminalStyle.B + "  [!] 工具调用确认" + TerminalStyle.R);
+                    System.out.println("  " + TerminalStyle.bold("工具: ") + TerminalStyle.highlight(tool.getName()));
+                    String ps = params.toString();
+                    if (ps.length() > 80) ps = ps.substring(0, 77) + "...";
+                    System.out.println("  " + TerminalStyle.dim("参数: " + ps));
+                    System.out.println("  " + TerminalStyle.dim("原因: " + reason));
+                    System.out.print("  " + TerminalStyle.GREEN + "[1] 允许 " + TerminalStyle.R
+                            + TerminalStyle.CYAN + "[2] 之后都放行 " + TerminalStyle.R
+                            + TerminalStyle.RED + "[3] 拒绝 " + TerminalStyle.R);
+                    System.out.flush();
+                    String input = readInteractiveLine().trim();
+                    if ("2".equals(input)) {
+                        trusted.set(true);
+                        System.out.println("  " + TerminalStyle.success("已信任当前会话，后续不再询问。"));
+                        return true;
+                    }
+                    return "1".equals(input);
+                } finally {
+                    endDialog();
                 }
-                return "1".equals(input);
-            } finally {
-                dialogActive = false;
-            }
             }
         });
     }
@@ -548,7 +591,7 @@ public class CliChannel {
         var tool = registry.get("ask_user");
         if (tool instanceof AskUserTool askTool) {
             askTool.setInteractiveHandler(question -> {
-                dialogActive = true;
+                beginDialog();
                 try {
                     System.out.println();
                     System.out.println("❓ " + question);
@@ -556,7 +599,7 @@ public class CliChannel {
                     System.out.flush();
                     return readInteractiveLine().trim();
                 } finally {
-                    dialogActive = false;
+                    endDialog();
                 }
             });
         }
@@ -888,6 +931,7 @@ public class CliChannel {
             int i = 0;
             try {
                 while (thinking) {
+                    if (dialogActive) { Thread.sleep(50); continue; } // 对话框期间不刷屏，避免覆盖确认提示
                     System.out.print("\r  " + TerminalStyle.dim(frames[i] + " Thinking...") + " \r");
                     System.out.flush();
                     i = (i + 1) % frames.length;
@@ -898,6 +942,29 @@ public class CliChannel {
         }, "CLI-spinner");
         spinner.setDaemon(true);
         spinner.start();
+        thinkingThread = spinner;
+    }
+
+    /**
+     * 交互对话框开始：停 thinking spinner 并等待其清行完成，避免 "Thinking..."
+     * 用 \r 覆盖确认提示行（spinner 与 dialog 是两个线程竞争 System.out）。
+     */
+    private void beginDialog() {
+        dialogActive = true;
+        stopThinking();
+        Thread t = thinkingThread;
+        thinkingThread = null;
+        if (t != null) {
+            try { t.join(200); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        }
+    }
+
+    /**
+     * 交互对话框结束：复位 dialogActive；若流式回复仍在继续则恢复 spinner。
+     */
+    private void endDialog() {
+        dialogActive = false;
+        if (currentRequestId != null && !cancelled) startThinkingSpinner();
     }
 
     private void stopThinking() { if (thinking) thinking = false; }
@@ -924,6 +991,9 @@ public class CliChannel {
                 } else {
                     // 回退：无终端时用 Enter 中断
                     while (currentRequestId != null && !cancelled) {
+                        // dialog 期间必须跳过：确认提示的输入（如 "2"）不能当作中断信号，
+                        // 否则用户选完确认立刻触发 [已中断]（CMD 下 readInteractiveLine 也从 System.in 读）。
+                        if (dialogActive) { Thread.sleep(100); continue; }
                         if (System.in.available() > 0) {
                             readLine();
                             cancelled = true;
@@ -939,6 +1009,24 @@ public class CliChannel {
         }, "CancelMonitor");
         cancelMonitor.setDaemon(true);
         cancelMonitor.start();
+        cancelMonitorThread = cancelMonitor;
+    }
+
+    /**
+     * 等待 CancelMonitor 线程退出。JLine 的 terminal.reader() 非线程安全，
+     * 若它仍阻塞在 read() 上时主线程 LineReader 开始读，会竞争导致假 EOF
+     * （LineReader 抛 EndOfFileException → CLI 突然退出）。流式结束后
+     * currentRequestId=null，CancelMonitor 的 reader.read(50) 最多 50ms 超时自退。
+     */
+    private void stopCancelMonitor() {
+        Thread t = cancelMonitorThread;
+        if (t == null) return;
+        cancelMonitorThread = null;
+        try {
+            t.join(300);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /** ② 等待流式完成（最多等5分钟），超时或被 Esc 中断则输出提示 */

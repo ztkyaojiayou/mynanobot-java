@@ -1,10 +1,37 @@
 <configuration>
+    <!-- CLI 模式日志配置：
+         - 控制台：只输出消息（保持对话界面干净）
+         - 文件：完整格式（时间/线程/级别/logger），WARN+ 落盘便于排查线上问题 -->
+
+    <!-- 控制台输出（保持简洁：只有消息） -->
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>%msg%n</pattern>
         </encoder>
     </appender>
+
+    <!-- 文件输出（完整格式，便于排查 CLI 崩溃/异常） -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/nanobot-cli.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/nanobot-cli.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- 异步文件输出，避免日志 IO 阻塞主流程 -->
+    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="FILE"/>
+        <queueSize>512</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+    </appender>
+
     <root level="WARN">
         <appender-ref ref="STDOUT"/>
+        <appender-ref ref="ASYNC_FILE"/>
     </root>
 </configuration>
