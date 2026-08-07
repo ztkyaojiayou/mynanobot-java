@@ -39,7 +39,7 @@ curl localhost:8080/api/health            # 健康检查
 ### Step 3: 冒烟测试（关键链路）
 | 链路 | 验证点 |
 |------|--------|
-| 服务启动 | mynanocode-java 正常启动 |
+| 服务启动 | mynanobot-java 正常启动 |
 | 简单规划 | "北京 1 日游" 端到端返回方案 |
 | 工具调用 | exec + read_file 等核心工具正常 |
 | HITL 触发 | 构造超预算 ≥15% 场景，确认人工介入点触发 |

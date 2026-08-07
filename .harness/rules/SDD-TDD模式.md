@@ -1,6 +1,6 @@
 # SDD-TDD 模式规范
 
-> **作用域**: 定义 mynanocode-java 在 Harness 体系下如何采用 SDD + TDD。
+> **作用域**: 定义 mynanobot-java 在 Harness 体系下如何采用 SDD + TDD。
 > **状态**: 核心逻辑推荐 TDD，配置/CLI/渲染层面不强制。
 
 ---

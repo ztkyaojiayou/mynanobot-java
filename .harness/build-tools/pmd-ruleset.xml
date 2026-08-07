@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ruleset name="mynanocode-java-rules"
+<ruleset name="mynanobot-java-rules"
          xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
          xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
-    <description>PMD 规则 — mynanocode-java（参考配置，可按需启用）</description>
+    <description>PMD 规则 — mynanobot-java（参考配置，可按需启用）</description>
     <rule ref="category/java/bestpractices.xml/AvoidPrintStackTrace"/>
     <rule ref="category/java/bestpractices.xml/UnusedPrivateMethod"/>
     <rule ref="category/java/errorprone.xml/EmptyCatchBlock"/>

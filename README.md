@@ -14,8 +14,8 @@
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/ztkyaojiayou/mynanocode-java.git
-cd mynanocode-java
+git clone https://github.com/ztkyaojiayou/mynanobot-java.git
+cd mynanobot-java
 
 # 2. 配置 API Key
 export DEEPSEEK_API_KEY=your-api-key      # DeepSeek（默认）
@@ -112,7 +112,7 @@ AI：(按计划逐步实现 → 跑测试 → 完成)
 
 ```bash
 # 把 scripts/ 加到 PATH，在任何目录下使用
-export PATH="/path/to/mynanocode-java/scripts:$PATH"
+export PATH="/path/to/mynanobot-java/scripts:$PATH"
 
 # 现在可以在任意项目目录启动
 cd /any/project
