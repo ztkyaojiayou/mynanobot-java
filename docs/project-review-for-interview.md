@@ -1256,3 +1256,129 @@ CLI 终端                      HTTP API                     JVM 运行时
 
 **设计原则**：零侵入——所有统计通过 hook + metadata 旁路收集，不修改核心 LLM 调用逻辑。需要什么加什么，取什么看什么。
 | **不可变 > 同步** | final State Handler 字段，重建替代 setter |
+
+---
+
+## 十一、稳定性与边界 case
+
+> 面试官："你的 Agent 卡死了怎么办？并发会不会踩踏？边界情况怎么兜底？" —— 本章是稳定性设计的核心应答框架。
+> **总原则一句话：除了等用户输入，一切等待都有硬上限；每一层超时后都要有出口回到对话。**
+
+### 11.1 超时分层 —— 每层都有兜底，没有"无限等待"
+
+Agent 运行是多环节流水线：`用户输入 → LLM 请求 → 工具调用 → 流式返回`。任何一环无限阻塞都会卡死整轮对话。nanobot 采用**分层超时**：
+
+| 层级 | 位置 | 超时 | 说明 |
+|------|------|------|------|
+| CLI 主循环 | `runInputLoop` | **无超时**（有意设计） | 唯一允许"无限等"的地方——等人 |
+| 流式回复等待 | `waitForStreamCompletion` | **300s** | 防 LLM 流中断后死等 |
+| LLM 网络连接 | `AbstractLLMProvider.CONNECT_TIMEOUT` | **30s** | TCP 建连超时 |
+| LLM 请求 | `AbstractLLMProvider.REQUEST_TIMEOUT` | **300s** | 完整请求超时 |
+| 工具执行 | `AgentRunner.executeToolWithRetry` | **90s × 3 次重试** | 统一工具超时 + 自动重试 |
+| Exec 工具 | `ExecTool.executeForeground` | **120s（最大 600s）** | 子进程 `waitFor` 超时后 destroy |
+| Web 搜索 | `WebSearchTool` | **30s** | HTTP 客户端超时 |
+| 交互对话框 | `CliChannel.readInteractiveLine` | **300s** | 权限确认/ask_user 无输入自动拒绝 |
+
+**面试应答要点**：
+- 超时分层表不是背出来的，是"每层都问过自己：这一环最坏等多久"。
+- 唯一无超时的是**等用户输入**的主循环——这是设计决策，不是遗漏。
+- 每一层超时后都**回到对话**：工具超时 → LLM 转述错误给用户；确认框超时 → 自动拒绝并通知 LLM。
+
+### 11.2 工具统一超时与线程隔离
+
+`AgentRunner.executeToolWithRetry()` 是工具调用统一入口，三层防御：
+
+```java
+// ① 工具在独立线程池执行（ToolRegistry.executor），与主流程隔离
+CompletableFuture<Object> toolFuture = registry.executeAsync(toolName, params);
+// ② 统一超时：90s 内未完成即判定失败
+Object result = toolFuture.get(toolTimeoutSeconds, TimeUnit.SECONDS);
+// ③ 超时后 cancel 底层任务，防止工具线程继续占用线程池（泄漏防护）
+toolFuture.cancel(true);
+```
+
+**重试策略**（细节点）：
+- `TimeoutException` / 网络类 `ExecutionException`（ConnectException、IOException）→ **重试**
+- 业务异常 → 直接返回 `"Error: ..."` 给 LLM，**不重试**（浪费时间）
+- 全部失败后返回友好错误串（"请求超时，我将基于知识库回答"）→ LLM 继续作答
+
+**为什么值钱**：防止单个"卡死工具"拖垮整个 Agent——超时后 LLM 还能拿到错误信息继续工作，而不是整个 CLI 假死。`cancel(true)` 是关键细节：只 `get(timeout)` 不 cancel，慢工具会反复占用线程池，多次超时把线程池占满。
+
+### 11.3 交互对话框超时 —— "等用户"也可能假死（最隐蔽）
+
+**面试官最爱问的盲区**：外部服务慢我们有超时，但"等用户输入"天然被认为安全——人会回来。现实是用户会离开、终端会失联。
+
+CLI 权限确认框和 `ask_user` 对话框**原本没有总超时**（这是真实的"永久假死"盲区），加固后：**300s 无输入 → 自动拒绝/跳过**。
+
+```java
+private String readInteractiveLine(int timeoutSec) {
+    long deadline = timeoutSec > 0 ? System.currentTimeMillis() + timeoutSec * 1000L : Long.MAX_VALUE;
+    synchronized (terminalLock) {
+        if (terminal == null) {
+            // CMD/无终端：scanner.nextLine() 无法中断，改用 System.in 轮询 + deadline
+            while (System.currentTimeMillis() < deadline) {
+                if (System.in.available() > 0) { int ch = System.in.read(); ... }
+                else Thread.sleep(50);
+            }
+            if (buf.size() == 0) return null; // 超时 → 调用方按拒绝处理
+        }
+        // JLine：reader.read(200) 本就非阻塞，循环内检查 deadline
+        while (System.currentTimeMillis() < deadline) { int ch = reader.read(200); ... }
+        if (sb.length() == 0) return null;
+    }
+}
+```
+
+**两个平台分支差异（加分项）**：
+- **JLine 分支**：`reader.read(200)` 本身非阻塞（单次 200ms 超时），但 `while(true)` 无总 deadline → 加 deadline 即可。
+- **CMD 无终端分支**：`scanner.nextLine()` 是**真正无限阻塞、无法中断**——必须整个改成 `System.in.available()` 轮询，否则加不了超时。
+
+**超时后如何"回到对话"**（两个调用方各自兜底）：
+- 权限确认框：`return false` → `PermissionManager` 返回 `denied("用户取消了操作")` → LLM 收到拒绝原因继续作答
+- `ask_user`：返回占位文本 `"（用户等待超时未回答）"` → LLM 感知"用户没回答"，而不是空串被当成"已回答"
+
+### 11.4 输入并发安全 —— 防止"两方读同一流"崩溃
+
+CLI 同时存在多条输入路径，nanobot 用**锁 + 标志位**保证不互相踩踏：
+
+| 组件 | 职责 | 保护机制 |
+|------|------|----------|
+| `CancelMonitor` | 流式期间监听 Esc/Enter 中断 | `terminalLock` 与对话框互斥；`dialogActive` 期间跳过读终端 |
+| `readInteractiveLine` | 权限/ask_user 对话框输入 | 与 CancelMonitor 共用 `terminalLock` |
+| `beginDialog/endDialog` | 对话框开关 | `dialogActive` 标志：暂停 spinner、让 CancelMonitor 让路 |
+| thinking spinner | 流式等待动画 | `dialogActive` 期间不刷屏，避免 `\r` 覆盖确认提示 |
+
+**核心细节（面试必讲）**：`readInteractiveLine` 与 CancelMonitor **必须**共用同一把 `terminalLock`——JLine 的 `NonBlockingReader` **非线程安全**，两方并发读会让 `LineReader` 读到假 EOF 抛 `EndOfFileException` → CLI 突然退出。这就是 `terminalLock` 存在的具体原因，不是凭空加的锁。
+
+**历史踩坑**（证明有真实经验）：
+- CMD 下选确认后误报 `[已中断]`：`System.in` 分支缺 `dialogActive` 检查，用户确认输入 "2" 被当中断信号。
+- 确认框被 spinner 覆盖：`beginDialog` 停止 spinner + join thinkingThread，避免 `\r` 覆盖确认提示。
+
+### 11.5 配置链路 —— 兜底要"接得上"
+
+稳定性设计必须真实生效。nanobot 曾有**配置断链**：`AgentRunner.setMaxToolResultChars()` 等 setter 存在但无人调用，配置里改了值不生效。
+
+修复：`AgentLoop` 构造 runner 后统一注入四个工具级配置：
+
+```java
+this.runner = new AgentRunner(provider, registry, messageBus);
+Config.AgentDefaults defaults = config.getAgents().getDefaults();
+this.runner.setMaxToolResultChars(defaults.getMaxToolResultChars());
+this.runner.setToolHintMaxLength(defaults.getToolHintMaxLength());
+this.runner.setToolTimeoutSeconds(defaults.getToolTimeoutSeconds());
+this.runner.setMaxToolRetries(defaults.getMaxToolRetries());
+```
+
+**面试价值**：这比"我写了超时"高一个档次——说明你检查**生效链路**（setter → 配置字段 → 真正调用它的地方），而不是写了防御代码就完事。
+
+### 11.6 稳定性设计总结（答题模板）
+
+**三层思想，背下来**：
+1. **没有无限等待**：除了"等人"，一切等待都有硬超时（分层超时表见 11.1）。
+2. **失败要有出口**：工具超时 → LLM 转述错误；确认框超时 → 自动拒绝并通知 AI。任何假死都要能"回到对话"。
+3. **并发要有秩序**：共享资源（终端/Scanner/消息队列）必须有明确的锁与标志位，防止"两方读同一流"这类隐蔽崩溃。
+
+**三个自问自答**（面试前过一遍）：
+- "超时了结果给谁？" → cancel + 返回错误串给 LLM，由 LLM 转述用户，不中断对话
+- "并发怎么防踩踏？" → `terminalLock` + `dialogActive` 标志 + CancelMonitor 让路（JLine `NonBlockingReader` 非线程安全是具体原因）
+- "配置改了生效吗？" → 检查生效链路，setter 有人调用才算数
