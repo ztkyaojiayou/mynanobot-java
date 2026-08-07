@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-    NanoCode-Java 项目配置
-    =====================
+    NanoCode 项目配置
+    =================
     这是一个基于 Java 17 的 AI 编程 Agent 核心实现项目
 
     项目目标：
@@ -24,11 +24,11 @@
 
     <!-- 项目基本信息 -->
     <groupId>com.nanocode</groupId>
-    <artifactId>nanocode-java</artifactId>
+    <artifactId>nanocode</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>NanoCode-Java</name>
+    <name>NanoCode</name>
     <description>
         基于 Java 17 的 AI 编程 Agent 核心实现
         用于学习 Agent 的底层实现和架构思想
@@ -277,7 +277,7 @@
                         <configuration>
                             <mainClass>com.nanocode.v2.NanoCodeApplication</mainClass>
                             <layout>ZIP</layout>
-                            <finalName>nanocode-cli</finalName>
+                            <finalName>nanocode</finalName>
                         </configuration>
                     </execution>
                 </executions>

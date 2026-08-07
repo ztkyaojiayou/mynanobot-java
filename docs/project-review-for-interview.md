@@ -289,7 +289,7 @@ RespondState
 
 > 面试常见追问："你这个和 Claude Code 有什么区别？"
 
-| 维度 | Claude Code | NanoCode-Java | 对比分析 |
+| 维度 | Claude Code | NanoCode | 对比分析 |
 |------|-------------|-------------|---------|
 | **消息模型** | 单会话单进程，用户输入 → 同步处理 → 输出 | 异步消息总线，多通道共享 AgentLoop | Claude Code 是单用户 CLI 工具，不需要消息队列；NanoCode 作为服务需要多通道并发 |
 | **流式输出** | 直接 stdout（单个消费者） | Fan-Out Pub-Sub（outboundQueue → Dispatcher 扇出 → SSE/CLI/WS 三通道） | Claude Code 一个终端就够；NanoCode 需要考虑多通道零拷贝分发 |

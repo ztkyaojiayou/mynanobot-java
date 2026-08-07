@@ -11,7 +11,7 @@ import java.util.Map;
  * 根配置类 - 系统配置的入口点
  * ==================================
  *
- * 本类定义了 NanoCode-Java 的所有配置项，采用分层设计：
+ * 本类定义了 NanoCode 的所有配置项，采用分层设计：
  * - agents: Agent 行为配置
  * - providers: LLM 提供商配置
  * - channels: 聊天通道配置

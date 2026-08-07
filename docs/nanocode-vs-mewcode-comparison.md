@@ -1,13 +1,13 @@
-# NanoCode-Java vs MewCode-Java 对比分析
+# NanoCode vs MewCode-Java 对比分析
 
-> nanocode-java: 通用 AI Agent 框架，对标港大 nanobot
+> nanocode: 通用 AI Agent 框架，对标港大 nanobot
 > mewcode-java: 编程专用 Agent，对标 Claude Code CLI
 
 ---
 
 ## 一、概览
 
-| 维度 | nanocode-java | mewcode-java |
+| 维度 | nanocode | mewcode-java |
 |------|:--:|:--:|
 | 定位 | 通用 AI 助手 | 编程助手 (Claude Code 复刻) |
 | 文件数 | 101 | 103 |
@@ -151,7 +151,7 @@ ToolRegistry.execute()            ToolRegistry.execute()
 ## 四、架构对比
 
 ```
-nanocode-java                           mewcode-java
+nanocode                           mewcode-java
 ═══════════════                        ═══════════════
 
 ┌──────────────┐                       ┌──────────────┐

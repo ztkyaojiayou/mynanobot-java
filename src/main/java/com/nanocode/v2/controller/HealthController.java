@@ -28,7 +28,7 @@ public class HealthController {
         
         // 基本状态
         result.put("status", "UP");
-        result.put("service", "nanocode-java");
+        result.put("service", "nanocode");
         result.put("timestamp", System.currentTimeMillis());
         
         // 组件状态
@@ -63,7 +63,7 @@ public class HealthController {
     public ResponseEntity<Map<String, Object>> info() {
         Map<String, Object> result = new HashMap<>();
         
-        result.put("service", "nanocode-java");
+        result.put("service", "nanocode");
         result.put("version", "2.0.0-SNAPSHOT");
         result.put("description", "AI Agent Framework with Spring Boot");
         

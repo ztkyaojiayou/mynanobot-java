@@ -1,4 +1,4 @@
-# NanoCode-Java
+# NanoCode
 
 [![Java 17](https://img.shields.io/badge/Java-17%2B-blue)](https://adoptium.net/)
 [![Spring Boot 3.2](https://img.shields.io/badge/Spring%20Boot-3.2-brightgreen)](https://spring.io/projects/spring-boot)
@@ -129,7 +129,7 @@ nanocode --workspace /path/to/project
 mvn clean package -DskipTests
 
 # 直接运行
-java -jar target/nanocode-cli.jar
+java -jar target/nanocode.jar
 
 # 或通过脚本（自动检测源码更新并重建）
 ./scripts/nanocode
@@ -153,7 +153,7 @@ mvn clean package -DskipTests
 docker build -t nanocode -f- . <<'EOF'
 FROM openjdk:17-jdk-slim
 WORKDIR /app
-COPY target/nanocode-cli.jar app.jar
+COPY target/nanocode.jar app.jar
 ENV DEEPSEEK_API_KEY=your-api-key
 CMD ["java", "-jar", "app.jar"]
 EOF

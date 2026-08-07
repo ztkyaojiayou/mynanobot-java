@@ -34,13 +34,13 @@ import java.util.concurrent.TimeUnit;
  * 
  * ```bash
  * # 运行
- * java -jar nanocode-java.jar
+ * java -jar nanocode.jar
  *
  * # 指定配置
- * java -jar nanocode-java.jar --config /path/to/config.yaml
+ * java -jar nanocode.jar --config /path/to/config.yaml
  *
  * # 生成示例配置
- * java -jar nanocode-java.jar --generate-config
+ * java -jar nanocode.jar --generate-config
  * ```
  */
 public class NanoCode {
@@ -408,10 +408,10 @@ public class NanoCode {
      */
     private static void printHelp() {
         System.out.println("""
-            NanoCode-Java - AI Agent
+            NanoCode - AI Agent
             
             Usage:
-              java -jar nanocode-java.jar [options]
+              java -jar nanocode.jar [options]
             
             Options:
               --config, -c <path>   Specify config file path
@@ -424,9 +424,9 @@ public class NanoCode {
               NANOCODE_MODEL        Default model
             
             Examples:
-              java -jar nanocode-java.jar
-              java -jar nanocode-java.jar --config ~/.nanocode/config.yaml
-              java -jar nanocode-java.jar --generate-config
+              java -jar nanocode.jar
+              java -jar nanocode.jar --config ~/.nanocode/config.yaml
+              java -jar nanocode.jar --generate-config
             """);
     }
     

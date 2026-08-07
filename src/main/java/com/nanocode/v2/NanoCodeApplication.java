@@ -66,7 +66,7 @@ public class NanoCodeApplication {
                 ║                                                                              ║
                 ║                         🌟 启动成功！🌟                                      ║
                 ║                                                                              ║
-                ║    服务 ID:    nanocode-java                                                   ║
+                ║    服务 ID:    nanocode                                                   ║
                 ║    Local:      %s                                                            ║
                 ║    Model:      %s                                                            ║
                 ║    Components: • Tools: %d    • Skills: %d    • Rules: %d                       ║

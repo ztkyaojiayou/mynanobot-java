@@ -539,10 +539,10 @@ public class ConfigLoader {
      */
     /** 示例配置模板（YAML 格式） */
     private static final String EXAMPLE_CONFIG_YAML = """
-            # NanoCode-Java 配置文件
+            # NanoCode 配置文件
             # =====================
             #
-            # 本文件是 NanoCode-Java 的配置文件模板
+            # 本文件是 NanoCode 的配置文件模板
             # 复制到 ~/.nanobot/config.yaml 并修改相应值
 
             # Agent 配置

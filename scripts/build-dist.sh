@@ -34,7 +34,7 @@ mkdir -p "$DIST_DIR"
 
 # 3. 复制文件
 echo "[2/3] Copying files..."
-cp target/nanocode-cli.jar "$DIST_DIR/nanocode.jar"
+cp target/nanocode.jar "$DIST_DIR/nanocode.jar"
 
 # 通用启动脚本 (Linux/Mac/Git Bash)
 cat > "$DIST_DIR/nanocode" << 'SCRIPT'

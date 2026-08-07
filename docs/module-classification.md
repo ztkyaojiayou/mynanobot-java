@@ -1,4 +1,4 @@
-# NanoCode-Java 模块分类
+# NanoCode 模块分类
 
 > v1 = 无 Spring Boot 版 | v2 = Spring Boot 版（当前主要使用）
 > 公共模块两个版本共享，改动自动对两版本生效。

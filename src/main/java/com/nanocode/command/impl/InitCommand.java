@@ -342,14 +342,14 @@ public class InitCommand implements Command {
     }
 
     private String extractProjectName(String info) {
-        // 从 pom.xml 中提取 artifactId（跳过本项目自身的 artifactId）
+        // 从 pom.xml 中提取 artifactId（跳过本项目自身的 artifactId：<artifactId>nanocode</artifactId>）
         for (String line : info.lines().toList()) {
-            if (line.contains("<artifactId>") && !line.contains("nanocode-java")) {
+            if (line.contains("<artifactId>") && !line.contains("<artifactId>nanocode</artifactId>")) {
                 String name = line.replaceAll(".*<artifactId>", "").replaceAll("</artifactId>.*", "").trim();
                 if (!name.isBlank()) return name;
             }
         }
-        return "nanocode-java";
+        return "nanocode";
     }
 
     private String detectBuildCommand(String info) {

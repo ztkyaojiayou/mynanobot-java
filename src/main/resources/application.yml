@@ -3,7 +3,7 @@
 
 spring:
   application:
-    name: nanocode-java
+    name: nanocode
 
   # 静态资源配置
   web:

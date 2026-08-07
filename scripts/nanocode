@@ -15,7 +15,7 @@ fi
 export JAVA_HOME
 export PATH="$JAVA_HOME/bin:$PATH"
 
-JAR="$SCRIPT_DIR/target/nanocode-cli.jar"
+JAR="$SCRIPT_DIR/target/nanocode.jar"
 
 # 源码有更新？自动重新打包
 if [[ ! -f "$JAR" ]] || [[ -n "$(find "$SCRIPT_DIR/src/main/java" -name '*.java' -newer "$JAR" 2>/dev/null | head -1)" ]]; then

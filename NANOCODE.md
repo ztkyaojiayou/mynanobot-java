@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-NanoCode-Java 是一个基于 Java 17 从零实现的 **AI 编程 Agent** 核心系统，不依赖任何 AI 框架，定位编程 Agent，向 Claude Code 致敬。相当于手搓实现了 spring-ai-alibaba-agent 及 datascope 的底层能力。
+NanoCode 是一个基于 Java 17 从零实现的 **AI 编程 Agent** 核心系统，不依赖任何 AI 框架，定位编程 Agent，向 Claude Code 致敬。相当于手搓实现了 spring-ai-alibaba-agent 及 datascope 的底层能力。
 
 ## 技术栈
 

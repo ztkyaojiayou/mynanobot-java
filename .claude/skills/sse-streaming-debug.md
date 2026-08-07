@@ -112,9 +112,9 @@ netstat -ano | grep ":8080 "
 taskkill //F //PID <pid>
 
 # 启动（JAVA_HOME 仅此行生效）
-cd nanocode-java
+cd nanocode
 JAVA_HOME=/path/to/jdk17 mvn package -DskipTests -q
-JAVA_HOME=/path/to/jdk17 java -jar target/nanocode-java-*.jar &
+JAVA_HOME=/path/to/jdk17 java -jar target/nanocode-*.jar &
 ```
 
 ### Step 2: 等就绪
@@ -180,7 +180,7 @@ grep "SSE stream completed" logs
 
 ## 复盘总结
 
-本次 nanocode-java `/chat/stream` 问题共定位并修复 5 个缺陷：
+本次 nanocode `/chat/stream` 问题共定位并修复 5 个缺陷：
 
 | # | 层级 | 缺陷 | 修复 |
 |---|------|------|------|

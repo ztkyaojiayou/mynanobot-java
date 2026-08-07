@@ -1,4 +1,4 @@
-# NanoCode-Java 功能文档
+# NanoCode 功能文档
 
 > 本文档统一维护所有已实现功能的架构、使用方式和配置说明。新增功能请按模板追加到文末。
 
@@ -19,7 +19,7 @@
 
 ### 1.1 概述
 
-为 nanocode-java 构建完整的纵深防御（Defense-in-Depth）权限控制体系。所有 Agent 工具调用在 `ToolRegistry.execute()` 中通过统一的检查管道进行安全校验。
+为 nanocode 构建完整的纵深防御（Defense-in-Depth）权限控制体系。所有 Agent 工具调用在 `ToolRegistry.execute()` 中通过统一的检查管道进行安全校验。
 
 ### 1.2 架构
 

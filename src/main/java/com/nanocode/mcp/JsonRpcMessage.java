@@ -65,7 +65,7 @@ public class JsonRpcMessage {
             ObjectNode caps = MAPPER.createObjectNode();
             caps.put("tools", true); caps.put("prompts", false); caps.put("resources", false);
             ObjectNode info = MAPPER.createObjectNode();
-            info.put("name", "nanocode-java"); info.put("version", "2.0.0");
+            info.put("name", "nanocode"); info.put("version", "2.0.0");
             ObjectNode params = MAPPER.createObjectNode();
             params.put("protocolVersion", PROTOCOL_VERSION);
             params.set("capabilities", caps);
