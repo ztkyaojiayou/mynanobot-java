@@ -15,7 +15,7 @@ import java.util.List;
  * 文件路径守卫 — 工作区隔离
  * ===========================
  *
- * 参考 Nanobot (Python) 的 {@code _resolve_path()} 设计。
+ * 参考 NanoCode (Python) 的 {@code _resolve_path()} 设计。
  * 所有文件工具（read_file, write_file, edit_file, list_dir, glob, grep）
  * 必须通过此守卫验证路径，确保不越出工作区。
  *

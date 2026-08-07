@@ -8,13 +8,13 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 
 /**
- * Nanobot CLI 启动类（V3 — 命令行交互，类 Claude Code 体验）。
+ * NanoCode CLI 启动类（V3 — 命令行交互，类 Claude Code 体验）。
  *
- * 启动: java -cp nanobot.jar com.nanocode.v3.NanobotCliApplication [--workspace /path]
+ * 启动: java -cp nanobot.jar com.nanocode.v3.NanoCodeCliApplication [--workspace /path]
  * 不指定 --workspace 时自动取当前目录。
  */
 @SpringBootApplication(scanBasePackages = "com.nanocode")
-public class NanobotCliApplication {
+public class NanoCodeCliApplication {
 
     private static String resumeSessionId = null;
 
@@ -55,7 +55,7 @@ public class NanobotCliApplication {
             }
         }
 
-        SpringApplication.run(NanobotCliApplication.class, merged.toArray(new String[0]));
+        SpringApplication.run(NanoCodeCliApplication.class, merged.toArray(new String[0]));
     }
 
     @Bean

@@ -2,7 +2,7 @@ package com.nanocode.v2.websocket;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.nanocode.NanobotRunner;
+import com.nanocode.NanoCodeRunner;
 import com.nanocode.bus.MessageBus;
 import com.nanocode.bus.InboundMessage;
 import com.nanocode.bus.OutboundMessage;
@@ -38,9 +38,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @ServerEndpoint("/ws")
 @Component
-public class NanobotWebSocketEndpoint {
+public class NanoCodeWebSocketEndpoint {
     
-    private static final Logger logger = LoggerFactory.getLogger(NanobotWebSocketEndpoint.class);
+    private static final Logger logger = LoggerFactory.getLogger(NanoCodeWebSocketEndpoint.class);
     
     // 存储所有活跃连接
     private static final Map<String, Session> SESSIONS = new ConcurrentHashMap<>();
@@ -62,7 +62,7 @@ public class NanobotWebSocketEndpoint {
 
     @Autowired(required = false)
     public void setChannelAcl(ChannelAclConfig channelAcl) {
-        NanobotWebSocketEndpoint.channelAcl = channelAcl;
+        NanoCodeWebSocketEndpoint.channelAcl = channelAcl;
         if (channelAcl != null) {
             logger.info("Channel ACL configured: {} channels", channelAcl.getChannels().size());
         }
@@ -70,7 +70,7 @@ public class NanobotWebSocketEndpoint {
     
     @Autowired
     public void setMessageBus(MessageBus messageBus) {
-        NanobotWebSocketEndpoint.messageBus = messageBus;
+        NanoCodeWebSocketEndpoint.messageBus = messageBus;
     }
     
     @Autowired
@@ -81,7 +81,7 @@ public class NanobotWebSocketEndpoint {
 
     @PostConstruct
     public void init() {
-        logger.info("NanobotWebSocketEndpoint initialized");
+        logger.info("NanoCodeWebSocketEndpoint initialized");
     }
 
     /** 启动 outbound 扇出消费者线程（static，应用生命周期内常驻） */

@@ -21,7 +21,7 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Nanobot 主入口类
+ * NanoCode 主入口类
  * ===================
  * 
  * 本类是整个应用程序的入口点，负责：
@@ -43,11 +43,11 @@ import java.util.concurrent.TimeUnit;
  * java -jar nanobot-java.jar --generate-config
  * ```
  */
-public class Nanobot {
+public class NanoCode {
     
     // ==================== 日志 ====================
     
-    private static final Logger logger = LoggerFactory.getLogger(Nanobot.class);
+    private static final Logger logger = LoggerFactory.getLogger(NanoCode.class);
     
     // ==================== 组件 ====================
     
@@ -77,7 +77,7 @@ public class Nanobot {
         // 打印启动 Banner
         printBanner();
         
-        Nanobot nanobot = new Nanobot();
+        NanoCode nanobot = new NanoCode();
         
         try {
             // 解析命令行参数
@@ -110,7 +110,7 @@ public class Nanobot {
      * 初始化所有组件
      */
     public void initialize(String configPath) {
-        logger.info("Initializing Nanobot...");
+        logger.info("Initializing NanoCode...");
         
         // 1. 加载配置
         if (configPath != null) {
@@ -290,11 +290,11 @@ public class Nanobot {
      */
     public void start() {
         if (running) {
-            logger.warn("Nanobot is already running");
+            logger.warn("NanoCode is already running");
             return;
         }
         
-        logger.info("Starting Nanobot...");
+        logger.info("Starting NanoCode...");
         
         // 创建 Agent Loop（集成 Identity、Skills 和 Rules）
         agentLoop = new AgentLoop(
@@ -328,7 +328,7 @@ public class Nanobot {
         
         running = true;
         
-        logger.info("Nanobot started successfully");
+        logger.info("NanoCode started successfully");
         logger.info("Session storage: {}", config.getAgents().getDefaults().getWorkspace());
         logger.info("Model: {}", config.getAgents().getDefaults().getModel());
     }
@@ -341,7 +341,7 @@ public class Nanobot {
             return;
         }
         
-        logger.info("Stopping Nanobot...");
+        logger.info("Stopping NanoCode...");
         
         running = false;
         
@@ -366,7 +366,7 @@ public class Nanobot {
             toolRegistry.shutdown();
         }
         
-        logger.info("Nanobot stopped");
+        logger.info("NanoCode stopped");
     }
     
     // ==================== 命令行参数 ====================
@@ -408,7 +408,7 @@ public class Nanobot {
      */
     private static void printHelp() {
         System.out.println("""
-            Nanobot-Java - AI Agent
+            NanoCode-Java - AI Agent
             
             Usage:
               java -jar nanobot-java.jar [options]

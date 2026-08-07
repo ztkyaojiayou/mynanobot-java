@@ -20,7 +20,7 @@ public class SessionManager {
     private final Map<String, Object> sessionLocks = new ConcurrentHashMap<>();
 
     public SessionManager(Config config) {
-        this.store = new SessionStore(Paths.get(config.getNanobotDir(), "sessions"));
+        this.store = new SessionStore(Paths.get(config.getNanoCodeDir(), "sessions"));
     }
 
     public SessionManager(String baseDir) {

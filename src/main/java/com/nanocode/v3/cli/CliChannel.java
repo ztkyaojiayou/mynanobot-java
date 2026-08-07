@@ -1,6 +1,6 @@
 package com.nanocode.v3.cli;
 
-import com.nanocode.NanobotRunner;
+import com.nanocode.NanoCodeRunner;
 import com.nanocode.bus.InboundMessage;
 import com.nanocode.bus.MessageBus;
 import com.nanocode.bus.OutboundMessage;
@@ -224,10 +224,10 @@ public class CliChannel {
      * @param initialSessionId 恢复会话时传入，null=新建
      */
     public CliChannel(ConfigurableApplicationContext appContext, String initialSessionId) {
-        this.messageBus = NanobotRunner.getMessageBus();
-        this.agentLoop = NanobotRunner.getAgentLoop();
+        this.messageBus = NanoCodeRunner.getMessageBus();
+        this.agentLoop = NanoCodeRunner.getAgentLoop();
         this.sessionId = initialSessionId != null ? initialSessionId : String.valueOf(System.currentTimeMillis());
-        try { var c = NanobotRunner.getConfig(); if (c != null) modelName = c.getAgents().getDefaults().getModel(); } catch (Exception ignored) {}
+        try { var c = NanoCodeRunner.getConfig(); if (c != null) modelName = c.getAgents().getDefaults().getModel(); } catch (Exception ignored) {}
         // 初始化订阅队列（若 MessageBus 未就绪则延迟到 start()）
         if (messageBus != null) {
             this.subscriberQueue = messageBus.subscribeToOutbound(sessionId);
@@ -297,7 +297,7 @@ public class CliChannel {
 
     /** 构建命令上下文（CLI 的 sessionKey 需带 "cli:" 前缀，与 SessionStore 目录一致） */
     private CommandContext buildCmdCtx() {
-        var registry = NanobotRunner.getToolRegistry();
+        var registry = NanoCodeRunner.getToolRegistry();
         return new CommandContext(
                 registry,
                 registry != null ? registry.getPermissionManager() : null,
@@ -587,7 +587,7 @@ public class CliChannel {
      * 注册 CLI 交互式权限确认
      */
     private void setupInteractivePermission() {
-        var registry = NanobotRunner.getToolRegistry();
+        var registry = NanoCodeRunner.getToolRegistry();
         if (registry == null || registry.getPermissionManager() == null) return;
 
         var trusted = new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -636,7 +636,7 @@ public class CliChannel {
      * 注入 AskUserTool 的 CLI 交互处理器
      */
     private void setupAskUserHandler() {
-        var registry = NanobotRunner.getToolRegistry();
+        var registry = NanoCodeRunner.getToolRegistry();
         if (registry == null) return;
         var tool = registry.get("ask_user");
         if (tool instanceof AskUserTool askTool) {
@@ -1116,7 +1116,7 @@ public class CliChannel {
 
         // 模型、目录
         String model = "deepseek-chat";
-        try { var c = NanobotRunner.getConfig(); if (c != null) model = c.getAgents().getDefaults().getModel(); } catch (Exception ignored) {}
+        try { var c = NanoCodeRunner.getConfig(); if (c != null) model = c.getAgents().getDefaults().getModel(); } catch (Exception ignored) {}
         String ws = System.getProperty("nanobot.workspace", System.getProperty("user.dir", "."));
         if (ws.length() > leftW - 12) {
             int cut = ws.length() - (leftW - 15);
@@ -1127,7 +1127,7 @@ public class CliChannel {
 
         // 上次会话
         String lastSession = null;
-        try { var sm = NanobotRunner.getSessionManager(); if (sm != null) { var s = sm.listSessionDetails(); if (!s.isEmpty()) { var l = s.get(0); String t = java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.ofEpochMilli(l.lastModified())); lastSession = l.key() + " (" + l.messageCount() + " 条, " + t + ")"; } } } catch (Exception ignored) {}
+        try { var sm = NanoCodeRunner.getSessionManager(); if (sm != null) { var s = sm.listSessionDetails(); if (!s.isEmpty()) { var l = s.get(0); String t = java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.ofEpochMilli(l.lastModified())); lastSession = l.key() + " (" + l.messageCount() + " 条, " + t + ")"; } } } catch (Exception ignored) {}
 
         // ═══ 顶部装饰线 ═══
         println(GRAY + "  ┏" + "━".repeat(leftW) + (doubleCol ? "┳" + "━".repeat(28) : "") + "┓" + R);
@@ -1167,7 +1167,7 @@ public class CliChannel {
         System.out.println(padAscii("|", bw));
 
         String model = "deepseek-chat";
-        try { var c = NanobotRunner.getConfig(); if (c != null) model = c.getAgents().getDefaults().getModel(); } catch (Exception ignored) {}
+        try { var c = NanoCodeRunner.getConfig(); if (c != null) model = c.getAgents().getDefaults().getModel(); } catch (Exception ignored) {}
         String ws = System.getProperty("nanobot.workspace", System.getProperty("user.dir", "."));
         if (ws.length() > bw - 12) ws = "..." + ws.substring(ws.length() - (bw - 15));
 
@@ -1175,7 +1175,7 @@ public class CliChannel {
         System.out.println(padAscii("|  目录: " + ws, bw));
 
         String lastSession = null;
-        try { var sm = NanobotRunner.getSessionManager(); if (sm != null) { var s = sm.listSessionDetails(); if (!s.isEmpty()) { var l = s.get(0); String t = java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.ofEpochMilli(l.lastModified())); lastSession = l.key() + " (" + l.messageCount() + " 条, " + t + ")"; } } } catch (Exception ignored) {}
+        try { var sm = NanoCodeRunner.getSessionManager(); if (sm != null) { var s = sm.listSessionDetails(); if (!s.isEmpty()) { var l = s.get(0); String t = java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.ofEpochMilli(l.lastModified())); lastSession = l.key() + " (" + l.messageCount() + " 条, " + t + ")"; } } } catch (Exception ignored) {}
         if (lastSession != null) {
             System.out.println(padAscii("|  上次: " + lastSession, bw));
             System.out.println(padAscii("|  输入 /resume 恢复，或直接开始对话", bw));

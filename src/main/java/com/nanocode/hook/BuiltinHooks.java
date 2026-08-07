@@ -49,14 +49,14 @@ public final class BuiltinHooks {
                         "builtin-session-start",
                         HookEvent.SESSION_START,
                         "",  // 无条件
-                        new HookAction(ActionType.PROMPT, "", "[SESSION] Nanobot 已启动", ""),
+                        new HookAction(ActionType.PROMPT, "", "[SESSION] NanoCode 已启动", ""),
                         false
                 ),
                 new Hook(
                         "builtin-session-end",
                         HookEvent.SESSION_END,
                         "",
-                        new HookAction(ActionType.PROMPT, "", "[SESSION] Nanobot 正在关闭", ""),
+                        new HookAction(ActionType.PROMPT, "", "[SESSION] NanoCode 正在关闭", ""),
                         false
                 ),
 

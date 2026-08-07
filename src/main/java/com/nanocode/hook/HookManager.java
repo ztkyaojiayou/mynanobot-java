@@ -30,14 +30,14 @@ import java.util.regex.PatternSyntaxException;
  * <h2>阶段二：加载注册（Spring 启动时）</h2>
  * <ol>
  *   <li>Spring 启动 → ConfigLoader 读 config.yaml → Jackson 反序列化为 Config</li>
- *   <li>{@link com.nanocode.v2.NanobotConfig#hookManager} 创建 @Bean：
+ *   <li>{@link com.nanocode.v2.NanoCodeConfig#hookManager} 创建 @Bean：
  *       {@code HookLoader.load(config.getHooks())} → {@code List<Hook>} →
  *       {@code hookManager.load(list)}，存入 {@link #hooks}</li>
  *   <li>日志输出每个加载的 Hook：{@code "Loaded hook: block-rm [PRE_TOOL_USE: tool==bash]"}</li>
  * </ol>
  *
  * <h2>阶段三：事件触发（Agent 运行时）</h2>
- * AgentLoop/AgentRunner/RunState/NanobotRunner 在关键生命周期位置调用：
+ * AgentLoop/AgentRunner/RunState/NanoCodeRunner 在关键生命周期位置调用：
  * <ul>
  *   <li>{@code hookManager.runHooks(HookContext.of(SESSION_START, null))}</li>
  *   <li>{@code hookManager.runTurnStartHooks(HookContext.message(TURN_START, sid, msg))}</li>
@@ -86,7 +86,7 @@ import java.util.regex.PatternSyntaxException;
  * @see Hook
  * @see HookEvent
  * @see HookContext
- * @see com.nanocode.v2.NanobotConfig#hookManager
+ * @see com.nanocode.v2.NanoCodeConfig#hookManager
  */
 public class HookManager {
 
@@ -134,7 +134,7 @@ public class HookManager {
      *
      * <h3>调用链</h3>
      * <pre>
-     *   NanobotConfig.hookManager(config)
+     *   NanoCodeConfig.hookManager(config)
      *     → HookLoader.load(config.getHooks())
      *       → List<Hook>
      *     → hookManager.load(list)

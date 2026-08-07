@@ -30,9 +30,9 @@ public class IdentityLoader {
     /**
      * 加载 SOUL.md：workspace/.nanobot > ~/.nanobot > classpath > 默认模板
      */
-    public static Soul loadSoul(Path workspaceNanobot) {
+    public static Soul loadSoul(Path workspaceNanoCode) {
         // ① workspace/.nanobot/SOUL.md
-        Path f = workspaceNanobot.resolve("SOUL.md");
+        Path f = workspaceNanoCode.resolve("SOUL.md");
         if (Files.exists(f)) return loadSoulFromFile(f);
 
         // ② ~/.nanobot/SOUL.md
@@ -45,7 +45,7 @@ public class IdentityLoader {
 
         // ④ 默认
         logger.info("SOUL.md not found, generating template");
-        writeTemplate(workspaceNanobot.resolve("SOUL.md"), getDefaultSoulContent());
+        writeTemplate(workspaceNanoCode.resolve("SOUL.md"), getDefaultSoulContent());
         return createDefaultSoul();
     }
 
@@ -61,15 +61,15 @@ public class IdentityLoader {
     /**
      * 加载 IDENTITY.md：workspace/.nanobot > ~/.nanobot > classpath > 默认
      */
-    public static Identity loadIdentity(Path workspaceNanobot) {
-        Path f = workspaceNanobot.resolve("IDENTITY.md");
+    public static Identity loadIdentity(Path workspaceNanoCode) {
+        Path f = workspaceNanoCode.resolve("IDENTITY.md");
         if (Files.exists(f)) return loadIdentityFromFile(f);
         f = Paths.get(System.getProperty("user.home", "."), ".nanobot", "IDENTITY.md");
         if (Files.exists(f)) return loadIdentityFromFile(f);
         String content = readClasspath("config/IDENTITY.md");
         if (content != null) return parseIdentity(content, null);
         logger.info("IDENTITY.md not found, generating template");
-        writeTemplate(workspaceNanobot.resolve("IDENTITY.md"), getDefaultIdentityContent());
+        writeTemplate(workspaceNanoCode.resolve("IDENTITY.md"), getDefaultIdentityContent());
         return createDefaultIdentity();
     }
 
@@ -85,15 +85,15 @@ public class IdentityLoader {
     /**
      * 加载 USER.md：workspace/.nanobot > ~/.nanobot > classpath > 默认
      */
-    public static UserProfile loadUserProfile(Path workspaceNanobot) {
-        Path f = workspaceNanobot.resolve("USER.md");
+    public static UserProfile loadUserProfile(Path workspaceNanoCode) {
+        Path f = workspaceNanoCode.resolve("USER.md");
         if (Files.exists(f)) return loadUserFromFile(f);
         f = Paths.get(System.getProperty("user.home", "."), ".nanobot", "USER.md");
         if (Files.exists(f)) return loadUserFromFile(f);
         String content = readClasspath("config/USER.md");
         if (content != null) return parseUserProfile(content, null);
         logger.info("USER.md not found, generating template");
-        writeTemplate(workspaceNanobot.resolve("USER.md"), getDefaultUserContent());
+        writeTemplate(workspaceNanoCode.resolve("USER.md"), getDefaultUserContent());
         return createDefaultUserProfile();
     }
 

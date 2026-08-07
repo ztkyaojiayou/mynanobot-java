@@ -12,7 +12,7 @@ import java.util.concurrent.CompletableFuture;
 /**
  * MCP 工具包装器
  * 
- * 将 MCP 工具包装为 Nanobot 的 Tool 接口实现，使得 MCP 工具可以无缝集成到工具系统中。
+ * 将 MCP 工具包装为 NanoCode 的 Tool 接口实现，使得 MCP 工具可以无缝集成到工具系统中。
  * 
  * 工具命名规则：mcp_<server_name>_<tool_name>
  * 例如：mcp_git_status, mcp_weather_get

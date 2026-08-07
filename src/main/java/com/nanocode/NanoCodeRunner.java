@@ -23,10 +23,10 @@ import org.springframework.stereotype.Component;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Nanobot 核心启动器 — 服务定位 + 收尾工作。
+ * NanoCode 核心启动器 — 服务定位 + 收尾工作。
  *
  * <h2>定位</h2>
- * 本类<b>不负责创建组件</b>（组件的创建由 {@code NanobotConfig} 的 {@code @Bean} 统一管理）。
+ * 本类<b>不负责创建组件</b>（组件的创建由 {@code NanoCodeConfig} 的 {@code @Bean} 统一管理）。
  * 它只做两件事：
  * <ol>
  *   <li><b>服务定位</b>：通过 {@code @Autowired} 收集各组件引用，对外暴露 static getter，
@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit;
  * </ol>
  *
  * <h2>为什么用 static 字段 + @Autowired setter？</h2>
- * ChatController、CliChannel、NanobotWebSocketEndpoint 等类需要访问核心组件，
+ * ChatController、CliChannel、NanoCodeWebSocketEndpoint 等类需要访问核心组件，
  * 但它们不全是 Spring Bean，无法用 {@code @Autowired}。
  * static getter 本质是一个"服务定位器"（Service Locator），让整个应用都能访问。
  *
@@ -71,13 +71,13 @@ import java.util.concurrent.TimeUnit;
  *                      └──────────────┘  └───────────────┘
  * </pre>
  *
- * @see com.nanocode.v2.NanobotConfig  Spring Bean 定义（所有组件的创建入口）
+ * @see com.nanocode.v2.NanoCodeConfig  Spring Bean 定义（所有组件的创建入口）
  * @see com.nanocode.core.AgentLoop   状态机引擎
  */
 @Component
-public class NanobotRunner implements ApplicationRunner {
+public class NanoCodeRunner implements ApplicationRunner {
 
-    private static final Logger logger = LoggerFactory.getLogger(NanobotRunner.class);
+    private static final Logger logger = LoggerFactory.getLogger(NanoCodeRunner.class);
 
     // ═══════════════════════════════════════════════════════════════
     // 核心组件（static 持有 → 通过 getter 暴露给整个应用）
@@ -96,62 +96,62 @@ public class NanobotRunner implements ApplicationRunner {
     private static HookManager hookManager;
 
     // ═══════════════════════════════════════════════════════════════
-    // Spring Bean 注入（全部由 NanobotConfig @Bean 创建，这里只收集引用）
+    // Spring Bean 注入（全部由 NanoCodeConfig @Bean 创建，这里只收集引用）
     // ═══════════════════════════════════════════════════════════════
 
     @Autowired
     private void setMessageBus(MessageBus messageBus) {
-        NanobotRunner.messageBus = messageBus;
+        NanoCodeRunner.messageBus = messageBus;
     }
 
     @Autowired
     private void setAgentLoop(AgentLoop agentLoop) {
-        NanobotRunner.agentLoop = agentLoop;
+        NanoCodeRunner.agentLoop = agentLoop;
     }
 
     @Autowired
     private void setToolRegistry(ToolRegistry toolRegistry) {
-        NanobotRunner.toolRegistry = toolRegistry;
+        NanoCodeRunner.toolRegistry = toolRegistry;
     }
 
     @Autowired
     private void setSessionManager(SessionManager sessionManager) {
-        NanobotRunner.sessionManager = sessionManager;
+        NanoCodeRunner.sessionManager = sessionManager;
     }
 
     @Autowired
     private void setConfig(Config config) {
-        NanobotRunner.config = config;
+        NanoCodeRunner.config = config;
     }
 
     @Autowired
     private void setIdentityManager(IdentityManager identityManager) {
-        NanobotRunner.identityManager = identityManager;
+        NanoCodeRunner.identityManager = identityManager;
     }
 
     @Autowired
     private void setRuleManager(RuleManager ruleManager) {
-        NanobotRunner.ruleManager = ruleManager;
+        NanoCodeRunner.ruleManager = ruleManager;
     }
 
     @Autowired
     private void setSkillManager(SkillManager skillManager) {
-        NanobotRunner.skillManager = skillManager;
+        NanoCodeRunner.skillManager = skillManager;
     }
 
     @Autowired
     private void setLlmProvider(LLMProvider provider) {
-        NanobotRunner.provider = provider;
+        NanoCodeRunner.provider = provider;
     }
 
     @Autowired
     private void setMcpManager(MCPManager mcpManager) {
-        NanobotRunner.mcpManager = mcpManager;
+        NanoCodeRunner.mcpManager = mcpManager;
     }
 
     @Autowired
     private void setHookManager(HookManager hookManager) {
-        NanobotRunner.hookManager = hookManager;
+        NanoCodeRunner.hookManager = hookManager;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -174,7 +174,7 @@ public class NanobotRunner implements ApplicationRunner {
        // 注册 JVM 关闭钩子 — 按正确顺序关闭组件，避免数据丢失.
         registerShutdownHook();
 
-        logger.info("Nanobot ready. Workspace: {}, Model: {}",
+        logger.info("NanoCode ready. Workspace: {}, Model: {}",
                 config.getWorkspacePath(), config.getAgents().getDefaults().getModel());
     }
 
@@ -202,7 +202,7 @@ public class NanobotRunner implements ApplicationRunner {
      */
     private void registerShutdownHook() {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            logger.info("Shutting down Nanobot...");
+            logger.info("Shutting down NanoCode...");
             try {
                 // ── Hook: SESSION_END（在组件关闭前触发，确保 Hook 还能访问组件）──
                 if (hookManager != null) {
@@ -212,7 +212,7 @@ public class NanobotRunner implements ApplicationRunner {
                 if (agentLoop != null) agentLoop.stop();
                 if (messageBus != null) messageBus.shutdown(5, TimeUnit.SECONDS);
                 if (toolRegistry != null) toolRegistry.shutdown();
-                logger.info("Nanobot shutdown complete");
+                logger.info("NanoCode shutdown complete");
             } catch (Exception e) {
                 logger.error("Error during shutdown", e);
             }

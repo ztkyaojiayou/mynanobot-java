@@ -233,7 +233,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>com.nanocode.v1.Nanobot</mainClass>
+                            <mainClass>com.nanocode.v1.NanoCode</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
@@ -254,7 +254,7 @@
                         <configuration>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>com.nanocode.v1.Nanobot</mainClass>
+                                    <mainClass>com.nanocode.v1.NanoCode</mainClass>
                                 </transformer>
                             </transformers>
                         </configuration>
@@ -275,7 +275,7 @@
                             <goal>repackage</goal>
                         </goals>
                         <configuration>
-                            <mainClass>com.nanocode.v2.NanobotApplication</mainClass>
+                            <mainClass>com.nanocode.v2.NanoCodeApplication</mainClass>
                             <layout>ZIP</layout>
                             <finalName>nanocode-cli</finalName>
                         </configuration>

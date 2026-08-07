@@ -92,7 +92,7 @@ public final class HookLoader {
         }
 
         // ── ② .nanobot/hooks/ 目录（文件系统）──
-        List<Hook> fileHooks = loadFromNanobotDir(config);
+        List<Hook> fileHooks = loadFromNanoCodeDir(config);
         if (!fileHooks.isEmpty()) {
             all.addAll(fileHooks);
             logger.info("HookLoader: {} hook(s) from .nanobot/hooks/", fileHooks.size());
@@ -119,11 +119,11 @@ public final class HookLoader {
      * 每个 .yaml / .yml / .json 文件应包含一个 Hook 或 Hook 列表.
      * 解析失败的文件会输出警告但不影响其他文件.
      */
-    static List<Hook> loadFromNanobotDir(Config config) {
+    static List<Hook> loadFromNanoCodeDir(Config config) {
         List<Hook> result = new ArrayList<>();
 
         // 项目级：{workspace}/.nanobot/hooks/
-        Path projectDir = Paths.get(config.getNanobotDir(), "hooks");
+        Path projectDir = Paths.get(config.getNanoCodeDir(), "hooks");
         result.addAll(loadFromDirectory(projectDir));
 
         // 用户级：~/.nanobot/hooks/

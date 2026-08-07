@@ -1,6 +1,6 @@
 package com.nanocode.v2.controller;
 
-import com.nanocode.NanobotRunner;
+import com.nanocode.NanoCodeRunner;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,7 +18,7 @@ public class SessionController {
 
     @GetMapping("/sessions")
     public ResponseEntity<List<Map<String, Object>>> listSessions() {
-        var sm = NanobotRunner.getSessionManager();
+        var sm = NanoCodeRunner.getSessionManager();
         if (sm == null) return ResponseEntity.ok(List.of());
 
         List<Map<String, Object>> list = new ArrayList<>();
@@ -36,7 +36,7 @@ public class SessionController {
     /** 获取指定会话的完整消息历史 */
     @GetMapping("/sessions/{key}")
     public ResponseEntity<?> getSession(@PathVariable("key") String key) {
-        var sm = NanobotRunner.getSessionManager();
+        var sm = NanoCodeRunner.getSessionManager();
         if (sm == null) return ResponseEntity.notFound().build();
 
         var history = sm.loadHistory(key);
@@ -50,7 +50,7 @@ public class SessionController {
 
     @DeleteMapping("/sessions/{key}")
     public ResponseEntity<Map<String, Object>> deleteSession(@PathVariable("key") String key) {
-        var sm = NanobotRunner.getSessionManager();
+        var sm = NanoCodeRunner.getSessionManager();
         if (sm == null) return ResponseEntity.notFound().build();
 
         boolean deleted = sm.deleteSession(key);
@@ -64,7 +64,7 @@ public class SessionController {
     @PatchMapping("/sessions/{key}")
     public ResponseEntity<Map<String, Object>> renameSession(@PathVariable("key") String key,
                                                               @RequestBody Map<String, Object> body) {
-        var sm = NanobotRunner.getSessionManager();
+        var sm = NanoCodeRunner.getSessionManager();
         if (sm == null) return ResponseEntity.notFound().build();
 
         String name = (String) body.get("name");

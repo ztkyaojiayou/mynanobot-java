@@ -14,21 +14,21 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 
 /**
- * Nanobot Spring Boot 启动类（V2 — HTTP/SSE + WebSocket）。
+ * NanoCode Spring Boot 启动类（V2 — HTTP/SSE + WebSocket）。
  */
 @SpringBootApplication(scanBasePackages = "com.nanocode")
-public class NanobotApplication {
+public class NanoCodeApplication {
 
-    private static final Logger logger = LoggerFactory.getLogger(NanobotApplication.class);
+    private static final Logger logger = LoggerFactory.getLogger(NanoCodeApplication.class);
 
     public static void main(String[] args) {
-        logger.info("Starting Nanobot Spring Boot Application...");
-        SpringApplication.run(NanobotApplication.class, args);
+        logger.info("Starting NanoCode Spring Boot Application...");
+        SpringApplication.run(NanoCodeApplication.class, args);
     }
     
     /**
      * V2 启动 banner — 仅在 V2 模式下显示（CLI 模式跳过）。
-     * 因为 CLI 的 NanobotCliApplication 会扫描到 V2 的 @Configuration，
+     * 因为 CLI 的 NanoCodeCliApplication 会扫描到 V2 的 @Configuration，
      * 需用 Profile 隔离。
      */
     @Bean

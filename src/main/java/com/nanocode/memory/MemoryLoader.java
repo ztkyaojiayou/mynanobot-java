@@ -242,7 +242,7 @@ public class MemoryLoader {
 
                 # 长期记忆
 
-                > 此文件由 Nanobot Dream 长期记忆系统自动管理。
+                > 此文件由 NanoCode Dream 长期记忆系统自动管理。
                 > 启动时生成模板，对话中自动提取记忆填充。
                 > 也可手动编辑，格式为 Markdown 列表项。
 

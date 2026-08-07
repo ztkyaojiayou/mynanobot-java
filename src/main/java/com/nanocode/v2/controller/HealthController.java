@@ -1,6 +1,6 @@
 package com.nanocode.v2.controller;
 
-import com.nanocode.NanobotRunner;
+import com.nanocode.NanoCodeRunner;
 import com.nanocode.bus.MessageBus;
 import com.nanocode.core.AgentLoop;
 import com.nanocode.session.SessionManager;
@@ -32,13 +32,13 @@ public class HealthController {
         result.put("timestamp", System.currentTimeMillis());
         
         // 组件状态
-        MessageBus bus = NanobotRunner.getMessageBus();
-        AgentLoop loop = NanobotRunner.getAgentLoop();
+        MessageBus bus = NanoCodeRunner.getMessageBus();
+        AgentLoop loop = NanoCodeRunner.getAgentLoop();
         Map<String, Object> components = new HashMap<>();
         components.put("messageBus", bus != null ? "UP" : "DOWN");
         components.put("agentLoop", loop != null && loop.isRunning() ? "UP" : "DOWN");
-        components.put("sessionManager", NanobotRunner.getSessionManager() != null ? "UP" : "DOWN");
-        components.put("config", NanobotRunner.getConfig() != null ? "UP" : "DOWN");
+        components.put("sessionManager", NanoCodeRunner.getSessionManager() != null ? "UP" : "DOWN");
+        components.put("config", NanoCodeRunner.getConfig() != null ? "UP" : "DOWN");
         result.put("components", components);
 
         // 队列状态
@@ -68,10 +68,10 @@ public class HealthController {
         result.put("description", "AI Agent Framework with Spring Boot");
         
         // 添加配置信息（脱敏后）
-        if (NanobotRunner.getConfig() != null) {
+        if (NanoCodeRunner.getConfig() != null) {
             Map<String, Object> config = new HashMap<>();
-            config.put("model", NanobotRunner.getConfig().getAgents().getDefaults().getModel());
-            config.put("workspace", NanobotRunner.getConfig().getAgents().getDefaults().getWorkspace());
+            config.put("model", NanoCodeRunner.getConfig().getAgents().getDefaults().getModel());
+            config.put("workspace", NanoCodeRunner.getConfig().getAgents().getDefaults().getWorkspace());
             result.put("config", config);
         }
         
@@ -101,16 +101,16 @@ public class HealthController {
         result.put("runtime", runtime);
         
         // Agent 统计
-        if (NanobotRunner.getAgentLoop() != null) {
+        if (NanoCodeRunner.getAgentLoop() != null) {
             Map<String, Object> agent = new HashMap<>();
-            agent.put("running", NanobotRunner.getAgentLoop().isRunning());
+            agent.put("running", NanoCodeRunner.getAgentLoop().isRunning());
             result.put("agent", agent);
         }
         
         // Session 统计
-        if (NanobotRunner.getSessionManager() != null) {
+        if (NanoCodeRunner.getSessionManager() != null) {
             Map<String, Object> sessions = new HashMap<>();
-            sessions.put("activeCount", NanobotRunner.getSessionManager().getSessionCount());
+            sessions.put("activeCount", NanoCodeRunner.getSessionManager().getSessionCount());
             result.put("sessions", sessions);
         }
         

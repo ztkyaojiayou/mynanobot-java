@@ -52,7 +52,7 @@ import org.springframework.context.annotation.Configuration;
  * <ul>
  *   <li>{@link com.nanocode.core.AgentLoop} — 唯一的消费者，从 Inbound Queue 取消息</li>
  *   <li>{@link com.nanocode.v2.controller.ChatController} — HTTP 入口，发布 Inbound 消息</li>
- *   <li>{@link com.nanocode.v2.websocket.NanobotWebSocketEndpoint} — WebSocket 入口</li>
+ *   <li>{@link com.nanocode.v2.websocket.NanoCodeWebSocketEndpoint} — WebSocket 入口</li>
  *   <li>{@link com.nanocode.v3.cli.CliChannel} — CLI 入口</li>
  * </ul>
  */

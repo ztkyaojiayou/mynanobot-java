@@ -43,7 +43,7 @@ package com.nanocode.hook;
  * </pre>
  *
  * <h3>2. 加载注册</h3>
- * Spring 启动 → NanobotConfig 创建 HookManager @Bean →
+ * Spring 启动 → NanoCodeConfig 创建 HookManager @Bean →
  * {@code hookManager.loadFromConfig(config.getHooks())} →
  * Jackson 反序列化 YAML → Hook record 列表 → 存入 HookManager.hooks.
  *

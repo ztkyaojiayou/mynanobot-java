@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory;
 /**
  * WebSocket 配置类
  * 
- * 由于 NanobotWebSocketEndpoint 使用 @ServerEndpoint (Jakarta WebSocket API)，
+ * 由于 NanoCodeWebSocketEndpoint 使用 @ServerEndpoint (Jakarta WebSocket API)，
  * 不需要在此处注册。但为了保持 Spring Boot 的兼容性，
  * 我们仍然启用 WebSocket 配置。
  * 

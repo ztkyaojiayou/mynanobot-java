@@ -140,7 +140,7 @@ public class ModeCommand implements Command {
 
         // 3. 发送执行指令到 AgentLoop，即有agent发送一次请求到入站队列，
         // 相当于由agent主动发起一次指定提示词的对话！而此时上下文的相关状态已经修改啦！
-        var bus = com.nanocode.NanobotRunner.getMessageBus();
+        var bus = com.nanocode.NanoCodeRunner.getMessageBus();
         if (bus != null) {
             try {
                 bus.publishInbound(com.nanocode.bus.InboundMessage.builder()

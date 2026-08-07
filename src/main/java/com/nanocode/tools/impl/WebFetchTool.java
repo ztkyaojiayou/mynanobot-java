@@ -154,7 +154,7 @@ public class WebFetchTool implements Tool {
             try {
                 HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
-                    .header("User-Agent", "Nanobot/1.0")
+                    .header("User-Agent", "NanoCode/1.0")
                     .header("Accept", "text/html,application/xhtml+xml")
                     .GET()
                     .build();

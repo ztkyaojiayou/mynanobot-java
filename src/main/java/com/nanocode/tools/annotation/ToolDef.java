@@ -6,7 +6,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * 工具方法注解 — 标记一个方法为 Nanobot Tool，启动时自动扫描注册。
+ * 工具方法注解 — 标记一个方法为 NanoCode Tool，启动时自动扫描注册。
  *
  * 方法签名要求：返回 String，参数可选（基本类型/String）。
  *

@@ -13,14 +13,14 @@ import java.util.stream.Collectors;
  * Shell 命令守卫 — 危险命令过滤
  * ===============================
  *
- * 参考 Nanobot (Python) 的 {@code _guard_command()} 设计。
+ * 参考 NanoCode (Python) 的 {@code _guard_command()} 设计。
  *
  * 核心逻辑：
  * 1. 先匹配 allowPatterns → 匹配到白名单则直接放行（跳过 deny 检查）
  * 2. 再匹配 denyPatterns → 匹配到黑名单则抛出 SecurityException
  * 3. 如果启用了 restrictToWorkspace，提取命令中的文件路径进行验证
  *
- * Nanobot 设计要点：allowPatterns 优先于 denyPatterns
+ * NanoCode 设计要点：allowPatterns 优先于 denyPatterns
  * (参考: HKUDS/nanobot PR #3594)
  *
  * 使用示例：
@@ -100,7 +100,7 @@ public class CommandGuard {
     }
 
     /**
-     * 加载内置默认黑名单（参考 Nanobot _guard_command）
+     * 加载内置默认黑名单（参考 NanoCode _guard_command）
      */
     private void addDefaultDenyPatterns() {
         // 注意: rm -rf 不在 deny 列表中，而是通过 RuleEngine ASK 规则触发交互确认
@@ -144,7 +144,7 @@ public class CommandGuard {
             return;
         }
 
-        // Step 1: allowPatterns 优先（Nanobot 设计：白名单优先于黑名单）
+        // Step 1: allowPatterns 优先（NanoCode 设计：白名单优先于黑名单）
         for (Pattern p : allowPatterns) {
             if (p.matcher(command).find()) {
                 logger.debug("Command allowed by allow pattern: {}", p.pattern());

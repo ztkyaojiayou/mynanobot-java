@@ -1,5 +1,5 @@
 #!/bin/bash
-# Nanobot 启动脚本
+# NanoCode 启动脚本
 # 用法: ./start.sh [--cli] [-w /path/to/] [--port 8080]
 set -e
 
@@ -22,14 +22,14 @@ export PATH="$JAVA_HOME/bin:$PATH"
 
 # 默认参数
 MODE="v2"
-MAIN_CLASS="com.nanocode.v2.NanobotApplication"
+MAIN_CLASS="com.nanocode.v2.NanoCodeApplication"
 WORKSPACE=""
 PORT="8080"
 
 # 解析参数
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --cli)    MODE="cli"; MAIN_CLASS="com.nanocode.v3.NanobotCliApplication"; shift ;;
+        --cli)    MODE="cli"; MAIN_CLASS="com.nanocode.v3.NanoCodeCliApplication"; shift ;;
         -w|--workspace) WORKSPACE="$2"; shift 2 ;;
         --port)   PORT="$2"; shift 2 ;;
         *)        echo "未知参数: $1"; exit 1 ;;

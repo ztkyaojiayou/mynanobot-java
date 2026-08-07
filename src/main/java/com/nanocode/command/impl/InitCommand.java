@@ -1,6 +1,6 @@
 package com.nanocode.command.impl;
 
-import com.nanocode.NanobotRunner;
+import com.nanocode.NanoCodeRunner;
 import com.nanocode.command.Command;
 import com.nanocode.command.CommandContext;
 import com.nanocode.providers.LLMProvider;
@@ -67,7 +67,7 @@ public class InitCommand implements Command {
         collectSampleSources(projectRoot, projectInfo);
 
         // ── 2. 尝试用 LLM 生成 NANOBOT.md ──
-        LLMProvider provider = NanobotRunner.getProvider();
+        LLMProvider provider = NanoCodeRunner.getProvider();
         if (provider != null) {
             try {
                 System.out.println("[LLM] 正在通过大模型分析并生成 NANOBOT.md...");
@@ -329,7 +329,7 @@ public class InitCommand implements Command {
                 mvn spring-boot:run
 
                 # 启动（CLI 交互模式）
-                mvn exec:java -Dexec.mainClass="com.nanocode.v3.NanobotCliApplication"
+                mvn exec:java -Dexec.mainClass="com.nanocode.v3.NanoCodeCliApplication"
                 ```
 
                 ## 项目结构

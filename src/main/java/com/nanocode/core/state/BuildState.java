@@ -68,7 +68,7 @@ public class BuildState implements AgentState {
         // 3. 长期记忆注入（Dream — 从过往对话中提取的相关记忆）
         appendMemories(systemPrompt, ctx);
         // 4. NANOBOT.md 项目记忆
-        appendNanobotMd(systemPrompt);
+        appendNanoCodeMd(systemPrompt);
         // 5. Plan Mode 规划模式
         appendPlanMode(systemPrompt);
         // 6. 技能目录（名称+描述，让 LLM 知道有哪些技能可用）
@@ -152,7 +152,7 @@ public class BuildState implements AgentState {
         }
     }
 
-    private void appendNanobotMd(StringBuilder sb) {
+    private void appendNanoCodeMd(StringBuilder sb) {
         try {
             java.nio.file.Path path = java.nio.file.Paths.get(workspacePath, "NANOBOT.md");
             if (java.nio.file.Files.exists(path)) {

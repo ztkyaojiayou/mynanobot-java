@@ -1,6 +1,6 @@
 package com.nanocode.command.impl;
 
-import com.nanocode.NanobotRunner;
+import com.nanocode.NanoCodeRunner;
 import com.nanocode.command.Command;
 import com.nanocode.command.CommandContext;
 import com.nanocode.session.SessionManager;
@@ -35,7 +35,7 @@ public class ResumeCommand implements Command {
 
     @Override
     public boolean execute(CommandContext ctx, String input) {
-        SessionManager sm = NanobotRunner.getSessionManager();
+        SessionManager sm = NanoCodeRunner.getSessionManager();
         if (sm == null) { System.out.println("会话管理器未就绪"); return false; }
         //提取命令中的参数，对于命令的处理其实就当做是一个接口请求即可！
         String arg = input.length() > 7 ? input.substring(8).trim() : "";

@@ -11,7 +11,7 @@ import java.util.Map;
  * 根配置类 - 系统配置的入口点
  * ==================================
  *
- * 本类定义了 Nanobot-Java 的所有配置项，采用分层设计：
+ * 本类定义了 NanoCode-Java 的所有配置项，采用分层设计：
  * - agents: Agent 行为配置
  * - providers: LLM 提供商配置
  * - channels: 聊天通道配置
@@ -207,7 +207,7 @@ public class Config {
         /** 系统提示词 */
         @JsonProperty("systemPrompt")
         private String systemPrompt = """
-            你是 Nanobot，一个强大的 AI 助手。
+            你是 NanoCode，一个强大的 AI 助手。
 
             你的任务是帮助用户解决问题，回答问题，执行任务。
 
@@ -549,7 +549,7 @@ public class Config {
     // ==================== 辅助方法 ====================
 
     /** 获取 .nanobot 配置目录完整路径（{workspace}/.nanobot） */
-    public String getNanobotDir() {
+    public String getNanoCodeDir() {
         return java.nio.file.Paths.get(getWorkspacePath(), ".nanobot").toString();
     }
 
@@ -557,7 +557,7 @@ public class Config {
      * 获取完整的工作空间路径。
      *
      * 优先级：系统属性 nanobot.workspace > YAML 配置 > 当前目录
-     * 系统属性由 CLI 启动脚本通过 -Dnanobot.workspace 或 NanobotCliApplication 设置。
+     * 系统属性由 CLI 启动脚本通过 -Dnanobot.workspace 或 NanoCodeCliApplication 设置。
      */
     public String getWorkspacePath() {
         // ① 系统属性最高优先级（CLI --workspace / -Dnanobot.workspace）
@@ -648,7 +648,7 @@ public class Config {
     // ==================== 通道 ACL 配置类 ====================
 
     /**
-     * 通道级访问控制配置 — 参考 Nanobot 的 allowFrom 设计
+     * 通道级访问控制配置 — 参考 NanoCode 的 allowFrom 设计
      */
     @Data
     public static class ChannelAclConfig {

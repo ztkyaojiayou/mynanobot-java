@@ -45,14 +45,14 @@ import org.springframework.context.annotation.Configuration;
  *   <li><b>异步 Worker</b>：processMessage() 提交到 4 线程池异步执行，
  *       避免某个慢 LLM 调用阻塞后续消息.</li>
  *   <li><b>不在此处 start()</b>：Bean 创建只组装依赖，start() 由
- *       {@link com.nanocode.NanobotRunner#run} 在所有组件就绪后触发.</li>
+ *       {@link com.nanocode.NanoCodeRunner#run} 在所有组件就绪后触发.</li>
  * </ul>
  *
  * <h2>与其他组件的关系</h2>
  * <ul>
  *   <li>{@link MessageBus} — 消息来源和去向</li>
- *   <li>{@link com.nanocode.v2.NanobotConfig} — 所有依赖 Bean 的定义</li>
- *   <li>{@link com.nanocode.NanobotRunner} — 启动入口</li>
+ *   <li>{@link com.nanocode.v2.NanoCodeConfig} — 所有依赖 Bean 的定义</li>
+ *   <li>{@link com.nanocode.NanoCodeRunner} — 启动入口</li>
  * </ul>
  *
  * @see com.nanocode.core.AgentLoop

@@ -1,7 +1,7 @@
 package com.nanocode.v2.controller;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.nanocode.NanobotRunner;
+import com.nanocode.NanoCodeRunner;
 import com.nanocode.bus.MessageBus;
 import com.nanocode.bus.InboundMessage;
 import com.nanocode.bus.OutboundMessage;
@@ -93,7 +93,7 @@ public class ChatController {
                     .build();
 
             // 发送消息到 MessageBus
-            MessageBus messageBus = NanobotRunner.getMessageBus();
+            MessageBus messageBus = NanoCodeRunner.getMessageBus();
             messageBus.publishInbound(message);
 
             // 等待 LLM 响应(这里还是同步阻塞的）
@@ -157,7 +157,7 @@ public class ChatController {
         String requestId = UUID.randomUUID().toString();
         String sessionId = request.getSessionId() != null ? request.getSessionId() : UUID.randomUUID().toString();
 
-        MessageBus messageBus = NanobotRunner.getMessageBus();
+        MessageBus messageBus = NanoCodeRunner.getMessageBus();
         if (messageBus == null) {
             emitter.completeWithError(new IllegalStateException("MessageBus not available"));
             return emitter;

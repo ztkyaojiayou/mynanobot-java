@@ -13,7 +13,7 @@ import java.util.List;
  * 网络安全守卫 — SSRF 和内网访问防护
  * =====================================
  *
- * 参考 Nanobot (Python) 的 {@code validate_url_target()} 设计。
+ * 参考 NanoCode (Python) 的 {@code validate_url_target()} 设计。
  *
  * 核心逻辑：
  * 1. 验证 URL 协议（仅允许 http/https）
@@ -22,7 +22,7 @@ import java.util.List;
  * 4. 如配置了 allowedDomains（非空），仅允许列表中的域名
  * 5. 不在 blockedRanges 中或在 whitelistRanges 中则放行
  *
- * 默认 blockedRanges（同 Nanobot）：
+ * 默认 blockedRanges（同 NanoCode）：
  * - RFC1918 私有地址: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
  * - 回环地址: 127.0.0.0/8, ::1
  * - 链路本地: 169.254.0.0/16 (包含云元数据 169.254.169.254)
@@ -100,7 +100,7 @@ public class NetworkGuard {
     }
 
     /**
-     * 加载内置默认黑名单 IP 范围（同 Nanobot validate_url_target）
+     * 加载内置默认黑名单 IP 范围（同 NanoCode validate_url_target）
      */
     private void addDefaultBlockedRanges() {
         addBlockedCidr("10.0.0.0/8");        // RFC1918 A类私有

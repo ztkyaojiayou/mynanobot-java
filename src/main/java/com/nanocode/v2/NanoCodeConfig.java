@@ -27,10 +27,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Nanobot 核心配置 — 整个 Agent 系统的"组装蓝图".
+ * NanoCode 核心配置 — 整个 Agent 系统的"组装蓝图".
  *
  * <h2>这个类在项目中的角色</h2>
- * 如果把 Nanobot 比作一辆车，这个类就是总装线：所有零件（Bean）在这里按依赖顺序创建、
+ * 如果把 NanoCode 比作一辆车，这个类就是总装线：所有零件（Bean）在这里按依赖顺序创建、
  * 注入、启动，最终产出一台能跑的 Agent 引擎.
  *
  * <h2>⚠️ 关键认知：所有 Bean 都是全局单例</h2>
@@ -87,12 +87,12 @@ import org.springframework.context.annotation.Configuration;
  *
  * @see com.nanocode.v2.AgentLoopConfig
  * @see com.nanocode.v2.MessageBusConfig
- * @see com.nanocode.NanobotRunner
+ * @see com.nanocode.NanoCodeRunner
  */
 @Configuration
-public class NanobotConfig {
+public class NanoCodeConfig {
 
-    private static final Logger logger = LoggerFactory.getLogger(NanobotConfig.class);
+    private static final Logger logger = LoggerFactory.getLogger(NanoCodeConfig.class);
 
     // ═══════════════════════════════════════════════════════════════════
     // 第 1 层：配置 + 安全
@@ -413,7 +413,7 @@ public class NanobotConfig {
     @Bean
     public Dream dream(LLMProvider llmProvider, Config config) {
         int maxMemories = config.getMemory().getDream().getMaxMemories();
-        java.nio.file.Path memoryDir = java.nio.file.Paths.get(config.getNanobotDir(), "memory").toAbsolutePath().normalize();
+        java.nio.file.Path memoryDir = java.nio.file.Paths.get(config.getNanoCodeDir(), "memory").toAbsolutePath().normalize();
         Dream d = new Dream(llmProvider, maxMemories, memoryDir);
         d.loadFromMemoryFile(memoryDir);  // 恢复之前持久化的记忆
         return d;

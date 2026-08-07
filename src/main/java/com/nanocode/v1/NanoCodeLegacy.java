@@ -1,7 +1,7 @@
 package com.nanocode.v1;
 
 /**
- * Nanobot Legacy 启动入口
+ * NanoCode Legacy 启动入口
  * ============================
  * 
  * 这是原有的 JDK HttpServer 版本入口点，已标记为 deprecated。
@@ -11,10 +11,10 @@ package com.nanocode.v1;
  * - 更好的生态支持
  * - 更容易集成安全框架
  * 
- * @deprecated 使用 {@link NanobotApplication} 代替
+ * @deprecated 使用 {@link NanoCodeApplication} 代替
  */
 @Deprecated
-public class NanobotLegacy {
+public class NanoCodeLegacy {
     
     /**
      * Legacy 启动入口
@@ -36,7 +36,7 @@ public class NanobotLegacy {
               mvn spring-boot:run
             """);
         
-        // 直接使用 Nanobot 主类
-        Nanobot.main(args);
+        // 直接使用 NanoCode 主类
+        NanoCode.main(args);
     }
 }

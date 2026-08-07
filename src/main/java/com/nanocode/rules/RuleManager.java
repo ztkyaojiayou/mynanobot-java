@@ -62,7 +62,7 @@ public class RuleManager {
         }
 
         // 2. 项目级规则目录 {workspace}/.nanobot/rules/
-        Path projectRules = Paths.get(config.getNanobotDir(), "rules");
+        Path projectRules = Paths.get(config.getNanoCodeDir(), "rules");
         if (Files.exists(projectRules)) {
             rulePaths.add(projectRules.toAbsolutePath().normalize());
         }

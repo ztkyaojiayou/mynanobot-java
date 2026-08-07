@@ -1,4 +1,4 @@
-# Nanobot-Java 配置文件
+# NanoCode-Java 配置文件
 # =====================
 #
 # 复制到 .nanobot/config.yaml 并修改相应值
@@ -37,7 +37,7 @@ agents:
     # 系统提示词（支持多行）
     # {date} 会被自动替换为当前日期
     systemPrompt: |
-      你是 Nanobot，一个强大的 AI 助手。
+      你是 NanoCode，一个强大的 AI 助手。
       
       当前日期：{date}
       
