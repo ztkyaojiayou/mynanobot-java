@@ -141,6 +141,60 @@ public class AgentRunner implements AutoCloseable {
     private final ExecutorService toolExecutor;
     private com.nanobot.bus.MessageBus messageBus;
 
+    // ==================== 完整性检测（防"声称完成但未执行"）====================
+
+    /**
+     * 动作意图动词表 — 命中即表示用户请求了一个"执行类动作"（信号1）.
+     * <p>
+     * 检测的是"声称有没有执行支撑"（与工具无关、二元），不是"结果对不对"（那才需要逐工具验证），
+     * 因此通用：新增工具无需改这里，只需保证动作/完成态词表覆盖高频场景。
+     */
+    private static final Set<String> ACTION_VERBS = Set.of(
+            // git 类
+            "推送", "提交", "commit", "push", "pull", "merge", "rebase", "fetch", "clone", "checkout", "stash", "tag",
+            // 文件/写入类
+            "写入", "创建", "删除", "修改", "保存", "覆盖", "追加", "write", "create", "delete", "remove", "rename",
+            // 构建/部署/运维类
+            "构建", "部署", "发布", "编译", "打包", "安装", "升级", "重启", "启动", "停止", "运行", "执行", "测试",
+            "build", "deploy", "compile", "install", "upgrade", "restart", "start", "stop", "run", "execute", "test",
+            // 网络/资源类
+            "下载", "上传", "发送", "download", "upload", "send"
+    );
+
+    /**
+     * 完成态标记表 — 命中即表示模型声称"动作已完成"（信号2）.
+     * <p>
+     * 只收录强完成声称（"已X / X成功"），不含裸动词（"提交"）或未来时态（"完成后..."），
+     * 避免解释类对话误报。三信号取 AND，误报再被信号1/信号3双重过滤。
+     */
+    private static final Set<String> COMPLETION_MARKERS = Set.of(
+            "已推送", "推送成功", "推送完成", "已提交", "提交成功", "提交完成",
+            "已完成", "完成了", "完成成功", "成功完成", "完成好了", "搞定了",
+            "已部署", "部署成功", "部署完成", "已发布", "发布成功", "发布完成",
+            "已构建", "构建成功", "构建完成", "已编译", "编译成功", "编译完成",
+            "已安装", "安装成功", "安装完成", "已升级", "升级成功", "已重启", "重启成功",
+            "已启动", "启动成功", "已停止", "已运行", "已上线", "上线成功",
+            "已删除", "删除成功", "已创建", "创建成功", "已写入", "写入成功",
+            "已保存", "保存成功", "已更新", "更新成功", "已生成", "生成成功",
+            "已修改", "修改完成", "已上传", "上传成功", "已下载", "下载成功", "已发送",
+            "已执行", "执行成功", "执行完成", "已解决", "已搞定", "搞定",
+            "success", "successful", "successfully", "done", "completed", "finished",
+            "pushed", "committed", "deployed"
+    );
+
+    /** 完整性引导指令 — 拒绝无证据的完成声称，引导模型实际执行（不替它指定具体工具） */
+    private static final String INTEGRITY_GUIDANCE =
+            "你声称已完成用户要求的动作，但本轮没有任何工具执行。\n" +
+            "执行类请求必须通过工具实际执行，并基于工具返回的真实输出汇报结果。\n" +
+            "请调用合适的工具完成或验证后再汇报，不要凭空声称已成功。";
+
+    /** 完整性引导的判别子串 — 用于判断本轮是否已重试过一次（上限 1 次，防死循环） */
+    private static final String INTEGRITY_GUIDANCE_MARKER = "本轮没有任何工具执行";
+
+    /** 完整性检测触发的用户可见提示 */
+    private static final String INTEGRITY_HINT =
+            "\n[检测到未执行的完成声称，正在引导模型实际执行]\n";
+
     // ==================== 构造函数 ====================
 
     public AgentRunner(LLMProvider provider, ToolRegistry registry) {
@@ -500,7 +554,21 @@ public class AgentRunner implements AutoCloseable {
 
         // 路径2: 无工具调用 → 直接返回文本
         if (toolCalls.isEmpty()) {
-            return handleFinalResponse(response.getContent(), workingMessages);
+            String content = response.getContent();
+            // 完整性检测：用户请求执行类动作 + 模型声称完成 + 本轮未调任何工具 → 拒绝该声称，引导重试一次
+            // 上限 1 次：若 workingMessages 已含引导指令（说明已重试过），降级为普通文本放行，防死循环。
+            if (!hasIntegrityGuidance(workingMessages)
+                    && matchActionVerbs(context.getMessage().getContent())
+                    && matchCompletionMarkers(content)) {
+                if (onDelta != null) onDelta.accept(INTEGRITY_HINT);
+                logger.warn("[完整性检测] session={} 声称完成但无工具执行，引导重试: {}",
+                        context.getSessionKey(),
+                        content != null ? content.substring(0, Math.min(200, content.length())) : "(无内容)");
+                workingMessages.add(createAssistantMessage(content, null));
+                workingMessages.add(Map.of("role", "user", "content", INTEGRITY_GUIDANCE));
+                return runInternal(context, workingMessages, onDelta, iteration + 1, consecutiveToolFailures);
+            }
+            return handleFinalResponse(content, workingMessages);
         }
 
         // 路径3: 有工具调用 → 添加助手消息 + 执行工具 + 递归
@@ -537,6 +605,40 @@ public class AgentRunner implements AutoCloseable {
         }
         workingMessages.add(Map.of("role", "assistant", "content", content));
         return CompletableFuture.completedFuture(content);
+    }
+
+    // ==================== 完整性检测辅助方法 ====================
+
+    /** 信号1：用户消息是否命中动作意图动词 */
+    private static boolean matchActionVerbs(String userMessage) {
+        if (userMessage == null || userMessage.isBlank()) return false;
+        String lower = userMessage.toLowerCase();
+        for (String verb : ACTION_VERBS) {
+            if (lower.contains(verb.toLowerCase())) return true;
+        }
+        return false;
+    }
+
+    /** 信号2：模型回答是否命中完成态标记 */
+    private static boolean matchCompletionMarkers(String reply) {
+        if (reply == null || reply.isBlank()) return false;
+        String lower = reply.toLowerCase();
+        for (String marker : COMPLETION_MARKERS) {
+            if (lower.contains(marker.toLowerCase())) return true;
+        }
+        return false;
+    }
+
+    /** 本轮消息历史是否已含完整性引导指令（已重试过一次） */
+    private static boolean hasIntegrityGuidance(List<Map<String, Object>> messages) {
+        if (messages == null) return false;
+        for (Map<String, Object> msg : messages) {
+            Object content = msg.get("content");
+            if (content != null && content.toString().contains(INTEGRITY_GUIDANCE_MARKER)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
